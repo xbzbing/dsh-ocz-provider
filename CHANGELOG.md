@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **图片输入：DSH 中附加的图片现在会随对话发给模型（需模型具备视觉能力）。**
+  此前适配器三处能力声明均为 `['text']`，宿主 dsh-llm 在派发前把图片块投影成
+  文本占位符（`projectImagesForTextModel`），模型永远看不到图片内容。现在
+  `toPiModel` / `listModels` / `resolveModel` 统一声明 `['text', 'image']`，
+  `toPiContext` 改为异步：用户消息与工具结果里的图片块按内容寻址从 harness
+  附件存储（`DSH_HOME/attachments/v1/objects/<sha 前 2 位>/<sha>`）读出字节，
+  转成 pi-ai image 块交由 pi-ai 序列化为 `image_url` data URL（匿名 Zen 通道
+  网关接受该形态，已实测 2026-09-23）。附件不可读时降级为稳定的文本占位
+  （`[image omitted: ...]`，不会中断整条流）；助手历史中的图片块不可回放，
+  直接丢弃（原先抛错会中断历史重放）。纯文本对话的行为与旧版完全一致。
+
 ## 0.3.3 (2026-09-18)
 
 ### Added

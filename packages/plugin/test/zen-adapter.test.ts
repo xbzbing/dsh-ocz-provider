@@ -25,10 +25,10 @@ test('providerRetryPolicy defers to the host default', () => {
   assert.equal(adapter.providerRetryPolicy('opencode2dsh'), undefined)
 })
 
-test('resolveModel declares text-only input and finite limits', () => {
+test('resolveModel declares image-capable input and finite limits', () => {
   const adapter = new ZenAdapter(new ModelCatalog())
   const resolved = adapter.resolveModel('opencode2dsh', 'big-pickle')
-  assert.deepEqual(resolved.inputModalities, ['text'])
+  assert.deepEqual(resolved.inputModalities, ['text', 'image'])
   assert.equal(resolved.context.contextWindow > 0, true)
   assert.equal(resolved.defaultMaxTokens > 0, true)
   assert.equal(resolved.provider, 'opencode2dsh')
@@ -50,6 +50,7 @@ test('listModels mirrors the catalog without duplicates', () => {
   })
   const models = adapter.listModels('opencode2dsh')
   assert.deepEqual(models.map((m) => m.id), ['big-pickle', 'mimo-v2.5-free'])
+  assert.deepEqual(models.map((m) => m.inputModalities), [['text', 'image'], ['text', 'image']])
 })
 
 test('reasoningEfforts: declared ladder wins, none folds into off, default ladder otherwise', () => {
@@ -196,7 +197,7 @@ test('responses models use the wider body-idle window, injectable for tests', as
   }
   const measure = async (model: string) => {
     const adapter = new ZenAdapter(
-      { list: () => [], decision: () => ({ allowed: true, source: 'test', known: true }) },
+      { list: () => [], decision: () => ({ allowed: true, source: 'test', known: true }), reasoningCapability: () => undefined },
       { providerOverride: { streamSimple: () => hangAfterStart() }, firstEventMs: 50, bodyIdleMs: 50, responsesBodyIdleMs: 400 },
     )
     const began = Date.now()
