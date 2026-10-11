@@ -46,6 +46,14 @@ interface ExitHealth {
   inflight: boolean
   /** Consecutive dead rechecks; eviction after deadEvictions (3.5). */
   deadStrikes: number
+  /**
+   * When the exit was last struck dead (epoch ms); 0 = not dead. The dead
+   * re-probe budget (§4.6 deadRetryMs) measures from HERE, not from
+   * lastProbedAt: a long-lived exit struck a second ago is already past any
+   * lastProbedAt-based deadline, which would re-probe it immediately and
+   * thrash instead of waiting out the documented retry delay.
+   */
+  deadAt: number
 }
 
 interface ModelBan {
@@ -129,6 +137,7 @@ export class ExitPool {
         cooldownUntil: 0,
         inflight: false,
         deadStrikes: 0,
+        deadAt: 0,
       })
     }
     return true
@@ -213,6 +222,7 @@ export class ExitPool {
       health.consecutiveLimited = 0
       health.cooldownUntil = 0
       health.deadStrikes = 0
+      health.deadAt = 0
     }
     if (model !== undefined) {
       this.#bans.set(banKey(id, model), { state: 'ok', bannedAt: 0, consecutiveFailures: 0 })
@@ -263,6 +273,7 @@ export class ExitPool {
     health.state = 'dead'
     health.inflight = false
     health.deadStrikes += 1
+    health.deadAt = this.#now()
     if (node.source === 'free' && health.deadStrikes >= this.#deadEvictions) {
       this.remove(id)
       return true
@@ -329,6 +340,33 @@ export class ExitPool {
   /** Drop the session's sticky exit when its exit degraded (§3.3). */
   rerouteSession(session: string): void {
     this.#sessionExit.delete(session)
+  }
+
+  /**
+   * Exits due for a periodic probe (docs §4.3 周期 + §4.6 deadRetryMs): dead
+   * exits past their retry budget, cooling exits whose window expired, exits
+   * never probed, and anything past the periodic cadence. Pure read — the
+   * caller owns the clock, the timer and the enqueueing.
+   *
+   * This is the counterpart that keeps a dead strike survivable: `isUsable()`
+   * hides dead exits from `pick()` entirely, so nothing passive can ever call
+   * markOk() on one. Without a due list a single false-positive strike retired
+   * an exit for the life of the process.
+   */
+  dueForProbe(now: number, options: { intervalMs: number; deadRetryMs: number }): string[] {
+    const due: string[] = []
+    for (const [id, health] of this.#health) {
+      if (health.inflight) continue
+      if (health.state === 'dead') {
+        if (health.deadAt !== 0 && now - health.deadAt < options.deadRetryMs) continue
+      } else if (health.cooldownUntil > now) {
+        continue
+      } else if (health.lastProbedAt !== 0 && now - health.lastProbedAt < options.intervalMs) {
+        continue
+      }
+      due.push(id)
+    }
+    return due
   }
 
   /** The session's current sticky exit, if any (adapter-side 403 bookkeeping:
