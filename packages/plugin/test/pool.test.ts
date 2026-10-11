@@ -299,3 +299,67 @@ test('markStreamFailure counts passive buckets (mid-flight §3.4)', () => {
   assert.equal(p.passiveStats('e:1').limited, 1)
   assert.equal(p.passiveStats('e:1').refused, 1)
 })
+
+test('markDeadStrike stamps deadAt and markOk clears it (revival bookkeeping)', () => {
+  const p = pool()
+  p.add(node({ id: 'd:1', source: 'manual', exitIP: '7.7.7.7' }))
+  p.markOk('d:1')
+  assert.equal(p.list()[0]!.health.deadAt, 0)
+
+  p.recordPassiveTransport('d:1')
+  const dead = p.list()[0]!.health
+  assert.equal(dead.state, 'dead')
+  assert.equal(dead.deadAt, now(), 'death is stamped so the retry budget can be measured from it')
+
+  p.markOk('d:1')
+  const revived = p.list()[0]!.health
+  assert.equal(revived.state, 'ok')
+  assert.equal(revived.deadAt, 0)
+  assert.equal(revived.deadStrikes, 0)
+})
+
+test('dueForProbe: a dead exit is retried only after deadRetryMs', () => {
+  // Regression (live 2026-10-12): a false-positive transport strike retired an
+  // exit permanently — `isUsable()` hides dead exits from pick(), so nothing
+  // passive could ever call markOk() on one, and the documented periodic probe
+  // and deadRetryMs were never implemented. All 14 exits of a live profile
+  // died this way and the pool silently drained to zero.
+  const budget = { intervalMs: 600_000, deadRetryMs: 120_000 }
+  const p = pool()
+  p.add(node({ id: 'x:1', source: 'subscription', exitIP: '5.5.5.5' }))
+  p.markOk('x:1')
+  assert.deepEqual(p.dueForProbe(now(), budget), [], 'freshly probed and healthy: nothing due')
+
+  p.recordPassiveTransport('x:1')
+  assert.deepEqual(p.dueForProbe(now(), budget), [], 'just died: the retry budget has not elapsed')
+
+  clock += 119_999
+  assert.deepEqual(p.dueForProbe(now(), budget), [], 'one millisecond short is still not due')
+
+  clock += 1
+  assert.deepEqual(p.dueForProbe(now(), budget), ['x:1'], 'at the budget the exit is retried')
+
+  // The retry is what revives it; without this the exit stays invisible.
+  p.markOk('x:1')
+  assert.equal(p.list()[0]!.health.state, 'ok')
+})
+
+test('dueForProbe: never-probed due at once, cooling and fresh exits wait', () => {
+  const budget = { intervalMs: 600_000, deadRetryMs: 120_000 }
+  const p = pool()
+  p.add(node({ id: 'new:1', source: 'free', exitIP: '1.1.1.1' }))
+  assert.deepEqual(p.dueForProbe(now(), budget), ['new:1'], 'never probed: due immediately')
+
+  p.add(node({ id: 'cool:1', source: 'free', exitIP: '2.2.2.2' }))
+  p.markLimited('cool:1')
+  assert.deepEqual(p.dueForProbe(now(), budget), ['new:1'], 'a cooling exit waits out its window')
+
+  p.add(node({ id: 'fresh:1', source: 'free', exitIP: '3.3.3.3' }))
+  p.markOk('fresh:1')
+  assert.deepEqual(p.dueForProbe(now(), budget), ['new:1'], 'a just-probed exit waits the cadence')
+
+  clock += 600_000
+  const due = p.dueForProbe(now(), budget)
+  assert.ok(due.includes('fresh:1'), 'past the cadence the healthy exit is rechecked')
+  assert.ok(due.includes('cool:1'), 'an expired cooldown is rechecked')
+})
