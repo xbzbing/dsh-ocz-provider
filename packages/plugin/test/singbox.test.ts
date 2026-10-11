@@ -54,11 +54,14 @@ test('buildOutbound: trojan/vless/hysteria2/tuic map their credentials', () => {
     reality: { enabled: true, public_key: 'pk', short_id: 'sid' },
   })
 
+  // A bare hysteria2 node still gets tls — hysteria2 is TLS-mandatory, and
+  // emitting it without TLS is what made `sing-box check` reject a whole
+  // config (see the dedicated regression below).
   const hy2 = buildOutbound({
     name: 'h', type: 'hysteria2', server: 'h.example.com', port: 443,
     raw: { type: 'hysteria2', password: 'pw2' },
   }, 'out-h')
-  assert.deepEqual(hy2, { tag: 'out-h', type: 'hysteria2', server: 'h.example.com', server_port: 443, password: 'pw2' })
+  assert.deepEqual(hy2, { tag: 'out-h', type: 'hysteria2', server: 'h.example.com', server_port: 443, password: 'pw2', tls: { enabled: true } })
 
   const tuic = buildOutbound({
     name: 'tu', type: 'tuic', server: 'q.example.com', port: 443,
@@ -74,6 +77,33 @@ test('buildOutbound: anytls forces TLS on (GoProxy forceTLS)', () => {
   }, 'out-a')
   assert.equal(out?.type, 'anytls')
   assert.deepEqual(out?.tls, { enabled: true, server_name: 'a.example.com' })
+})
+
+test('buildOutbound: TLS-mandatory protocols get tls even without any TLS field', () => {
+  // Regression (live 2026-10-12): a real airport's Clash YAML wrote 4
+  // hysteria2 nodes with no sni/tls/client-fingerprint/reality-opts, so
+  // applyTLS() bailed and sing-box rejected the WHOLE config with
+  // "initialize outbound[N]: TLS required" — one round produced zero
+  // converted exits and all 49 nodes stayed parked. Verified against
+  // sing-box 1.14.3 that hysteria2, tuic and anytls all demand TLS, while
+  // trojan does not, so only the mandatory three are forced.
+  const bare = (type: string): Record<string, unknown> => ({ type, password: 'pw' })
+
+  const hy2 = buildOutbound({ name: 'h', type: 'hysteria2', server: 'h.example.com', port: 2497, raw: bare('hysteria2') }, 'out-h')
+  assert.deepEqual(hy2?.tls, { enabled: true }, 'hysteria2 without TLS fields still enables TLS')
+
+  const tuic = buildOutbound({ name: 't', type: 'tuic', server: 't.example.com', port: 443, raw: { ...bare('tuic'), uuid: 'u' } }, 'out-t')
+  assert.deepEqual(tuic?.tls, { enabled: true }, 'tuic without TLS fields still enables TLS')
+
+  // A genuine sni must still win, and trojan must stay TLS-optional.
+  const hy2Sni = buildOutbound({
+    name: 'h2', type: 'hysteria2', server: 'h.example.com', port: 2497,
+    raw: { ...bare('hysteria2'), sni: 'cdn.example.com' },
+  }, 'out-h2')
+  assert.deepEqual(hy2Sni?.tls, { enabled: true, server_name: 'cdn.example.com' })
+
+  const trojan = buildOutbound({ name: 'j', type: 'trojan', server: 'j.example.com', port: 443, raw: bare('trojan') }, 'out-j')
+  assert.equal(trojan?.tls, undefined, 'plain trojan stays valid without TLS')
 })
 
 test('buildOutbound: unknown types return null (skipped)', () => {
