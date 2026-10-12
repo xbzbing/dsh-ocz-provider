@@ -10,6 +10,7 @@ import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
 import { routingContext, type RoutingContext } from '../pool/dispatcher.ts'
 import { classifyStreamFailure, isRegionBlocked, shouldRotate } from '../pool/rotate.ts'
+import { attributeUsage } from '../pool/usage.ts'
 
 /**
  * The TS adapter: registers as a DSH LlmAdapter for the `opencode2dsh` route
@@ -641,13 +642,15 @@ export class ZenAdapter {
       // deadline timer is spent (pumpLive re-arms its own per pull)
       clearTimeout(deadlineTimer)
       if (preContentFailure === null && deliveredContent) {
-        yield* toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES)
+        // attributeUsage: this attempt's usage rides the exit the dispatcher
+        // stamped into contextStore (exit-stats accounting, pool/usage.ts).
+        yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES))
         return
       }
       if (preContentFailure === null && !deliveredContent) {
         // stream ended cleanly with no content and no error: pass through
         // (pi-ai's empty-response classification owns this case)
-        yield* toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES)
+        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES))
         return
       }
       // Exit-shaped failure before content: ask the pool whether rotating is
@@ -678,7 +681,7 @@ export class ZenAdapter {
             break
           }
         }
-        yield* toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES)
+        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES))
         return
       }
       // rotate: loop re-runs #eventsFor inside the same ALS store; the pool

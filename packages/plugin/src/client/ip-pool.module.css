@@ -308,3 +308,134 @@
   font-size: 12px;
   cursor: pointer;
 }
+
+/* —— 左下角入口 + 出口统计弹窗 —— */
+.footerEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.footerEntry:hover {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  border-color: var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.footerIcon {
+  font-size: 14px;
+  line-height: 1;
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.footerText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.footerMain {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.footerUnit {
+  font-weight: 400;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.footerSub {
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.statsSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.statsChip {
+  padding: 2px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  white-space: nowrap;
+}
+
+.statsWrap {
+  overflow-x: auto;
+}
+
+.statsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.statsTable th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  white-space: nowrap;
+}
+
+.statsTable td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  white-space: nowrap;
+}
+
+.statsRowMuted td {
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.statsDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.statsDotOk {
+  background: var(--dsw-alias-state-success-primary, #1a7f37);
+}
+
+.statsDotWarn {
+  background: var(--dsw-alias-state-warning-primary, #9a6700);
+}
+
+.statsDotBad {
+  background: var(--dsw-alias-state-error-primary, #d1242f);
+}
+
+.statsInflight {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.6;
+}

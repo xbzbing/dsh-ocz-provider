@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 
 import { IpPoolConfigSchema, resolveIpPoolSettings, resolveProbeModels, toIpPoolConfig, IP_POOL_NAMESPACE } from '../src/ip-pool-settings/namespace.ts'
 import { buildStatusView, isTrustedBridgeRequest, makeBridgeHandlers, makeBridgeRoutes, IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
+import { DIRECT_EXIT_ID, usageTracker } from '../src/pool/usage.ts'
 
 // -- namespace ---------------------------------------------------------------
 
@@ -124,6 +125,10 @@ function fakeRuntime(overrides: Record<string, unknown> = {}): unknown {
     ],
     has: (id: string) => id === 'http://10.0.0.1:3128',
     passiveStats: () => ({ ok: 12, limited: 2, refused: 0, dead: 1, transport: 0 }),
+    activity: (id: string) => id === 'http://10.0.0.1:3128'
+      ? { lastUsedAt: 1_700_000_000_000, inFlight: 2 }
+      : { lastUsedAt: 0, inFlight: 0 },
+    directRequests: 7,
     rerouteSession: () => {},
   }
   return {
@@ -168,6 +173,36 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal(view.subscription?.urlCount, 2)
   assert.equal(view.subscription?.pendingConversion, 2)
   assert.equal('urls' in (view.subscription ?? {}), false)
+  // exit-stats fields: classified totals, live activity, direct fallback.
+  assert.equal(view.exits[0]?.requests, 15, 'requests = the sum of the passive buckets')
+  assert.equal(view.exits[0]?.lastUsedAt, 1_700_000_000_000)
+  assert.equal(view.exits[0]?.inFlight, 2)
+  assert.equal(view.exits[1]?.lastUsedAt, 0, 'an exit never dispatched reads 0, not NaN')
+  assert.equal(view.direct.requests, 7)
+})
+
+test('status view: per-exit tokens and the direct bucket ride the bridge', () => {
+  // Tokens are attributed by the adapter into the process-lifetime tracker
+  // (pool/usage.ts); the bridge only projects them. Reset keeps the
+  // singleton clean for the rest of the suite.
+  usageTracker.record('http://10.0.0.1:3128', { inputTokens: 100, outputTokens: 50, cacheReadTokens: 40 })
+  usageTracker.record('http://10.0.0.1:3128', { inputTokens: 20, outputTokens: 10 })
+  usageTracker.record(DIRECT_EXIT_ID, { inputTokens: 7, outputTokens: 3 })
+  try {
+    const view = buildStatusView(fakeRuntime() as never, false, [])
+    const manual = view.exits.find((e) => e.id === 'http://10.0.0.1:3128')
+    assert.deepEqual(manual?.tokens, {
+      requests: 2, inputTokens: 120, outputTokens: 60, cacheReadTokens: 40, cacheWriteTokens: 0, totalTokens: 180,
+    })
+    assert.deepEqual(view.direct.tokens, {
+      requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 10,
+    })
+    // A disabled stub reports zeros everywhere — no stale lifetime numbers.
+    const stub = buildStatusView(null, false, [])
+    assert.deepEqual(stub.direct, { requests: 0, tokens: { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 } })
+  } finally {
+    usageTracker.reset()
+  }
 })
 
 test('status view: with the free source off the badge follows the whole pool', () => {

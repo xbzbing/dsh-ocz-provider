@@ -1,8 +1,8 @@
 import "./catalog-Bne5EZa-.js";
 import "./messages-CLaBfusR.js";
-import "./dispatcher-Dd1k7p8X.js";
+import "./dispatcher-CSK7Qvyj.js";
 import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-aQpteGqX.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-CaoeVRcb.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -1422,7 +1422,7 @@ async function startIpPool(config, logger, deps = {}) {
 		proxyHosts: ipPool.proxyHosts,
 		logger
 	};
-	const installer = deps.makeInstaller !== void 0 ? deps.makeInstaller(installerDeps) : new (await (import("./installer-CtYNc1zB.js"))).RoutingInstaller(installerDeps);
+	const installer = deps.makeInstaller !== void 0 ? deps.makeInstaller(installerDeps) : new (await (import("./installer-pxr5CJdT.js"))).RoutingInstaller(installerDeps);
 	const admissionDeps = {
 		pool,
 		undici,
@@ -1516,7 +1516,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-DBUnn_KL.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-DfhAdiAY.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {

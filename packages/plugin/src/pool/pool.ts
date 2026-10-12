@@ -95,6 +95,12 @@ export class ExitPool {
   readonly #sessionExit = new Map<string, string>()
   /** Passive-signal counters per exit (docs/ip-pool.md §4.3 被动 + IP-6 stats). */
   readonly #passive = new Map<string, { ok: number; limited: number; refused: number; dead: number; transport: number }>()
+  /** Live-request activity per exit: last dispatch stamp + in-flight count
+   *  (exit-stats surface — "which exit is being used right now"). */
+  readonly #activity = new Map<string, { lastUsedAt: number; inFlight: number }>()
+  /** Pool-host requests that fell back to a direct connection (empty pool /
+   *  missing proxy agent) — the honest 直连兜底 count for the stats modal. */
+  #directRequests = 0
   /** Fired once per newly added node — see onAdmitted(). */
   #admittedCallbacks: Array<() => void> = []
   #targetSize: number
@@ -194,6 +200,7 @@ export class ExitPool {
     this.#nodes.delete(id)
     this.#health.delete(id)
     this.#passive.delete(id)
+    this.#activity.delete(id)
     for (const key of this.#bans.keys()) {
       if (key.startsWith(`${id}\u0000`)) this.#bans.delete(key)
     }
@@ -425,6 +432,42 @@ export class ExitPool {
   /** Passive-signal counters for one exit (status bridge, IP-6). */
   passiveStats(id: string): { ok: number; limited: number; refused: number; dead: number; transport: number } {
     return { ...(this.#passive.get(id) ?? { ok: 0, limited: 0, refused: 0, dead: 0, transport: 0 }) }
+  }
+
+  /**
+   * Book one dispatched request against this exit: stamps last-used with the
+   * pool clock and increments in-flight until endRequest lands. Called by the
+   * routing dispatcher at pick() — the moment "which exit is serving this"
+   * becomes known (exit-stats surface).
+   */
+  beginRequest(id: string): void {
+    const slot = this.#activity.get(id) ?? { lastUsedAt: 0, inFlight: 0 }
+    slot.lastUsedAt = this.#now()
+    slot.inFlight += 1
+    this.#activity.set(id, slot)
+  }
+
+  /** Terminal callback for a begun request; floors at zero on a double end
+   *  (the observer can end from both the response path and the sentinel). */
+  endRequest(id: string): void {
+    const slot = this.#activity.get(id)
+    if (slot !== undefined && slot.inFlight > 0) slot.inFlight -= 1
+  }
+
+  /** Activity row for one exit (status bridge); zeros when never dispatched. */
+  activity(id: string): { lastUsedAt: number; inFlight: number } {
+    const slot = this.#activity.get(id)
+    return slot === undefined ? { lastUsedAt: 0, inFlight: 0 } : { ...slot }
+  }
+
+  /** Count one pool-host request that fell back to a direct connection. */
+  recordDirectRequest(): void {
+    this.#directRequests += 1
+  }
+
+  /** Total direct-fallback requests since process start (status bridge). */
+  get directRequests(): number {
+    return this.#directRequests
   }
 
   // -- selection (3.3) ---------------------------------------------------------

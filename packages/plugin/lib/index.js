@@ -1,6 +1,6 @@
 import { d as deriveRequestIDs, f as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, r as ZEN_BASE_URL } from "./catalog-Bne5EZa-.js";
 import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CLaBfusR.js";
-import { r as routingContext } from "./dispatcher-Dd1k7p8X.js";
+import { a as attributeUsage, i as DIRECT_EXIT_ID, o as emptyTotals, r as routingContext, s as usageTracker } from "./dispatcher-CSK7Qvyj.js";
 import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -712,13 +712,13 @@ var ZenAdapter = class {
 			}
 			clearTimeout(deadlineTimer);
 			if (preContentFailure === null && deliveredContent) {
-				yield* toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES);
+				yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES));
 				return;
 			}
 			if (preContentFailure === null && !deliveredContent) {
-				yield* toStreamChunks((async function* pumped() {
+				yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() {
 					for (const e of buffered) yield e;
-				})(), model.contextWindow, GATE_TOOL_ALIASES);
+				})(), model.contextWindow, GATE_TOOL_ALIASES));
 				return;
 			}
 			const failureMessage = preContentFailure.message;
@@ -738,9 +738,9 @@ var ZenAdapter = class {
 						break;
 					}
 				}
-				yield* toStreamChunks((async function* pumped() {
+				yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() {
 					for (const e of buffered) yield e;
-				})(), model.contextWindow, GATE_TOOL_ALIASES);
+				})(), model.contextWindow, GATE_TOOL_ALIASES));
 				return;
 			}
 		}
@@ -1269,26 +1269,34 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 		pinned: ""
 	};
 	const now = Date.now();
-	const exits = runtime ? runtime.pool.list().map((entry) => ({
-		id: entry.id,
-		source: entry.source,
-		protocol: entry.protocol,
-		pinned: entry.pinned,
-		exitIP: entry.exitIP,
-		exitLocation: entry.exitLocation,
-		latencyMs: entry.latencyMs,
-		quality: entry.quality,
-		state: entry.health.state,
-		cooling: entry.health.cooldownUntil > now,
-		cooldownUntil: entry.health.cooldownUntil,
-		consecutiveLimited: entry.health.consecutiveLimited,
-		bannedModels: entry.bans.filter((b) => b.ban.state !== "ok").map((b) => ({
-			model: b.model,
-			state: b.ban.state,
-			bannedAt: b.ban.bannedAt
-		})),
-		passive: runtime.pool.passiveStats(entry.id)
-	})) : [];
+	const exits = runtime ? runtime.pool.list().map((entry) => {
+		const passive = runtime.pool.passiveStats(entry.id);
+		const activity = runtime.pool.activity(entry.id);
+		return {
+			id: entry.id,
+			source: entry.source,
+			protocol: entry.protocol,
+			pinned: entry.pinned,
+			exitIP: entry.exitIP,
+			exitLocation: entry.exitLocation,
+			latencyMs: entry.latencyMs,
+			quality: entry.quality,
+			state: entry.health.state,
+			cooling: entry.health.cooldownUntil > now,
+			cooldownUntil: entry.health.cooldownUntil,
+			consecutiveLimited: entry.health.consecutiveLimited,
+			bannedModels: entry.bans.filter((b) => b.ban.state !== "ok").map((b) => ({
+				model: b.model,
+				state: b.ban.state,
+				bannedAt: b.ban.bannedAt
+			})),
+			passive,
+			requests: passive.ok + passive.limited + passive.refused + passive.dead + passive.transport,
+			lastUsedAt: activity.lastUsedAt,
+			inFlight: activity.inFlight,
+			tokens: usageTracker.totals(entry.id)
+		};
+	}) : [];
 	/**
 	* Usable exits across the WHOLE pool, any source. `availableFree` is only
 	* the free-source subset, so rendering it as a bare "可用 n/capacity"
@@ -1332,6 +1340,10 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 			lastFetch: runtime.subscriptions.state.lastFetch,
 			lastError: runtime.subscriptions.state.lastError
 		} : null,
+		direct: {
+			requests: runtime ? runtime.pool.directRequests : 0,
+			tokens: runtime ? usageTracker.totals(DIRECT_EXIT_ID) : emptyTotals()
+		},
 		at: now
 	};
 }
@@ -1542,7 +1554,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-B3JTIdGs.js");
+	const { startIpPool } = await import("./ip-pool-DTYlJGCg.js");
 	return startIpPool(config, logger);
 };
 /**

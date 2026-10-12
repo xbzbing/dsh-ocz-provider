@@ -1,6 +1,69 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import "undici";
 
+//#region src/pool/usage.ts
+/** Pseudo exit id for pool-host traffic that fell back to a direct connection. */
+const DIRECT_EXIT_ID = "direct";
+function zeroTotals() {
+	return {
+		requests: 0,
+		inputTokens: 0,
+		outputTokens: 0,
+		cacheReadTokens: 0,
+		cacheWriteTokens: 0,
+		totalTokens: 0
+	};
+}
+/** A fresh all-zero bucket (bridge stubs for a disabled pool). */
+const emptyTotals = zeroTotals;
+/** Mutable accumulator map keyed by exit id. One instance per process. */
+var UsageTracker = class {
+	#byExit = /* @__PURE__ */ new Map();
+	/** Attribute one response's usage to one exit id. */
+	record(exitId, usage) {
+		const bucket = this.#byExit.get(exitId) ?? zeroTotals();
+		const input = usage.inputTokens ?? 0;
+		const output = usage.outputTokens ?? 0;
+		bucket.requests += 1;
+		bucket.inputTokens += input;
+		bucket.outputTokens += output;
+		bucket.cacheReadTokens += usage.cacheReadTokens ?? 0;
+		bucket.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
+		bucket.totalTokens += input + output;
+		this.#byExit.set(exitId, bucket);
+	}
+	/** A copy of one bucket (zeros when nothing was recorded). */
+	totals(exitId) {
+		return { ...this.#byExit.get(exitId) ?? zeroTotals() };
+	}
+	/** Every exit id with recorded usage (diagnostics). */
+	exits() {
+		return [...this.#byExit.keys()];
+	}
+	/** Test seam / future reset action. */
+	reset() {
+		this.#byExit.clear();
+	}
+};
+/** The process-lifetime tracker: adapter writes, status bridge reads. */
+const usageTracker = new UsageTracker();
+/**
+* Pass a chunk stream through, recording every `usage` chunk against the
+* routing context's exit stamp. Placed around the adapter's per-attempt
+* output so each attempt's tokens land on the exit that actually carried
+* that attempt (a rotate restart therefore splits correctly across exits).
+*
+* A context without an `exitId` means the request never entered the pool
+* dispatcher — those tokens are out of scope and pass through untouched.
+*/
+async function* attributeUsage(store, source, tracker = usageTracker) {
+	for await (const chunk of source) {
+		if (chunk.type === "usage" && store.exitId !== void 0) tracker.record(store.exitId, chunk.usage);
+		yield chunk;
+	}
+}
+
+//#endregion
 //#region src/pool/dispatcher.ts
 /** Per-request routing context (docs/ip-pool.md 3.3): pi-ai builds the body
 *  and dispatches on separate layers with no model channel between them, so
@@ -105,9 +168,19 @@ var PoolRoutingDispatcher = class {
 		const model = context.model ?? "default";
 		const session = context.session ?? "default";
 		const exitId = this.#pool.pick(session, model);
-		if (exitId === null) return this.#direct.dispatch(options, handler);
+		if (exitId === null) {
+			context.exitId = DIRECT_EXIT_ID;
+			this.#pool.recordDirectRequest();
+			return this.#direct.dispatch(options, handler);
+		}
 		const agent = this.#agentFor(exitId);
-		if (!agent) return this.#direct.dispatch(options, handler);
+		if (!agent) {
+			context.exitId = DIRECT_EXIT_ID;
+			this.#pool.recordDirectRequest();
+			return this.#direct.dispatch(options, handler);
+		}
+		context.exitId = exitId;
+		this.#pool.beginRequest(exitId);
 		return agent.dispatch(options, this.#observe(exitId, model, session, handler));
 	}
 	/**
@@ -142,6 +215,12 @@ var PoolRoutingDispatcher = class {
 			if (typeof fn === "function") fn.apply(handler, args);
 		};
 		let classified = false;
+		let ended = false;
+		const end = () => {
+			if (ended) return;
+			ended = true;
+			pool.endRequest(exitId);
+		};
 		const classify = (statusCode) => {
 			if (classified) return;
 			classified = true;
@@ -153,6 +232,7 @@ var PoolRoutingDispatcher = class {
 			classified = true;
 			pool.recordPassiveTransport(exitId);
 			pool.rerouteSession(session);
+			end();
 			this.#logger?.warn(`opencode2dsh: exit ${exitId} marked dead (${why})`);
 			const reason = /* @__PURE__ */ new Error("opencode2dsh: exit response silence");
 			if (typeof handler.onResponseError === "function") handler.onResponseError.call(handler, liveController ?? {}, reason);
@@ -180,6 +260,7 @@ var PoolRoutingDispatcher = class {
 			onRequestUpgrade: (controller, statusCode, headers, socket) => {
 				liveController = controller;
 				disarm();
+				end();
 				forward("onRequestUpgrade", [
 					controller,
 					statusCode,
@@ -205,12 +286,14 @@ var PoolRoutingDispatcher = class {
 			onResponseEnd: (controller, trailers) => {
 				liveController = controller;
 				disarm();
+				end();
 				forward("onResponseEnd", [controller, trailers]);
 			},
 			onResponseError: (controller, error) => {
 				liveController = controller;
 				disarm();
 				classifyTransport(`transport error: ${error instanceof Error ? error.message : String(error)}`);
+				end();
 				forward("onResponseError", [controller, error]);
 			},
 			onResponseStarted: () => {
@@ -236,4 +319,4 @@ var PoolRoutingDispatcher = class {
 };
 
 //#endregion
-export { exitProxyUri as n, routingContext as r, PoolRoutingDispatcher as t };
+export { attributeUsage as a, DIRECT_EXIT_ID as i, exitProxyUri as n, emptyTotals as o, routingContext as r, usageTracker as s, PoolRoutingDispatcher as t };
