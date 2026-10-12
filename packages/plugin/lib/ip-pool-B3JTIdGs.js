@@ -2,7 +2,7 @@ import "./catalog-Bne5EZa-.js";
 import "./messages-CLaBfusR.js";
 import "./dispatcher-Dd1k7p8X.js";
 import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-ALgYaCzZ.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-aQpteGqX.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -1120,13 +1120,34 @@ var SubscriptionFetcher = class {
 	get urlCount() {
 		return this.#urls.length;
 	}
-	/** Update the subscription URL list (settings change); refresh follows. */
+	/**
+	* Update the subscription URL list (settings change) and, when the fetcher
+	* is already running AND the list really changed, pull right away.
+	*
+	* Live-observed 2026-10-12: saving the settings card only re-seeded the
+	* list, so a newly added airport URL stayed unfetched until the next
+	* interval tick — with the shipped 30-minute default that looked exactly
+	* like "the setting did not apply". Before `start()` (first assembly) the
+	* immediate refresh is skipped on purpose: the caller starts the fetcher
+	* right after, which fetches anyway.
+	*/
 	setUrls(urls) {
-		this.#urls = urls.filter((url) => url.trim().length > 0);
+		const next = urls.filter((url) => url.trim().length > 0);
+		const changed = next.length !== this.#urls.length || next.some((url, index) => url !== this.#urls[index]);
+		this.#urls = next;
+		if (changed && this.#timer !== null && !this.#stopped && next.length > 0) this.refresh();
 	}
-	/** Live re-apply of the refresh interval (settings page, docs §5.1). */
+	/**
+	* Live re-apply of the refresh interval (settings page, docs §5.1). A save
+	* that does not change the interval must NOT re-arm the timer: every
+	* settings commit calls this method, and restarting the countdown on each
+	* one pushed the next fetch a full interval away — a save made the pool
+	* less live, not more.
+	*/
 	setIntervalMs(ms) {
-		this.#intervalMs = Math.max(6e4, ms);
+		const next = Math.max(6e4, ms);
+		if (next === this.#intervalMs) return;
+		this.#intervalMs = next;
 		if (this.#timer !== null) {
 			clearInterval(this.#timer);
 			this.#timer = setInterval(() => void this.refresh(), this.#intervalMs);
@@ -1306,50 +1327,74 @@ function parseManualProxy(entry) {
 		protocol: scheme === "socks5" || scheme === "socks4" || scheme === "socks5h" ? "socks5" : "http"
 	};
 }
+/** One manual/pinned row: unknown facts until the prober measures them. */
+function manualNode(id, protocol) {
+	return {
+		id,
+		protocol,
+		source: "manual",
+		pinned: false,
+		exitIP: "",
+		exitLocation: "",
+		latencyMs: 0,
+		quality: gradeOf(0),
+		addedAt: Date.now()
+	};
+}
+/**
+* Make the pool's manual rows and its pin match `ipPool` exactly: add what the
+* config names, drop what it no longer names, then pin/unpin.
+*
+* Idempotent, and scoped to `source === 'manual'` rows (free and subscription
+* rows are never touched). Runs at assembly AND on every live commit.
+*
+* Live-observed gap this closes (2026-10-12): manual/pinned used to be read
+* ONLY at assembly, so editing 固定主力 in the settings card wrote the config,
+* triggered reconfigure() — and changed nothing. The stale pin kept winning
+* pick() while the deleted row stayed in the table, so the only visible fix
+* was a restart. docs §5.1 / IP-5 acceptance ("设置页改任何项保存即生效无需重启")
+* was unmet for exactly these two fields.
+*
+* A pinned address that is not in the pool is admitted as a manual row (the
+* user vouches for it, docs 3.1/4.5); an id that is already in the pool keeps
+* its row and source and is merely pinned.
+*/
+function syncManualExits(pool, ipPool = {}) {
+	const desired = /* @__PURE__ */ new Set();
+	for (const entry of ipPool?.manual ?? []) {
+		const parsed = parseManualProxy(entry);
+		if (!parsed) continue;
+		desired.add(parsed.id);
+		if (!pool.has(parsed.id)) {
+			pool.add(manualNode(parsed.id, parsed.protocol));
+			pool.markOk(parsed.id);
+		}
+	}
+	const requested = (ipPool?.pinnedExitId ?? "").trim();
+	let pinned = "";
+	if (requested !== "") {
+		if (pool.has(requested)) pinned = requested;
+		else {
+			const parsed = parseManualProxy(requested);
+			if (parsed) {
+				pool.add(manualNode(parsed.id, parsed.protocol));
+				pool.markOk(parsed.id);
+				pinned = parsed.id;
+			}
+		}
+		if (pinned !== "") desired.add(pinned);
+	}
+	for (const node of pool.list()) if (node.source === "manual" && !desired.has(node.id)) pool.remove(node.id);
+	if (pinned === "") pool.unpin();
+	else pool.pin(pinned);
+}
 /** Build the ExitPool from config (manual proxies + pinned). The pool starts
 *  with unknown health; the periodic/probe layer (IP-2) fills it in. Pinned
 *  nodes are admitted even without admission data — the user vouches for
 *  them (docs/ip-pool.md 3.1/4.5). */
 function buildPoolFromConfig(config) {
 	const pool = new ExitPool();
-	const ipPool = config.ipPool ?? {};
-	for (const entry of ipPool.manual ?? []) {
-		const parsed = parseManualProxy(entry);
-		if (!parsed) continue;
-		const node = {
-			id: parsed.id,
-			protocol: parsed.protocol,
-			source: "manual",
-			pinned: false,
-			exitIP: "",
-			exitLocation: "",
-			latencyMs: 0,
-			quality: gradeOf(0),
-			addedAt: Date.now()
-		};
-		pool.add(node);
-		pool.markOk(node.id);
-	}
-	const pinned = ipPool.pinnedExitId?.trim();
-	if (pinned) {
-		const parsed = parseManualProxy(pinned);
-		if (parsed) {
-			const node = {
-				id: parsed.id,
-				protocol: parsed.protocol,
-				source: "manual",
-				pinned: true,
-				exitIP: "",
-				exitLocation: "",
-				latencyMs: 0,
-				quality: gradeOf(0),
-				addedAt: Date.now()
-			};
-			pool.add(node);
-			pool.markOk(node.id);
-			pool.pin(node.id);
-		}
-	}
+	syncManualExits(pool, config.ipPool);
 	return pool;
 }
 /**
@@ -1361,7 +1406,7 @@ function buildPoolFromConfig(config) {
 * pool does not stop the runtime from existing (reconfigure can add exits
 * later), it only keeps the dispatcher uninstalled.
 */
-async function startIpPool(config, logger) {
+async function startIpPool(config, logger, deps = {}) {
 	const ipPool = config.ipPool ?? {};
 	const pool = buildPoolFromConfig(config);
 	let undici;
@@ -1371,13 +1416,13 @@ async function startIpPool(config, logger) {
 		logger.warn(`opencode2dsh: undici unavailable; exit routing disabled (${err instanceof Error ? err.message : String(err)})`);
 		return null;
 	}
-	const { RoutingInstaller } = await import("./installer-CtYNc1zB.js");
-	const installer = new RoutingInstaller({
+	const installerDeps = {
 		pool,
 		undici,
 		proxyHosts: ipPool.proxyHosts,
 		logger
-	});
+	};
+	const installer = deps.makeInstaller !== void 0 ? deps.makeInstaller(installerDeps) : new (await (import("./installer-CtYNc1zB.js"))).RoutingInstaller(installerDeps);
 	const admissionDeps = {
 		pool,
 		undici,
@@ -1417,6 +1462,7 @@ async function startIpPool(config, logger) {
 	/** Apply the config to the live objects (initial start + reconfigure). */
 	const applyConfig = () => {
 		const current = config.ipPool ?? {};
+		syncManualExits(pool, current);
 		pool.setTargetSize(current.free?.targetSize ?? 20);
 		admissionDeps.blockedCountries = current.free?.blockedCountries;
 		admissionDeps.smokeModel = probeModels[0];
@@ -1427,12 +1473,6 @@ async function startIpPool(config, logger) {
 			refill = new RefillScheduler(pool, {
 				...admissionDeps,
 				prober
-			});
-			refill.onAdmitted(() => {
-				if (!installer.enabled && current.enabled !== false && pool.snapshot().total > 0) {
-					installer.install();
-					if (installer.enabled) logger.info("opencode2dsh: first free exits admitted — exit routing engaged");
-				}
 			});
 			refill.start();
 		} else if (!wantRefill && refill !== null) {
@@ -1451,15 +1491,32 @@ async function startIpPool(config, logger) {
 		}
 	};
 	let fetcherActive = false;
+	/**
+	* Engage routing as soon as the pool stops being empty.
+	*
+	* A pool that assembles EMPTY (subscription-only profile, or free enabled
+	* but not yet refilled) skips the install() below and used to have no
+	* retry hook except a settings save: the exits landed minutes later and
+	* every request kept going direct while the card reported the pool as
+	* enabled. This watches the TABLE, not a source, so subscription, free and
+	* manual admissions all engage routing (live-observed 2026-10-12).
+	*/
+	const engageRouting = () => {
+		if (config.ipPool?.enabled === false) return;
+		if (installer.enabled || pool.snapshot().total === 0) return;
+		installer.install();
+		if (installer.enabled) logger.info("opencode2dsh: exits admitted — exit routing engaged (live)");
+	};
+	pool.onAdmitted(engageRouting);
 	if (pool.snapshot().total > 0) installer.install();
-	else logger.warn("opencode2dsh: ipPool enabled but no exits configured; staying direct until settings add exits");
+	else logger.warn("opencode2dsh: ipPool enabled but the pool is empty; staying direct until exits land (subscription/free admissions engage routing automatically)");
 	applyConfig();
 	/**
 	* One exit's probe pass, shared by every trigger (manual 批量探活 / 单出口 /
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-Nz7cC4TV.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-DBUnn_KL.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
@@ -1599,4 +1656,4 @@ async function startIpPool(config, logger) {
 }
 
 //#endregion
-export { buildPoolFromConfig, parseManualProxy, startIpPool };
+export { buildPoolFromConfig, parseManualProxy, startIpPool, syncManualExits };

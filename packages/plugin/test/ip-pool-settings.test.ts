@@ -170,6 +170,25 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal('urls' in (view.subscription ?? {}), false)
 })
 
+test('status view: with the free source off the badge follows the whole pool', () => {
+  // Regression (live 2026-10-12): the badge came from the free-source machine
+  // unconditionally, so a subscription-only profile (free disabled, 12 healthy
+  // exits) read "emergency" forever — 0 free nodes against a target of 20.
+  const view = buildStatusView(fakeRuntime() as never, false, [], { freeEnabled: false })
+  assert.equal(view.stateBasis, 'pool')
+  assert.equal(view.state, 'healthy', '2 of 2 exits are usable')
+
+  const freeBasis = buildStatusView(fakeRuntime() as never, false, [], { freeEnabled: true })
+  assert.equal(freeBasis.stateBasis, 'free')
+  assert.equal(freeBasis.state, 'warning', 'the documented free-source machine is untouched')
+})
+
+test('status view: an empty pool is never "emergency" on the whole-pool basis', () => {
+  const view = buildStatusView(null, false, [], { freeEnabled: false })
+  assert.equal(view.state, 'warning', 'an enabled pool whose exits have not landed yet is not a drained pool')
+  assert.equal(view.stateBasis, 'pool')
+})
+
 test('status view reports the R1 deferral when routing is deferred', () => {
   const rt = fakeRuntime() as never
   ;(rt as { installer: { enabled: boolean; deferredReason: string | null; install(): void; disable(): void; dispose(): void } }).installer = {

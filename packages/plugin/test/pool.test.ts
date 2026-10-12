@@ -363,3 +363,43 @@ test('dueForProbe: never-probed due at once, cooling and fresh exits wait', () =
   assert.ok(due.includes('fresh:1'), 'past the cadence the healthy exit is rechecked')
   assert.ok(due.includes('cool:1'), 'an expired cooldown is rechecked')
 })
+
+// -- admission watchers (the engage-routing seam) ------------------------------
+
+test('onAdmitted: fires once per newly added node, never on an upsert', () => {
+  const p = pool()
+  let admitted = 0
+  p.onAdmitted(() => { admitted += 1 })
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 999 }))
+  assert.equal(admitted, 1, 'the probe refresh of a known exit is not an admission')
+})
+
+test('onAdmitted: a duplicate-exit-IP rejection admits nothing and notifies nobody', () => {
+  const p = pool()
+  const seen: string[] = []
+  p.onAdmitted(() => { seen.push('admitted') })
+  p.add(node({ id: 'a:1', exitIP: '9.9.9.9' }))
+  assert.equal(p.add(node({ id: 'b:2', exitIP: '9.9.9.9' })), false)
+  assert.equal(seen.length, 1)
+})
+
+test('onAdmitted: a throwing watcher never fails the admission', () => {
+  const p = pool()
+  p.onAdmitted(() => { throw new Error('watcher blew up') })
+  assert.equal(p.add(node({ id: 'a:1' })), true)
+  assert.ok(p.has('a:1'))
+})
+
+test('pin/unpin keep the row flag in step with the pinned slot', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  p.pin('a:1')
+  assert.equal(p.get('a:1')?.pinned, true)
+  p.pin('b:2')
+  assert.equal(p.get('a:1')?.pinned, false, 'only the current pin carries the flag')
+  assert.equal(p.get('b:2')?.pinned, true)
+  p.unpin()
+  assert.ok(p.list().every((entry) => !entry.pinned))
+})

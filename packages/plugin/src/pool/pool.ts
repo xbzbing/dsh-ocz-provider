@@ -95,6 +95,8 @@ export class ExitPool {
   readonly #sessionExit = new Map<string, string>()
   /** Passive-signal counters per exit (docs/ip-pool.md §4.3 被动 + IP-6 stats). */
   readonly #passive = new Map<string, { ok: number; limited: number; refused: number; dead: number; transport: number }>()
+  /** Fired once per newly added node — see onAdmitted(). */
+  #admittedCallbacks: Array<() => void> = []
   #targetSize: number
   #cooldownBase: number
   #cooldownMax: number
@@ -123,11 +125,39 @@ export class ExitPool {
 
   // -- table management ------------------------------------------------------
 
+  /**
+   * Register a callback fired after every node newly added to the pool.
+   *
+   * The runtime assembly uses it to engage routing the moment a pool that
+   * assembled EMPTY stops being empty. The free-source refill loop had its own
+   * hook for that (live-observed 2026-09-09 on a free-only pool), but the
+   * subscription path had none — a subscription-only profile (free disabled)
+   * assembled empty, filled up minutes later, and never installed the
+   * dispatcher, so the pool reported "enabled" while every request kept going
+   * direct (live-observed 2026-10-12). This hook is source-agnostic: free,
+   * subscription and manual admissions all reach it through add().
+   */
+  onAdmitted(callback: () => void): void {
+    this.#admittedCallbacks.push(callback)
+  }
+
+  /** A watcher's failure must never fail an admission. */
+  #notifyAdmitted(): void {
+    for (const callback of this.#admittedCallbacks) {
+      try {
+        callback()
+      } catch {
+        /* swallowed on purpose: bookkeeping is not admission */
+      }
+    }
+  }
+
   /** Upsert a node (admission wrote its details); returns false on duplicate
    *  exit IP for a different address — two addresses sharing one exit IP are
    *  one quota bucket and must not both live in the pool (3.1). */
   add(node: ExitNode): boolean {
     if (node.exitIP !== '' && this.#hasExitIP(node.exitIP, node.id)) return false
+    const isNew = !this.#nodes.has(node.id)
     this.#nodes.set(node.id, node)
     if (!this.#health.has(node.id)) {
       this.#health.set(node.id, {
@@ -140,6 +170,7 @@ export class ExitPool {
         deadAt: 0,
       })
     }
+    if (isNew) this.#notifyAdmitted()
     return true
   }
 
@@ -186,15 +217,21 @@ export class ExitPool {
 
   pinnedId = ''
 
-  /** Pin a node (docs/ip-pool.md 3.6); unpinning any previous pinned node. */
+  /** Pin a node (docs/ip-pool.md 3.6); unpinning any previous pinned node.
+   *  The row-level `pinned` flag is kept in step here so a stale flag can
+   *  never keep routing a row down the pinned admission path after a
+   *  hot-reconfigure unpinned it (the flag is read by probeOne). */
   pin(id: string): boolean {
-    if (!this.#nodes.has(id)) return false
+    const target = this.#nodes.get(id)
+    if (target === undefined) return false
     this.pinnedId = id
+    for (const node of this.#nodes.values()) node.pinned = node === target
     return true
   }
 
   unpin(): void {
     this.pinnedId = ''
+    for (const node of this.#nodes.values()) node.pinned = false
   }
 
   // -- probe locking (4.1: serial per exit) -----------------------------------

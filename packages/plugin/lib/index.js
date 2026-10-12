@@ -1239,8 +1239,23 @@ async function writeAgentConfig(paths, options) {
 const IP_POOL_BRIDGE_PREFIX = "/api/opencode2dsh/ip-pool";
 /** Cap on JSON request bodies (a probe trigger is tiny). */
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+/**
+* The four-state thresholds (docs 3.5) applied to a usable/capacity ratio.
+* An empty population reads `warning`, never `emergency`: an enabled pool
+* whose exits have not landed yet (subscription still fetching) is not the
+* same failure as a pool that drained.
+*/
+function stateOfRatio(available, capacity) {
+	if (capacity <= 0) return "warning";
+	const ratio = available / capacity;
+	if (ratio < .1) return "emergency";
+	if (ratio < .3) return "critical";
+	if (ratio < .95) return "warning";
+	return "healthy";
+}
 /** Build the /status view over the live runtime (or a disabled stub). */
-function buildStatusView(runtime, pinnedStrict, proxyHosts) {
+function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
+	const freeEnabled = options.freeEnabled ?? true;
 	const snapshot = runtime ? runtime.pool.snapshot() : {
 		state: "healthy",
 		total: 0,
@@ -1274,14 +1289,24 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts) {
 		})),
 		passive: runtime.pool.passiveStats(entry.id)
 	})) : [];
+	/**
+	* Usable exits across the WHOLE pool, any source. `availableFree` is only
+	* the free-source subset, so rendering it as a bare "可用 n/capacity"
+	* reads as "nothing is usable" to anyone running subscription/manual
+	* exits only — a live profile showed "可用 0/20 · 手填 1 · 订阅 12" while
+	* 7 of those 12 were healthy.
+	*/
+	const availableTotal = exits.filter((exit) => exit.state === "ok").length;
+	const stateBasis = freeEnabled ? "free" : "pool";
 	return {
 		enabled: runtime !== null && runtime.installer.enabled,
 		deferredReason: runtime !== null && !runtime.installer.enabled ? runtime.installer.deferredReason ?? "" : "",
-		state: snapshot.state,
+		state: stateBasis === "free" ? snapshot.state : stateOfRatio(availableTotal, snapshot.total),
+		stateBasis,
 		total: snapshot.total,
 		bySource: snapshot.bySource,
 		availableFree: snapshot.availableFree,
-		availableTotal: exits.filter((exit) => exit.state === "ok").length,
+		availableTotal,
 		targetSize: runtime ? runtime.pool.targetSize : 20,
 		pinned: snapshot.pinned !== "" ? {
 			id: snapshot.pinned,
@@ -1384,9 +1409,10 @@ async function readJsonBody(req) {
 function makeBridgeHandlers(runtime, settings, deps = {}) {
 	return {
 		async status() {
+			const current = settings();
 			return {
 				ok: true,
-				value: buildStatusView(runtime(), settings().pinnedStrict, settings().proxyHosts)
+				value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, { freeEnabled: current.freeEnabled })
 			};
 		},
 		async probe(body) {
@@ -1516,7 +1542,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-yEHF7L4N.js");
+	const { startIpPool } = await import("./ip-pool-B3JTIdGs.js");
 	return startIpPool(config, logger);
 };
 /**
@@ -1584,7 +1610,8 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 		if (!bctx.webServer) return;
 		const handlers = makeBridgeHandlers(() => controller.runtime, () => ({
 			pinnedStrict: controller.settings().pinnedStrict,
-			proxyHosts: controller.runtime?.installer && controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"]
+			proxyHosts: controller.runtime?.installer && controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"],
+			freeEnabled: controller.settings().free.enabled
 		}), { listLiveModels: deps.listLiveModels });
 		const disposers = [];
 		for (const route of makeBridgeRoutes(handlers)) disposers.push(bctx.webServer.register(route));
