@@ -87,6 +87,8 @@ export interface PoolStatusView {
   total: number
   bySource: Record<'free' | 'manual' | 'subscription' | 'goproxy', number>
   availableFree: number
+  /** Usable exits across the whole pool, any source. */
+  availableTotal: number
   targetSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
@@ -445,7 +447,14 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
           {t('deferredNotice').replace('{reason}', status.deferredReason)}
         </span>
       )}
-      <span>{t('poolAvailable').replace('{available}', String(status.availableFree)).replace('{capacity}', String(status.targetSize))}</span>
+      {/* The headline number is the WHOLE pool's usable count; the free-source
+          subset is spelled out separately (rendering it bare as "可用 n/20"
+          reads as "nothing is usable" to anyone without free sources). */}
+      <span>{t('poolAvailable')
+        .replace('{available}', String(status.availableTotal))
+        .replace('{total}', String(status.total))
+        .replace('{freeAvailable}', String(status.availableFree))
+        .replace('{capacity}', String(status.targetSize))}</span>
       <span>
         {t('poolSources')
           .replace('{free}', String(status.bySource.free))
@@ -695,7 +704,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   }
 
   /** One bridge action (/probe). */
-  const bridgeAction = async (body: { scope: 'all' | 'refill' } | { scope: 'exit'; exitId: string }): Promise<void> => {
+  const bridgeAction = async (body: { scope: 'all' | 'refill' | 'subscription' } | { scope: 'exit'; exitId: string }): Promise<void> => {
     setActionBusy(true)
     try {
       await fetch(`${BRIDGE_PREFIX}/probe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -841,7 +850,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
               className={styles.ghostButton}
               data-testid="refresh-subscriptions"
               disabled={actionBusy || !form.enabled}
-              onClick={() => { void bridgeAction({ scope: 'refill' }) }}
+              onClick={() => { void bridgeAction({ scope: 'subscription' }) }}
             >
               {t('subscriptionRefreshNow')}
             </button>

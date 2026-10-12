@@ -131,7 +131,13 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     )
     this.#agentLruCap = options.agentLruCap ?? 16
     this.#sentinelMs = options.sentinelMs ?? 2_000
-    this.#headersMs = options.headersMs ?? 10_000
+    // Window (b) must stay looser than the ADAPTER's own first-event budget,
+    // not just looser than window (a): the adapter tolerates a slow first
+    // token up to its configured first-event window (~30s), so a tighter
+    // dispatcher deadline retires exits for turns the adapter would happily
+    // have waited out. Measured on a live profile: exits that answer Zen in
+    // 1.3-2.0s via curl were all struck dead by this path.
+    this.#headersMs = options.headersMs ?? 30_000
     this.#logger = options.logger
     this.#direct = new options.undici.Agent()
   }
@@ -254,11 +260,18 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     // The most recent controller the wrapper has seen (undici hands a fresh
     // one to each handler callback; abort must go to the live one).
     let liveController: { abort?(reason: Error): void } | null = null
-    const classifyTransport = (): void => {
+    const classifyTransport = (why: string): void => {
       if (classified) return
       classified = true
       pool.recordPassiveTransport(exitId)
       pool.rerouteSession(session)
+      // One strike retires the exit (`markDeadStrike`), and until the periodic
+      // due-probe re-tests it (docs §4.6 deadRetryMs) `isUsable()` hides it
+      // from pick(), so a false positive used to be permanent. Log WHY: the
+      // two silence windows and a real transport error mean very different
+      // things, and without this line the three are indistinguishable after
+      // the fact — a live profile lost all 14 exits and nothing said why.
+      this.#logger?.warn(`opencode2dsh: exit ${exitId} marked dead (${why})`)
       // Live-observed (2026-09-07, muse via 7897): after the tunnel stands a
       // dead-behind-the-tunnel exit answers NOTHING — no headers, no
       // onResponseError — and neither fetch nor pi-ai owns a body-silence
@@ -290,7 +303,12 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     const armSentinel = (): void => {
       clearTimeout(sentinel)
       const window = sawRequestStart ? this.#headersMs : this.#sentinelMs
-      sentinel = setTimeout(classifyTransport, window)
+      sentinel = setTimeout(
+        () => classifyTransport(sawRequestStart
+          ? `no response headers within ${this.#headersMs}ms of request start`
+          : `no request start within ${this.#sentinelMs}ms of dispatch (proxy CONNECT never completed)`),
+        window,
+      )
       sentinel.unref?.()
     }
     let sawRequestStart = false
@@ -331,7 +349,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       onResponseError: (controller, error) => {
         liveController = controller
         disarm()
-        classifyTransport()
+        classifyTransport(`transport error: ${error instanceof Error ? error.message : String(error)}`)
         forward('onResponseError', [controller, error])
       },
       onResponseStarted: () => {
