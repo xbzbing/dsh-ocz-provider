@@ -129,6 +129,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         title={t('statsTitle')}
         closeLabel={t('statsClose')}
         description={t('statsDescription')}
+        className={styles.statsModal}
+        contentClassName={styles.statsContent}
       >
         <div className={styles.statsSummary}>
           <span className={styles.statsChip}>{t('footerUsable', { usable, total })}</span>

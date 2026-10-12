@@ -378,15 +378,45 @@
   white-space: nowrap;
 }
 
+/* The primitives' Modal defaults to a 380px confirmation card; the 7-column
+   exit table needs a data-table width. Double-class selector so the override
+   wins regardless of stylesheet order; 100% keeps it inside the root's 24px
+   viewport padding on narrow windows. max-height caps growth per the Modal
+   contract (consumers cap with max-height, never viewport calc). */
+.statsModal.statsModal {
+  width: min(1040px, 100%);
+  max-height: 100%;
+}
+
+/* Scrollable region: the header/description/body ride together so tall exit
+   lists scroll vertically instead of clipping under the dialog's overflow. */
+.statsContent {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .statsWrap {
-  overflow-x: auto;
+  /* No horizontal scroll: the table is fixed-layout against the widened
+     dialog, so it can never exceed the content column. */
+  overflow-x: hidden;
 }
 
 .statsTable {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 12px;
 }
+
+/* Column budget (sums to 100%): IP and last-used carry the longest runs. */
+.statsTable th:nth-child(1) { width: 22%; }
+.statsTable th:nth-child(2) { width: 14%; }
+.statsTable th:nth-child(3) { width: 11%; }
+.statsTable th:nth-child(4) { width: 10%; }
+.statsTable th:nth-child(5) { width: 10%; }
+.statsTable th:nth-child(6) { width: 11%; }
+.statsTable th:nth-child(7) { width: 22%; }
 
 .statsTable th {
   text-align: left;
@@ -394,14 +424,15 @@
   color: var(--dsw-alias-label-tertiary, #6b7280);
   padding: 6px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .statsTable td {
   padding: 6px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
   color: var(--dsw-alias-label-primary, #1f2329);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .statsRowMuted td {
