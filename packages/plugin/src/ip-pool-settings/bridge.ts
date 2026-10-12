@@ -77,7 +77,10 @@ export interface PoolStatusView {
   state: PoolState
   total: number
   bySource: Record<ExitSource, number>
+  /** Usable FREE-source exits — a subset of availableTotal, not the pool total. */
   availableFree: number
+  /** Usable exits across the whole pool, any source. */
+  availableTotal: number
   targetSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
@@ -127,6 +130,14 @@ export function buildStatusView(
     total: snapshot.total,
     bySource: snapshot.bySource,
     availableFree: snapshot.availableFree,
+    /**
+     * Usable exits across the WHOLE pool, any source. `availableFree` is only
+     * the free-source subset, so rendering it as a bare "可用 n/capacity"
+     * reads as "nothing is usable" to anyone running subscription/manual
+     * exits only — a live profile showed "可用 0/20 · 手填 1 · 订阅 12" while
+     * 7 of those 12 were healthy.
+     */
+    availableTotal: exits.filter((exit) => exit.state === 'ok').length,
     targetSize: runtime ? runtime.pool.targetSize : 20,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict }
@@ -282,13 +293,21 @@ export function makeBridgeHandlers(
         await rt.refillNow()
         return { ok: true, value: { refilled: true } }
       }
+      if (scope === 'subscription') {
+        // docs §5.2 订阅「立即刷新」. This scope used to be missing, so the
+        // card's button sent 'refill' (free sources) instead and
+        // IpPoolRuntime.refreshSubscriptions() had no caller at all — a
+        // subscription could never be re-pulled on demand, only by its timer.
+        await rt.refreshSubscriptions()
+        return { ok: true, value: { refreshed: true } }
+      }
       if (scope === 'exit') {
         const exitId = typeof body.exitId === 'string' ? body.exitId : ''
         if (!rt.pool.has(exitId)) return { ok: false, code: 'unknown-exit', message: `exit "${exitId}" is not in the pool` }
         const count = await rt.probeExit(exitId)
         return { ok: true, value: { queued: count } }
       }
-      return { ok: false, code: 'settings-rejected', message: "probe scope must be 'all', 'exit' or 'refill'" }
+      return { ok: false, code: 'settings-rejected', message: "probe scope must be 'all', 'exit', 'refill' or 'subscription'" }
     },
     async models() {
       const { staticFreeModels } = await import('../adapter/catalog.ts')

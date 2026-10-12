@@ -191,14 +191,21 @@ export function buildOutbound(node: ParsedNode, tag: string): Record<string, unk
     case 'hysteria2':
       out.type = 'hysteria2'
       out.password = getStr(raw, 'password')
-      applyTLS(raw, out)
+      // TLS-mandatory (QUIC + TLS), like anytls below. Verified against
+      // sing-box 1.14.3: a node whose Clash entry carries no sni/tls/
+      // client-fingerprint/reality-opts produced an outbound with no tls at
+      // all, and `sing-box check` then rejected the ENTIRE config with
+      // "initialize outbound[N]: TLS required" — parking all 49 nodes of a
+      // real airport subscription over 4 hysteria2 entries.
+      applyTLS({ ...raw, tls: true }, out)
       break
     case 'tuic':
       out.type = 'tuic'
       out.uuid = getStr(raw, 'uuid')
       out.password = getStr(raw, 'password')
       out.congestion_control = getStrDefault(raw, 'congestion-controller', 'bbr')
-      applyTLS(raw, out)
+      // TUIC is TLS-mandatory too (measured the same way as hysteria2).
+      applyTLS({ ...raw, tls: true }, out)
       break
     case 'anytls':
       out.type = 'anytls'

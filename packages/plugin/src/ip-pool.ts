@@ -31,6 +31,16 @@ function dataDir(): string {
   return join(homedir(), '.opencode2dsh')
 }
 
+/**
+ * docs/ip-pool.md §4.6 probe timing. `PROBE_INTERVAL_MS` is the documented
+ * periodic-recheck cadence, `DEAD_RETRY_MS` the documented dead retry; the
+ * tick is far shorter than either because it is pure bookkeeping — it reads
+ * health and enqueues only what is actually due.
+ */
+const PROBE_TICK_MS = 60_000
+const PROBE_INTERVAL_MS = 10 * 60_000
+const DEAD_RETRY_MS = 2 * 60_000
+
 /** Parse one manual proxy string into an exit id + protocol, or null. */
 export function parseManualProxy(
   entry: string,
@@ -240,6 +250,11 @@ export async function startIpPool(
     const urls = current.subscriptions ?? []
     const fetcher = ensureSubscriptions(urls)
     if (fetcher !== null) {
+      // Attach/replace the conversion core on every commit: `singbox.path` is
+      // editable while the pool runs, and the supervisor used to be read only
+      // when the fetcher was first constructed — so filling the field after
+      // that had no effect at all until a restart (docs §5.1 promises live).
+      fetcher.setSupervisor(ensureSupervisor())
       fetcher.setIntervalMs(current.subscription?.refreshMs ?? 30 * 60_000)
       if (fetcher === subscriptions && !fetcherActive) {
         fetcher.start()
@@ -256,74 +271,59 @@ export async function startIpPool(
   }
   applyConfig()
 
+  /**
+   * One exit's probe pass, shared by every trigger (manual 批量探活 / 单出口 /
+   * periodic due-probe) so the three can never drift apart.
+   */
+  const probeOne = async (entry: ReturnType<ExitPool['list']>[number], models: string[]): Promise<void> => {
+    const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
+    for (const model of models) {
+      // The smoke rides the shared admission deps; point its model at the
+      // current probe-model before each pass (per-exit serial, §4.1).
+      admissionDeps.smokeModel = model
+      // Free exits re-run the full candidate chain (echo→tunnel→smoke) —
+      // their facts may have drifted; trusted exits run the smoke only
+      // (docs §4.5 manual/subscription path). Pinned rides the trusted
+      // path so a blocked echo endpoint never evicts the user's line.
+      const verdict = entry.source === 'free'
+        ? await admitCandidate(admissionDeps, {
+          address: entry.id,
+          protocol: entry.protocol,
+          source: 'free',
+        })
+        : await admitTrusted(admissionDeps, {
+          address: entry.id,
+          protocol: entry.protocol,
+          source: entry.source === 'manual' ? 'manual' : 'subscription',
+        }, { pinned: entry.pinned, previous: { exitIP: entry.exitIP, exitLocation: entry.exitLocation, latencyMs: entry.latencyMs, quality: entry.quality } })
+      if (verdict.admitted && verdict.node) {
+        // Refresh the node's facts (admission re-measured them).
+        pool.add({ ...entry, ...verdict.node, pinned: entry.pinned })
+        if (verdict.limited) pool.markLimited(entry.id)
+        else pool.markOk(entry.id, model)
+      } else {
+        pool.markDeadStrike(entry.id)
+        break
+      }
+    }
+  }
+
   const probeAll = async (): Promise<number> => {
     const models = probeModels.length > 0 ? probeModels : ['big-pickle']
-    const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
     const tasks = pool.list().map((entry): import('./pool/prober.ts').ProbeTask => ({
       exitId: entry.id,
       kind: 'probe-all',
-      run: async () => {
-        for (const model of models) {
-          // The smoke rides the shared admission deps; point its model at the
-          // current probe-model before each pass (per-exit serial, §4.1).
-          admissionDeps.smokeModel = model
-          // Free exits re-run the full candidate chain (echo→tunnel→smoke) —
-          // their facts may have drifted; trusted exits run the smoke only
-          // (docs §4.5 manual/subscription path). Pinned rides the trusted
-          // path so a blocked echo endpoint never evicts the user's line.
-          const verdict = entry.source === 'free'
-            ? await admitCandidate(admissionDeps, {
-              address: entry.id,
-              protocol: entry.protocol,
-              source: 'free',
-            })
-            : await admitTrusted(admissionDeps, {
-              address: entry.id,
-              protocol: entry.protocol,
-              source: entry.source === 'manual' ? 'manual' : 'subscription',
-            }, { pinned: entry.pinned, previous: { exitIP: entry.exitIP, exitLocation: entry.exitLocation, latencyMs: entry.latencyMs, quality: entry.quality } })
-          if (verdict.admitted && verdict.node) {
-            // Refresh the node's facts (admission re-measured them).
-            pool.add({ ...entry, ...verdict.node, pinned: entry.pinned })
-            if (verdict.limited) pool.markLimited(entry.id)
-            else pool.markOk(entry.id, model)
-          } else {
-            pool.markDeadStrike(entry.id)
-            break
-          }
-        }
-      },
+      run: () => probeOne(entry, models),
     }))
     if (tasks.length === 0) return 0
     void prober.enqueueAll(tasks).catch(() => {})
     return tasks.length
   }
 
-  const probeExitTask = (exitId: string, entry: import('./pool/pool.ts').ExitNode & { health: unknown; bans: unknown }): import('./pool/prober.ts').ProbeTask => ({
+  const probeExitTask = (exitId: string, entry: ReturnType<ExitPool['list']>[number]): import('./pool/prober.ts').ProbeTask => ({
     exitId,
     kind: 'probe-exit',
-    run: async () => {
-      const models = probeModels.length > 0 ? [...probeModels] : ['big-pickle']
-      const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
-      for (const model of models) {
-        admissionDeps.smokeModel = model
-        const verdict = entry.source === 'free'
-          ? await admitCandidate(admissionDeps, { address: entry.id, protocol: entry.protocol, source: 'free' })
-          : await admitTrusted(admissionDeps, {
-            address: entry.id,
-            protocol: entry.protocol,
-            source: entry.source === 'manual' ? 'manual' : 'subscription',
-          }, { pinned: entry.pinned, previous: { exitIP: entry.exitIP, exitLocation: entry.exitLocation, latencyMs: entry.latencyMs, quality: entry.quality } })
-        if (verdict.admitted && verdict.node) {
-          pool.add({ ...entry, ...verdict.node, pinned: entry.pinned })
-          if (verdict.limited) pool.markLimited(entry.id)
-          else pool.markOk(entry.id, model)
-        } else {
-          pool.markDeadStrike(entry.id)
-          break
-        }
-      }
-    },
+    run: () => probeOne(entry, probeModels.length > 0 ? [...probeModels] : ['big-pickle']),
   })
 
   const probeExit = async (exitId: string): Promise<number> => {
@@ -332,6 +332,40 @@ export async function startIpPool(
     await prober.enqueue(probeExitTask(exitId, entry))
     return 1
   }
+
+  /**
+   * Periodic due-probe (docs §4.3 周期 + §4.6 deadRetryMs). Re-probes:
+   * dead exits once deadRetryMs has elapsed, cooling exits whose window
+   * expired, exits never probed, and anything past the periodic cadence.
+   *
+   * This is the ONLY way a dead exit can come back: `ExitPool.isUsable()`
+   * returns false for `state === 'dead'`, so `pick()` never hands one a real
+   * request and passive traffic can never call markOk() on it. Without this
+   * loop a single false-positive transport strike retired an exit for the
+   * life of the process — a live profile lost all 14 exits this way and the
+   * pool drained to zero while still reporting itself enabled.
+   *
+   * Cheap by construction: it only reads health and enqueues what is due, so
+   * the tick runs far more often than the 10-minute cadence in order to
+   * honour the 2-minute dead-retry budget.
+   */
+  const probeDue = async (): Promise<number> => {
+    const due = pool.dueForProbe(Date.now(), { intervalMs: PROBE_INTERVAL_MS, deadRetryMs: DEAD_RETRY_MS })
+    if (due.length === 0) return 0
+    const byId = new Map(pool.list().map((entry) => [entry.id, entry]))
+    const models = probeModels.length > 0 ? probeModels : ['big-pickle']
+    const tasks = due.flatMap((id): Array<import('./pool/prober.ts').ProbeTask> => {
+      const entry = byId.get(id)
+      return entry === undefined ? [] : [{ exitId: id, kind: 'probe-due', run: () => probeOne(entry, models) }]
+    })
+    if (tasks.length === 0) return 0
+    void prober.enqueueAll(tasks).catch(() => {})
+    return tasks.length
+  }
+
+  // Periodic tick (§4.3). unref'd so it never keeps the host process alive.
+  const probeTimer = setInterval(() => { void probeDue().catch(() => {}) }, PROBE_TICK_MS)
+  probeTimer.unref?.()
 
   // Adapter-layer rotate delegate (docs §3.4/§8.1, IP-7): lets zen-adapter
   // restart a pre-content stream on a fresh exit instead of surfacing the
@@ -379,6 +413,7 @@ export async function startIpPool(
       await subscriptions?.refreshNow()
     },
     async dispose() {
+      clearInterval(probeTimer)
       setRotateDelegate(null)
       subscriptions?.stop()
       refill?.stop()
