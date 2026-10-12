@@ -1,7 +1,13 @@
 # opencode2dsh DSH plugin — bundle patch: insert the plugin row (deployment-global).
 #
-# The plugin itself is distributed as the npm package @opencode2dsh/dsh-plugin
-# (declared in dependencies); this patch only inserts its loader row.
+# The loader imports the row's `name`, so this package IS what the row points
+# at: the repository root is the installable unit and resolves to
+# `@opencode2dsh/dsh-plugin` whether it arrived via `file:<repo>`,
+# `github:<owner>/<repo>` or `pnpm pack`. Keeping the row name identical to
+# this package's own name is what makes every install path converge on one
+# package instead of a second, registry-sourced copy (and it is what the
+# client half's module id and `plugins.row.config` key are keyed by).
+#
 # Defaults need no edits: the adapter registers into llm-pi-ai with no key and
 # no extra process. Override any option via the config object (src/config.ts).
 - insert:

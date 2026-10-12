@@ -40,27 +40,50 @@ nothing to host.
 
 ## Install
 
-**From the plugin market** (recommended, once this repo is listed there):
-in DSH open **Settings → Plugin Market**, search `opencode2dsh`, one-click
-install.
+The repository root **is** the installable package, so both Git paths install
+it directly — no publish step, no build step, and no `allowBuilds` entry (the
+package carries no lifecycle script, which is exactly what pnpm blocks a
+git-hosted install on).
 
-**From npm**:
+**From GitHub**:
 
 ```sh
-dsh plugin --profile web add @opencode2dsh/dsh-plugin
+dsh plugin --profile web add github:xbzbing/opencode2dsh
 ```
 
-**From source** (build the tarball yourself):
+**From a local checkout**:
 
 ```sh
-git clone https://github.com/FishBottle7/opencode2dsh.git
-cd opencode2dsh/packages/plugin
-pnpm install && pnpm pack
+git clone https://github.com/xbzbing/opencode2dsh.git
+dsh plugin --profile web add file:/path/to/opencode2dsh
+```
+
+**From a tarball** (optional):
+
+```sh
+pnpm build && pnpm pack
 dsh plugin --profile web add ./opencode2dsh-dsh-plugin-<version>.tgz
 ```
 
+Do not mix these with `dsh plugin add @opencode2dsh/dsh-plugin`: that is the
+upstream npm package, it resolves to the same package name, and installing it
+would replace this fork's copy with code that does not carry these fixes.
+
 **Verify**: restart `dsh web`, open the model picker, and pick a model from
 the **opencode2dsh** group.
+
+### Working from source
+
+`packages/plugin/lib/` is committed on purpose — neither Git install path runs
+a build, so the shipped artifacts have to already be in the checkout. After
+changing anything under `packages/plugin/src/`, run
+
+```sh
+pnpm build && git add packages/plugin/lib
+```
+
+`pnpm test` fails when `lib/` no longer matches `src/`, so a stale build
+cannot be merged.
 
 Requires DSH (DeepSeek Harness) 0.1.7 or newer with a web profile (the IP 池
 settings page rides the 0.1.7 Plugins page contract); Node.js ≥ 20 (already
@@ -161,17 +184,25 @@ The plugin writes a health snapshot after every refresh round:
 ## Development
 
 ```sh
-git clone https://github.com/FishBottle7/opencode2dsh.git
-cd opencode2dsh/packages/plugin
-pnpm install
-pnpm typecheck && pnpm test
-pnpm build                    # bundle to lib/
+git clone https://github.com/xbzbing/opencode2dsh.git
+cd opencode2dsh
+pnpm --dir packages/plugin install   # build toolchain lives here
+pnpm typecheck && pnpm test          # root scripts forward to packages/plugin
+pnpm build                           # clean build of both halves + freshness manifest
+git add packages/plugin/lib          # artifacts are committed, not ignored
 ```
+
+`pnpm build` is the only supported build entry: it empties `packages/plugin/lib`
+first (the inner build runs with `--no-clean` so the two halves can share the
+directory), then builds the node half, the browser half, and stamps
+`lib/.build-manifest.json` — which `pnpm test` checks against `src/`.
 
 The legacy Go sidecar lives in `legacy/agent` (`go test ./...`). Architecture
 notes and the porting record live in `docs/`.
 
-Releasing: `pnpm pack` in `packages/plugin` (prepack builds and syncs docs).
+Packing: `pnpm build && pnpm pack` at the repository root (the root is the
+package; it carries no `prepack` on purpose, since a lifecycle script there is
+what forces git-hosted installs to demand an `allowBuilds` entry).
 
 ## Acknowledgments
 
