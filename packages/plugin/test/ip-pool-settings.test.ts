@@ -116,6 +116,10 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal(view.state, 'warning')
   assert.equal(view.total, 2)
   assert.equal(view.availableFree, 1)
+  // The whole-pool usable count must count across sources. A live profile
+  // rendered the free-source subset bare as "可用 0/20" while every usable
+  // exit was a subscription one, which read as "nothing is usable".
+  assert.equal(view.availableTotal, 2, 'both healthy exits count, whatever their source')
   assert.equal(view.pinned?.id, 'http://10.0.0.1:3128')
   assert.equal(view.pinned?.strict, true)
   assert.equal(view.exits.length, 2)
