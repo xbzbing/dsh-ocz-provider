@@ -19,6 +19,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { Agent, ProxyAgent, type Dispatcher } from 'undici'
 
 import type { ExitPool } from './pool.ts'
+import { DIRECT_EXIT_ID } from './usage.ts'
 
 /** Structural seam over npm undici so tests can inject fakes. */
 export interface UndiciSeam {
@@ -44,6 +45,14 @@ export interface RoutingContext {
   model?: string
   /** Inbound session id (stickiness key, 3.3). */
   session?: string
+  /**
+   * The exit this request was routed through, stamped at pick() (exit-stats
+   * surface). The adapter reads it back when the response's `usage` lands so
+   * tokens attribute to the exit that actually carried the request;
+   * DIRECT_EXIT_ID marks a pool-host request that fell back to a direct
+   * connection. Stays unset for hosts outside the pool (out of scope).
+   */
+  exitId?: string
 }
 
 /** Per-request routing context (docs/ip-pool.md 3.3): pi-ai builds the body
@@ -209,12 +218,22 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     const exitId = this.#pool.pick(session, model)
     if (exitId === null) {
       // Pool unusable (empty / all cooling): direct, never fail closed (3.3).
+      // Still stamped + counted: pool-host traffic that dodged the pool is
+      // exactly what the stats modal's 直连兜底 row exists to surface.
+      context.exitId = DIRECT_EXIT_ID
+      this.#pool.recordDirectRequest()
       return this.#direct.dispatch(options, handler)
     }
     const agent = this.#agentFor(exitId)
     if (!agent) {
+      context.exitId = DIRECT_EXIT_ID
+      this.#pool.recordDirectRequest()
       return this.#direct.dispatch(options, handler)
     }
+    // Stamp the attribution key for the adapter's usage accounting and book
+    // the request lifecycle (begin at pick, end in the observer's terminals).
+    context.exitId = exitId
+    this.#pool.beginRequest(exitId)
     return agent.dispatch(options, this.#observe(exitId, model, session, handler))
   }
 
@@ -250,6 +269,15 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       if (typeof fn === 'function') (fn as (...a: unknown[]) => void).apply(handler, args)
     }
     let classified = false
+    // Request-lifecycle bookkeeping (exit-stats): exactly one end per
+    // dispatch, whichever terminal lands first — response end, transport
+    // error, upgrade, or the silence sentinel firing with no callback at all.
+    let ended = false
+    const end = (): void => {
+      if (ended) return
+      ended = true
+      pool.endRequest(exitId)
+    }
     const classify = (statusCode: number): void => {
       if (classified) return
       classified = true
@@ -265,6 +293,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       classified = true
       pool.recordPassiveTransport(exitId)
       pool.rerouteSession(session)
+      end()
       // One strike retires the exit (`markDeadStrike`), and until the periodic
       // due-probe re-tests it (docs §4.6 deadRetryMs) `isUsable()` hides it
       // from pick(), so a false positive used to be permanent. Log WHY: the
@@ -329,6 +358,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       onRequestUpgrade: (controller, statusCode, headers, socket) => {
         liveController = controller
         disarm()
+        end()
         forward('onRequestUpgrade', [controller, statusCode, headers, socket])
       },
       onResponseStart: (controller, statusCode, headers, statusMessage) => {
@@ -344,12 +374,14 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       onResponseEnd: (controller, trailers) => {
         liveController = controller
         disarm()
+        end()
         forward('onResponseEnd', [controller, trailers])
       },
       onResponseError: (controller, error) => {
         liveController = controller
         disarm()
         classifyTransport(`transport error: ${error instanceof Error ? error.message : String(error)}`)
+        end()
         forward('onResponseError', [controller, error])
       },
       onResponseStarted: () => {

@@ -110,6 +110,12 @@ export interface PoolStatusView {
     consecutiveLimited: number
     bannedModels: Array<{ model: string; state: 'suspect' | 'banned'; bannedAt: number }>
     passive: { ok: number; limited: number; refused: number; dead: number; transport: number }
+    /** Sum of the passive buckets — the stats modal's sort key. */
+    requests: number
+    /** Epoch ms of the most recent dispatch (0 = never). */
+    lastUsedAt: number
+    inFlight: number
+    tokens: TokenTotalsView
   }>
   prober: { queued: number; inFlight: number; enqueued: number; completed: number }
   refill: {
@@ -117,11 +123,23 @@ export interface PoolStatusView {
     progress: { running: boolean; stage: 'fetch' | 'coarse' | 'admit' | 'idle'; sourcesDone: number; sourcesTotal: number; fetched: number; candidates: number; coarsePassed: number; coarseDone: number; admissions: number; admitted: number }
   } | null
   subscription: { urlCount: number; pendingConversion: number; convertedAdmitted: number; plaintextAdmitted: number; lastFetch: number; lastError: string } | null
+  /** Pool-host requests that fell back to direct, with their tokens. */
+  direct: { requests: number; tokens: TokenTotalsView }
   at: number
 }
 
+/** Per-exit token totals (mirrors src/pool/usage.ts TokenTotals). */
+export interface TokenTotalsView {
+  requests: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+  totalTokens: number
+}
+
 /** The bridge prefix (same-origin, loopback-only on the host). */
-const BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
+export const BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
 
 /**
  * The field inside the served entry that holds the editable section: the

@@ -14,6 +14,7 @@
 
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
+import { DIRECT_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
 export const IP_POOL_BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
@@ -39,6 +40,15 @@ export interface ExitRowView {
   bannedModels: Array<{ model: string; state: 'suspect' | 'banned'; bannedAt: number }>
   /** Passive-signal counters from real requests (docs §4.3, IP-6). */
   passive: { ok: number; limited: number; refused: number; dead: number; transport: number }
+  /** Sum of the passive buckets — total classified requests through this exit
+   *  (the exit-stats modal's sort key). */
+  requests: number
+  /** Epoch ms of the most recent dispatch through this exit (0 = never). */
+  lastUsedAt: number
+  /** Requests currently in flight through this exit. */
+  inFlight: number
+  /** Token totals attributed to this exit by the adapter (process lifetime). */
+  tokens: TokenTotals
 }
 
 export interface ProberView {
@@ -97,6 +107,9 @@ export interface PoolStatusView {
   prober: ProberView
   refill: RefillView | null
   subscription: SubscriptionView | null
+  /** Pool-host requests that fell back to direct (empty pool / no agent) with
+   *  the tokens attributed there — the stats modal's 直连兜底 row. */
+  direct: { requests: number; tokens: TokenTotals }
   at: number
 }
 
@@ -128,24 +141,32 @@ export function buildStatusView(
     : { state: 'healthy' as PoolState, total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, availableFree: 0, pinned: '' }
   const now = Date.now()
   const exits: ExitRowView[] = runtime
-    ? runtime.pool.list().map((entry) => ({
-      id: entry.id,
-      source: entry.source,
-      protocol: entry.protocol,
-      pinned: entry.pinned,
-      exitIP: entry.exitIP,
-      exitLocation: entry.exitLocation,
-      latencyMs: entry.latencyMs,
-      quality: entry.quality,
-      state: entry.health.state,
-      cooling: entry.health.cooldownUntil > now,
-      cooldownUntil: entry.health.cooldownUntil,
-      consecutiveLimited: entry.health.consecutiveLimited,
-      bannedModels: entry.bans
-        .filter((b) => b.ban.state !== 'ok')
-        .map((b) => ({ model: b.model, state: b.ban.state as 'suspect' | 'banned', bannedAt: b.ban.bannedAt })),
-      passive: runtime.pool.passiveStats(entry.id),
-    }))
+    ? runtime.pool.list().map((entry) => {
+      const passive = runtime.pool.passiveStats(entry.id)
+      const activity = runtime.pool.activity(entry.id)
+      return {
+        id: entry.id,
+        source: entry.source,
+        protocol: entry.protocol,
+        pinned: entry.pinned,
+        exitIP: entry.exitIP,
+        exitLocation: entry.exitLocation,
+        latencyMs: entry.latencyMs,
+        quality: entry.quality,
+        state: entry.health.state,
+        cooling: entry.health.cooldownUntil > now,
+        cooldownUntil: entry.health.cooldownUntil,
+        consecutiveLimited: entry.health.consecutiveLimited,
+        bannedModels: entry.bans
+          .filter((b) => b.ban.state !== 'ok')
+          .map((b) => ({ model: b.model, state: b.ban.state as 'suspect' | 'banned', bannedAt: b.ban.bannedAt })),
+        passive,
+        requests: passive.ok + passive.limited + passive.refused + passive.dead + passive.transport,
+        lastUsedAt: activity.lastUsedAt,
+        inFlight: activity.inFlight,
+        tokens: usageTracker.totals(entry.id),
+      }
+    })
     : []
   /**
    * Usable exits across the WHOLE pool, any source. `availableFree` is only
@@ -189,6 +210,10 @@ export function buildStatusView(
         lastError: runtime.subscriptions.state.lastError,
       }
       : null,
+    direct: {
+      requests: runtime ? runtime.pool.directRequests : 0,
+      tokens: runtime ? usageTracker.totals(DIRECT_EXIT_ID) : emptyTotals(),
+    },
     at: now,
   }
 }

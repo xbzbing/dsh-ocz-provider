@@ -28,6 +28,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: the Plugins page's SlotMap merge (the 'plugins.item' list entry).
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+// Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry the
+// bottom-left stats button occupies — same contract usage-billing registers).
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
+import { ExitStatsEntry } from './ExitStatsEntry.tsx'
 import { IpPoolCard } from './IpPoolCard.tsx'
 import type { IpPoolKey } from './locales.ts'
 import { en, zh } from './locales.ts'
@@ -99,7 +103,16 @@ export function apply(ctx: ClientContext): void {
             locale: NS,
           }, IpPoolCard)
         })
-        return () => { row(); legacy() }
+        // Bottom-left footer button (sidebar footer, beside Settings): opens
+        // the exit-stats modal. Mounted only while this entry's settings are
+        // served — a deployment without the namespace shows no trace.
+        const footer = slots.inject('sidebar.footer.action', () => slots.register({
+          name: 'sidebar.footer.action',
+          id: 'ip-pool-exits',
+          order: 10,
+          locale: NS,
+        }, ExitStatsEntry))
+        return () => { row(); legacy(); footer() }
       },
     ),
     'opencode2dsh: settings page',

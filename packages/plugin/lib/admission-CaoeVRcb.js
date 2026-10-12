@@ -1,6 +1,6 @@
 import { f as disguiseHeaders, h as stableID, m as randomID, p as opencodeUserAgent, r as ZEN_BASE_URL, u as canonicalSessionID } from "./catalog-Bne5EZa-.js";
 import { a as freeLaneGateTool, t as FREE_LANE_GATE_TOOL_NAMES } from "./messages-CLaBfusR.js";
-import { n as exitProxyUri } from "./dispatcher-Dd1k7p8X.js";
+import { n as exitProxyUri } from "./dispatcher-CSK7Qvyj.js";
 
 //#region src/pool/pool.ts
 /** Quality grade from admission latency (GoProxy thresholds). */
@@ -18,6 +18,12 @@ var ExitPool = class {
 	#sessionExit = /* @__PURE__ */ new Map();
 	/** Passive-signal counters per exit (docs/ip-pool.md §4.3 被动 + IP-6 stats). */
 	#passive = /* @__PURE__ */ new Map();
+	/** Live-request activity per exit: last dispatch stamp + in-flight count
+	*  (exit-stats surface — "which exit is being used right now"). */
+	#activity = /* @__PURE__ */ new Map();
+	/** Pool-host requests that fell back to a direct connection (empty pool /
+	*  missing proxy agent) — the honest 直连兜底 count for the stats modal. */
+	#directRequests = 0;
 	/** Fired once per newly added node — see onAdmitted(). */
 	#admittedCallbacks = [];
 	#targetSize;
@@ -97,6 +103,7 @@ var ExitPool = class {
 		this.#nodes.delete(id);
 		this.#health.delete(id);
 		this.#passive.delete(id);
+		this.#activity.delete(id);
 		for (const key of this.#bans.keys()) if (key.startsWith(`${id}\u0000`)) this.#bans.delete(key);
 		for (const [session, exitId] of this.#sessionExit) if (exitId === id) this.#sessionExit.delete(session);
 		this.#clearPinnedIf(id);
@@ -304,6 +311,43 @@ var ExitPool = class {
 			dead: 0,
 			transport: 0
 		} };
+	}
+	/**
+	* Book one dispatched request against this exit: stamps last-used with the
+	* pool clock and increments in-flight until endRequest lands. Called by the
+	* routing dispatcher at pick() — the moment "which exit is serving this"
+	* becomes known (exit-stats surface).
+	*/
+	beginRequest(id) {
+		const slot = this.#activity.get(id) ?? {
+			lastUsedAt: 0,
+			inFlight: 0
+		};
+		slot.lastUsedAt = this.#now();
+		slot.inFlight += 1;
+		this.#activity.set(id, slot);
+	}
+	/** Terminal callback for a begun request; floors at zero on a double end
+	*  (the observer can end from both the response path and the sentinel). */
+	endRequest(id) {
+		const slot = this.#activity.get(id);
+		if (slot !== void 0 && slot.inFlight > 0) slot.inFlight -= 1;
+	}
+	/** Activity row for one exit (status bridge); zeros when never dispatched. */
+	activity(id) {
+		const slot = this.#activity.get(id);
+		return slot === void 0 ? {
+			lastUsedAt: 0,
+			inFlight: 0
+		} : { ...slot };
+	}
+	/** Count one pool-host request that fell back to a direct connection. */
+	recordDirectRequest() {
+		this.#directRequests += 1;
+	}
+	/** Total direct-fallback requests since process start (status bridge). */
+	get directRequests() {
+		return this.#directRequests;
 	}
 	isUsable(id, model) {
 		const health = this.#health.get(id);
