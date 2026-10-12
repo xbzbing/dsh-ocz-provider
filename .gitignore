@@ -2,7 +2,14 @@
 node_modules/
 
 # Build output
-packages/plugin/lib/
+#
+# packages/plugin/lib/ is deliberately TRACKED, not ignored: `dsh plugin add
+# file:<repo>` and `dsh plugin add github:<owner>/<repo>` both install the
+# root package without running any lifecycle script (pnpm runs none for
+# `file:` directory deps and blocks git-hosted builds behind allowBuilds), so
+# the shipped artifacts have to already exist in the checkout. Rebuild with
+# `pnpm build` after every source change and commit the result —
+# test/lib-fresh.test.ts fails when lib/ no longer matches src/.
 packages/plugin/bin/
 packages/plugin/README.md
 packages/plugin/README.zh-CN.md

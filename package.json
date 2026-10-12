@@ -1,13 +1,50 @@
 {
-  "name": "opencode2dsh",
+  "name": "@opencode2dsh/dsh-plugin",
+  "version": "0.3.11",
   "private": true,
+  "type": "module",
   "description": "Free OpenCode Zen models for DeepSeek Harness (DSH): native dsh-llm adapter plugin, no API key.",
+  "license": "MIT",
+  "main": "./packages/plugin/lib/index.js",
+  "exports": {
+    ".": "./packages/plugin/lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./client": "./packages/plugin/lib/client.js"
+  },
+  "files": [
+    "cordis.patch.yml",
+    "packages/plugin/lib"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ],
+      "platform": "web",
+      "external": [
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ]
     }
   },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "pnpm --dir packages/plugin typecheck",
+    "test": "pnpm --dir packages/plugin test",
+    "verify": "pnpm typecheck && pnpm test"
+  },
   "dependencies": {
-    "@opencode2dsh/dsh-plugin": "^0.3.1"
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "undici": "^8.10.1",
+    "yaml": "^2.9.0"
   }
 }
