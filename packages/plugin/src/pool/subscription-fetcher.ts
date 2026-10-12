@@ -63,10 +63,13 @@ export class SubscriptionFetcher {
   #stopped = false
   #intervalMs: number
   #timeoutMs: number
+  /** Live conversion core; see setSupervisor(). */
+  #supervisor: SubscriptionDeps['supervisor']
   #logger?: SubscriptionOptions['logger']
 
   constructor(deps: SubscriptionDeps, options: SubscriptionOptions = {}) {
     this.#deps = deps
+    this.#supervisor = deps.supervisor
     this.#intervalMs = options.intervalMs ?? 30 * 60_000
     this.#timeoutMs = options.timeoutMs ?? 30_000
     this.#logger = options.logger
@@ -96,6 +99,19 @@ export class SubscriptionFetcher {
     }
   }
 
+  /**
+   * Attach or replace the encrypted-node conversion core (settings page,
+   * docs §5.1). `singbox.path` is editable while the pool runs, but the
+   * supervisor used to be read once at construction — so filling the field
+   * after the fetcher existed had NO effect until a restart, and the parked
+   * nodes simply stayed parked with no error to explain why. Conversion runs
+   * on the next refresh, so callers that want it immediately should follow up
+   * with refreshNow().
+   */
+  setSupervisor(supervisor: SubscriptionDeps['supervisor']): void {
+    this.#supervisor = supervisor
+  }
+
   /** Manual refresh trigger (settings page 立即刷新, docs §5.3 /probe scope: 'refill' parity). */
   async refreshNow(): Promise<SubscriptionState> {
     return this.refresh()
@@ -114,7 +130,7 @@ export class SubscriptionFetcher {
       clearInterval(this.#timer)
       this.#timer = null
     }
-    void this.#deps.supervisor?.stop().catch(() => {})
+    void this.#supervisor?.stop().catch(() => {})
   }
 
   /** One refresh round over every URL; never overlaps itself. */
@@ -154,9 +170,9 @@ export class SubscriptionFetcher {
       }
       // Encrypted nodes -> sing-box conversion -> local SOCKS5 exits (IP-4).
       // Without a supervisor configured they stay parked as pending.
-      if (pending.length > 0 && this.#deps.supervisor) {
+      if (pending.length > 0 && this.#supervisor) {
         try {
-          const exits = await this.#deps.supervisor.reload(pending)
+          const exits = await this.#supervisor.reload(pending)
           const tasks: ProbeTask[] = exits
             .filter((exit) => !this.#deps.pool.has(exit.address))
             .map((exit): ProbeTask => ({

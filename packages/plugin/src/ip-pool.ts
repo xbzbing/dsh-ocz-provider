@@ -240,6 +240,11 @@ export async function startIpPool(
     const urls = current.subscriptions ?? []
     const fetcher = ensureSubscriptions(urls)
     if (fetcher !== null) {
+      // Attach/replace the conversion core on every commit: `singbox.path` is
+      // editable while the pool runs, and the supervisor used to be read only
+      // when the fetcher was first constructed — so filling the field after
+      // that had no effect at all until a restart (docs §5.1 promises live).
+      fetcher.setSupervisor(ensureSupervisor())
       fetcher.setIntervalMs(current.subscription?.refreshMs ?? 30 * 60_000)
       if (fetcher === subscriptions && !fetcherActive) {
         fetcher.start()

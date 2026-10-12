@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The subscription card's 「立即刷新」 button now re-pulls subscriptions (live 2026-10-12). It sent `scope: 'refill'`, which runs the FREE-SOURCE refill round, and the bridge had no subscription scope at all — so `IpPoolRuntime.refreshSubscriptions()` was implemented but had **zero callers**, and a subscription could only ever refresh on its own 30-minute timer. The bridge now accepts `scope: 'subscription'` (returning `{refreshed: true}`) and the button sends it. Symptom this caused: filling `singbox.path` and clicking refresh appeared to do nothing, because the round that would have converted the parked nodes was never started.
+- Setting `singbox.path` while the pool is running now takes effect without a restart (live 2026-10-12). `SubscriptionFetcher` captured `deps.supervisor` once at construction, and the fetcher is created at boot then reused across commits, so a path filled in later was never attached: every encrypted node stayed parked as pending-conversion forever with no error to explain it (`~/.opencode2dsh/singbox/` was never even created). The fetcher gained `setSupervisor()`, and `applyConfig()` attaches or replaces the core on every commit — matching the docs §5.1 promise that every knob applies live. Conversion still runs on the next refresh round, so pair it with 立即刷新.
+
 ## 0.3.11 (2026-10-11)
 
 ### Fixed

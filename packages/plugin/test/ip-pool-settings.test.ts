@@ -153,8 +153,9 @@ test('status view degrades to a disabled stub without a runtime', () => {
 
 // -- bridge: handlers ------------------------------------------------------------
 
-test('probe handlers: scope all/refill/exit dispatch and reject unknowns', async () => {
-  const rt = fakeRuntime() as never
+test('probe handlers: scope all/refill/exit/subscription dispatch and reject unknowns', async () => {
+  const refreshed: number[] = []
+  const rt = fakeRuntime({ refreshSubscriptions: async () => { refreshed.push(1) } }) as never
   const handlers = makeBridgeHandlers(() => rt, () => ({ pinnedStrict: false, proxyHosts: [] }))
   const all = await handlers.probe({ scope: 'all' })
   assert.deepEqual(all, { ok: true, value: { queued: 2 } })
@@ -162,6 +163,13 @@ test('probe handlers: scope all/refill/exit dispatch and reject unknowns', async
   assert.deepEqual(one, { ok: true, value: { queued: 1 } })
   const refill = await handlers.probe({ scope: 'refill' })
   assert.deepEqual(refill, { ok: true, value: { refilled: true } })
+  // Regression (live 2026-10-12): the card's 订阅「立即刷新」 button sent
+  // 'refill' (free sources) and no scope reached refreshSubscriptions(), so a
+  // subscription could never be re-pulled on demand — filling singbox.path
+  // then appeared to do nothing.
+  const subscription = await handlers.probe({ scope: 'subscription' })
+  assert.deepEqual(subscription, { ok: true, value: { refreshed: true } })
+  assert.equal(refreshed.length, 1, 'the subscription refresh must be the one that ran')
   const bad = await handlers.probe({ scope: 'nope' })
   assert.equal(bad.ok, false)
   assert.equal((bad as { code: string }).code, 'settings-rejected')
