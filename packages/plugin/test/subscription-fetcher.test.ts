@@ -102,3 +102,33 @@ test('subscription nodes never enter the pool twice (idempotent refresh)', async
   const rows = pool.list().filter((n) => n.source === 'subscription')
   assert.equal(rows.length, 2) // still the same two plaintext nodes
 })
+
+// -- conversion core attached after construction -------------------------------
+
+test('a supervisor attached after construction converts on the next refresh', async () => {
+  // Regression (live 2026-10-12): `singbox.path` is editable while the pool
+  // runs, but the supervisor was read once at construction. Filling the field
+  // after the fetcher existed left every encrypted node parked forever, with
+  // no error to explain it.
+  const { pool, fetcher } = makeFetcher((async () => new Response(SUB_BODY)) as unknown as typeof fetch)
+  fetcher.setUrls(['https://sub.example.com/x'])
+  const before = await fetcher.refresh()
+  assert.equal(before.pendingConversion.length, 1, 'the anytls node parks while no core is configured')
+  assert.equal(pool.has('127.0.0.1:30001'), false)
+
+  const reloaded: Array<unknown> = []
+  fetcher.setSupervisor({
+    reload: async (nodes) => {
+      reloaded.push(nodes)
+      return nodes.map((node, index) => ({ address: `127.0.0.1:${30001 + index}`, protocol: 'socks5' as const, node }))
+    },
+    stop: async () => {},
+    running: true,
+  })
+
+  const after = await fetcher.refresh()
+  assert.equal(reloaded.length, 1, 'the attached core is used by the next round')
+  assert.equal(after.pendingConversion.length, 0, 'nothing stays parked once conversion ran')
+  assert.ok(pool.has('127.0.0.1:30001'), 'the converted exit is admitted')
+  assert.equal(pool.get('127.0.0.1:30001')?.source, 'subscription')
+})
