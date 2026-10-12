@@ -256,6 +256,9 @@ export async function startIpPool(
       // that had no effect at all until a restart (docs §5.1 promises live).
       fetcher.setSupervisor(ensureSupervisor())
       fetcher.setIntervalMs(current.subscription?.refreshMs ?? 30 * 60_000)
+      // Applied before start() so the very first refresh already carries the
+      // configured UA (airports gate on it — an unlisted one answers 502).
+      fetcher.setUserAgent(current.subscription?.userAgent)
       if (fetcher === subscriptions && !fetcherActive) {
         fetcher.start()
         fetcherActive = true
