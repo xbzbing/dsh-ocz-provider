@@ -111,14 +111,35 @@ export class SubscriptionFetcher {
     return this.#urls.length
   }
 
-  /** Update the subscription URL list (settings change); refresh follows. */
+  /**
+   * Update the subscription URL list (settings change) and, when the fetcher
+   * is already running AND the list really changed, pull right away.
+   *
+   * Live-observed 2026-10-12: saving the settings card only re-seeded the
+   * list, so a newly added airport URL stayed unfetched until the next
+   * interval tick — with the shipped 30-minute default that looked exactly
+   * like "the setting did not apply". Before `start()` (first assembly) the
+   * immediate refresh is skipped on purpose: the caller starts the fetcher
+   * right after, which fetches anyway.
+   */
   setUrls(urls: string[]): void {
-    this.#urls = urls.filter((url) => url.trim().length > 0)
+    const next = urls.filter((url) => url.trim().length > 0)
+    const changed = next.length !== this.#urls.length || next.some((url, index) => url !== this.#urls[index])
+    this.#urls = next
+    if (changed && this.#timer !== null && !this.#stopped && next.length > 0) void this.refresh()
   }
 
-  /** Live re-apply of the refresh interval (settings page, docs §5.1). */
+  /**
+   * Live re-apply of the refresh interval (settings page, docs §5.1). A save
+   * that does not change the interval must NOT re-arm the timer: every
+   * settings commit calls this method, and restarting the countdown on each
+   * one pushed the next fetch a full interval away — a save made the pool
+   * less live, not more.
+   */
   setIntervalMs(ms: number): void {
-    this.#intervalMs = Math.max(60_000, ms)
+    const next = Math.max(60_000, ms)
+    if (next === this.#intervalMs) return
+    this.#intervalMs = next
     if (this.#timer !== null) {
       clearInterval(this.#timer)
       this.#timer = setInterval(() => void this.refresh(), this.#intervalMs)

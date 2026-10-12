@@ -84,6 +84,9 @@ export interface PoolStatusView {
   enabled: boolean
   deferredReason: string
   state: 'healthy' | 'warning' | 'critical' | 'emergency'
+  /** Which population produced `state`: the free-source machine while that
+   *  source is on, the whole pool once it is off. */
+  stateBasis: 'free' | 'pool'
   total: number
   bySource: Record<'free' | 'manual' | 'subscription' | 'goproxy', number>
   availableFree: number
@@ -462,7 +465,12 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
   }
   return (
     <div className={styles.overviewBar} data-testid="ip-pool-overview">
-      <span className={`${styles.badge} ${stateClass[status.state]}`}>{stateLabel[status.state]}</span>
+      <span
+        className={`${styles.badge} ${stateClass[status.state]}`}
+        title={status.stateBasis === 'pool' ? t('stateBasisPool') : t('stateBasisFree')}
+      >
+        {stateLabel[status.state]}
+      </span>
       {status.deferredReason !== '' && (
         <span className={`${styles.badge} ${styles.badgeCritical}`}>
           {t('deferredNotice').replace('{reason}', status.deferredReason)}

@@ -183,3 +183,72 @@ test('a supervisor attached after construction converts on the next refresh', as
   assert.ok(pool.has('127.0.0.1:30001'), 'the converted exit is admitted')
   assert.equal(pool.get('127.0.0.1:30001')?.source, 'subscription')
 })
+
+// -- live re-apply of the URL list and the refresh interval ---------------------
+
+/** Drain the microtask queue so a fire-and-forget refresh can settle. */
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+/** A fetch stub that records every pulled URL (empty 200 bodies). */
+function urlRecorder(seen: string[]): typeof fetch {
+  return (async (url: string) => {
+    seen.push(String(url))
+    return new Response('')
+  }) as unknown as typeof fetch
+}
+
+test('setUrls: a changed list on a running fetcher pulls right away', async () => {
+  const pulls: string[] = []
+  const { fetcher } = makeFetcher(urlRecorder(pulls))
+  fetcher.setUrls(['https://a.example.com/x'])
+  assert.deepEqual(pulls, [], 'before start() the caller owns the first pull')
+
+  fetcher.start()
+  await settle()
+  assert.deepEqual(pulls, ['https://a.example.com/x'])
+
+  // Regression (live 2026-10-12): saving a new airport URL only re-seeded the
+  // list, so the subscription was not pulled until the next timer tick — up to
+  // 30 minutes of "the setting did not apply".
+  fetcher.setUrls(['https://a.example.com/x', 'https://b.example.com/y'])
+  await settle()
+  assert.deepEqual(pulls, ['https://a.example.com/x', 'https://a.example.com/x', 'https://b.example.com/y'])
+
+  fetcher.setUrls(['https://a.example.com/x', 'https://b.example.com/y'])
+  await settle()
+  assert.equal(pulls.length, 3, 'an unchanged list stays quiet')
+
+  fetcher.setUrls([])
+  await settle()
+  assert.equal(fetcher.urlCount, 0)
+  assert.equal(pulls.length, 3, 'removing every URL fetches nothing')
+  fetcher.stop()
+})
+
+test('setIntervalMs: only a real change re-arms the refresh timer', async (t) => {
+  // Every settings commit calls setIntervalMs, so re-arming unconditionally
+  // pushed the next fetch a full interval away from the save — a save made the
+  // pool less live, not more (live-observed 2026-10-12).
+  t.mock.timers.enable({ apis: ['setInterval'], now: 0 })
+  const pulls: string[] = []
+  const { fetcher } = makeFetcher(urlRecorder(pulls))
+  fetcher.setUrls(['https://a.example.com/x'])
+  fetcher.start()
+  await settle()
+  assert.equal(pulls.length, 1)
+
+  t.mock.timers.tick(29 * 60_000)
+  fetcher.setIntervalMs(30 * 60_000)
+  t.mock.timers.tick(60_000)
+  await settle()
+  assert.equal(pulls.length, 2, 'the original 30-minute deadline still fires')
+
+  fetcher.setIntervalMs(60 * 60_000)
+  t.mock.timers.tick(30 * 60_000)
+  await settle()
+  assert.equal(pulls.length, 2, 'after a real change the old deadline no longer fires')
+  t.mock.timers.tick(30 * 60_000)
+  await settle()
+  assert.equal(pulls.length, 3, 'the new 60-minute interval took over')
+  fetcher.stop()
+})

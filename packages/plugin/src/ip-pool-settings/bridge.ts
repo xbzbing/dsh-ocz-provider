@@ -75,6 +75,15 @@ export interface PoolStatusView {
    *  dispatcher-level plugin (R1 coexistence policy). */
   deferredReason: string
   state: PoolState
+  /**
+   * Which population produced {@link state}. `free` = the documented 3.5
+   * four-state machine over the free-source pool (only meaningful while the
+   * free source is on); `pool` = the same thresholds applied to the whole
+   * pool, used once the free source is disabled — a subscription/manual-only
+   * profile otherwise stays on "emergency" forever (0 free nodes, live
+   * observation 2026-10-12).
+   */
+  stateBasis: 'free' | 'pool'
   total: number
   bySource: Record<ExitSource, number>
   /** Usable FREE-source exits — a subset of availableTotal, not the pool total. */
@@ -91,12 +100,29 @@ export interface PoolStatusView {
   at: number
 }
 
+/**
+ * The four-state thresholds (docs 3.5) applied to a usable/capacity ratio.
+ * An empty population reads `warning`, never `emergency`: an enabled pool
+ * whose exits have not landed yet (subscription still fetching) is not the
+ * same failure as a pool that drained.
+ */
+function stateOfRatio(available: number, capacity: number): PoolState {
+  if (capacity <= 0) return 'warning'
+  const ratio = available / capacity
+  if (ratio < 0.1) return 'emergency'
+  if (ratio < 0.3) return 'critical'
+  if (ratio < 0.95) return 'warning'
+  return 'healthy'
+}
+
 /** Build the /status view over the live runtime (or a disabled stub). */
 export function buildStatusView(
   runtime: IpPoolRuntime | null,
   pinnedStrict: boolean,
   proxyHosts: string[],
+  options: { freeEnabled?: boolean } = {},
 ): PoolStatusView {
+  const freeEnabled = options.freeEnabled ?? true
   const snapshot = runtime
     ? runtime.pool.snapshot()
     : { state: 'healthy' as PoolState, total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, availableFree: 0, pinned: '' }
@@ -121,23 +147,26 @@ export function buildStatusView(
       passive: runtime.pool.passiveStats(entry.id),
     }))
     : []
+  /**
+   * Usable exits across the WHOLE pool, any source. `availableFree` is only
+   * the free-source subset, so rendering it as a bare "可用 n/capacity"
+   * reads as "nothing is usable" to anyone running subscription/manual
+   * exits only — a live profile showed "可用 0/20 · 手填 1 · 订阅 12" while
+   * 7 of those 12 were healthy.
+   */
+  const availableTotal = exits.filter((exit) => exit.state === 'ok').length
+  const stateBasis: 'free' | 'pool' = freeEnabled ? 'free' : 'pool'
   return {
     enabled: runtime !== null && runtime.installer.enabled,
     deferredReason: runtime !== null && !runtime.installer.enabled
       ? (runtime.installer as unknown as { deferredReason?: string }).deferredReason ?? ''
       : '',
-    state: snapshot.state,
+    state: stateBasis === 'free' ? snapshot.state : stateOfRatio(availableTotal, snapshot.total),
+    stateBasis,
     total: snapshot.total,
     bySource: snapshot.bySource,
     availableFree: snapshot.availableFree,
-    /**
-     * Usable exits across the WHOLE pool, any source. `availableFree` is only
-     * the free-source subset, so rendering it as a bare "可用 n/capacity"
-     * reads as "nothing is usable" to anyone running subscription/manual
-     * exits only — a live profile showed "可用 0/20 · 手填 1 · 订阅 12" while
-     * 7 of those 12 were healthy.
-     */
-    availableTotal: exits.filter((exit) => exit.state === 'ok').length,
+    availableTotal,
     targetSize: runtime ? runtime.pool.targetSize : 20,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict }
@@ -271,14 +300,15 @@ export type ListLiveModels = () => string[]
 /** Build the bridge handlers over the runtime + current settings. */
 export function makeBridgeHandlers(
   runtime: () => IpPoolRuntime | null,
-  settings: () => { pinnedStrict: boolean; proxyHosts: string[] },
+  settings: () => { pinnedStrict: boolean; proxyHosts: string[]; freeEnabled?: boolean },
   deps: { listLiveModels?: ListLiveModels } = {},
 ): BridgeHandlers {
   return {
     async status() {
+      const current = settings()
       return {
         ok: true,
-        value: buildStatusView(runtime(), settings().pinnedStrict, settings().proxyHosts),
+        value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, { freeEnabled: current.freeEnabled }),
       }
     },
     async probe(body) {

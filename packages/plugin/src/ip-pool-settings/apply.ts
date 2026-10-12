@@ -146,6 +146,11 @@ export function applyIpPoolSettings(
           proxyHosts: controller.runtime?.installer && controller.settings().proxyHosts.length > 0
             ? controller.settings().proxyHosts
             : ['opencode.ai'],
+          // The card's state badge follows the free-source machine only while
+          // that source is on; with free disabled the same thresholds apply
+          // to the whole pool (a subscription-only profile used to sit on
+          // "emergency" forever, live-observed 2026-10-12).
+          freeEnabled: controller.settings().free.enabled,
         }),
         {
           // Probe-model dropdown rows: the plugin's live Zen catalog when one

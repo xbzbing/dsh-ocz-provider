@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
 import type { UndiciSeam } from './pool/dispatcher.ts'
 import type { AdmissionDeps } from './pool/admission.ts'
+import type { InstallerDeps } from './pool/installer.ts'
 import { Prober } from './pool/prober.ts'
 import { RefillScheduler } from './pool/refill.ts'
 import { SubscriptionFetcher } from './pool/subscription-fetcher.ts'
@@ -56,50 +57,85 @@ export function parseManualProxy(
   return { id: trimmed, protocol }
 }
 
+/** One manual/pinned row: unknown facts until the prober measures them. */
+function manualNode(id: string, protocol: 'http' | 'socks5'): ExitNode {
+  return {
+    id,
+    protocol,
+    source: 'manual',
+    pinned: false,
+    exitIP: '',
+    exitLocation: '',
+    latencyMs: 0,
+    quality: gradeOf(0),
+    addedAt: Date.now(),
+  }
+}
+
+/**
+ * Make the pool's manual rows and its pin match `ipPool` exactly: add what the
+ * config names, drop what it no longer names, then pin/unpin.
+ *
+ * Idempotent, and scoped to `source === 'manual'` rows (free and subscription
+ * rows are never touched). Runs at assembly AND on every live commit.
+ *
+ * Live-observed gap this closes (2026-10-12): manual/pinned used to be read
+ * ONLY at assembly, so editing 固定主力 in the settings card wrote the config,
+ * triggered reconfigure() — and changed nothing. The stale pin kept winning
+ * pick() while the deleted row stayed in the table, so the only visible fix
+ * was a restart. docs §5.1 / IP-5 acceptance ("设置页改任何项保存即生效无需重启")
+ * was unmet for exactly these two fields.
+ *
+ * A pinned address that is not in the pool is admitted as a manual row (the
+ * user vouches for it, docs 3.1/4.5); an id that is already in the pool keeps
+ * its row and source and is merely pinned.
+ */
+export function syncManualExits(pool: ExitPool, ipPool: Opencode2dshConfig['ipPool'] = {}): void {
+  const desired = new Set<string>()
+  for (const entry of ipPool?.manual ?? []) {
+    const parsed = parseManualProxy(entry)
+    if (!parsed) continue
+    desired.add(parsed.id)
+    if (!pool.has(parsed.id)) {
+      pool.add(manualNode(parsed.id, parsed.protocol))
+      pool.markOk(parsed.id)
+    }
+  }
+
+  const requested = (ipPool?.pinnedExitId ?? '').trim()
+  let pinned = ''
+  if (requested !== '') {
+    if (pool.has(requested)) {
+      pinned = requested
+    } else {
+      // Not in the pool yet: a manual address is vouched in; anything else
+      // (garbage, or a subscription exit that has not been admitted yet)
+      // simply pins nothing — same tolerance buildPoolFromConfig always had.
+      const parsed = parseManualProxy(requested)
+      if (parsed) {
+        pool.add(manualNode(parsed.id, parsed.protocol))
+        pool.markOk(parsed.id)
+        pinned = parsed.id
+      }
+    }
+    if (pinned !== '') desired.add(pinned)
+  }
+
+  for (const node of pool.list()) {
+    if (node.source === 'manual' && !desired.has(node.id)) pool.remove(node.id)
+  }
+
+  if (pinned === '') pool.unpin()
+  else pool.pin(pinned)
+}
+
 /** Build the ExitPool from config (manual proxies + pinned). The pool starts
  *  with unknown health; the periodic/probe layer (IP-2) fills it in. Pinned
  *  nodes are admitted even without admission data — the user vouches for
  *  them (docs/ip-pool.md 3.1/4.5). */
 export function buildPoolFromConfig(config: Opencode2dshConfig): ExitPool {
   const pool = new ExitPool()
-  const ipPool = config.ipPool ?? {}
-  for (const entry of ipPool.manual ?? []) {
-    const parsed = parseManualProxy(entry)
-    if (!parsed) continue
-    const node: ExitNode = {
-      id: parsed.id,
-      protocol: parsed.protocol,
-      source: 'manual',
-      pinned: false,
-      exitIP: '',
-      exitLocation: '',
-      latencyMs: 0,
-      quality: gradeOf(0),
-      addedAt: Date.now(),
-    }
-    pool.add(node)
-    pool.markOk(node.id)
-  }
-  const pinned = ipPool.pinnedExitId?.trim()
-  if (pinned) {
-    const parsed = parseManualProxy(pinned)
-    if (parsed) {
-      const node: ExitNode = {
-        id: parsed.id,
-        protocol: parsed.protocol,
-        source: 'manual',
-        pinned: true,
-        exitIP: '',
-        exitLocation: '',
-        latencyMs: 0,
-        quality: gradeOf(0),
-        addedAt: Date.now(),
-      }
-      pool.add(node)
-      pool.markOk(node.id)
-      pool.pin(node.id)
-    }
-  }
+  syncManualExits(pool, config.ipPool)
   return pool
 }
 
@@ -112,6 +148,9 @@ export interface IpPoolRuntime {
     readonly enabled: boolean
     /** R1 coexistence: why the routing layer deferred (null when active). */
     readonly deferredReason: string | null
+    /** Live re-apply of the proxied-host list; optional so a test seam can
+     *  stand in without implementing the running router's forwarding. */
+    setProxyHosts?(hosts?: string[]): void
   }
   /** Shared probe scheduler (admission + periodic probes + UI-triggered). */
   prober: Prober
@@ -134,6 +173,16 @@ export interface IpPoolRuntime {
   dispose(): Promise<void>
 }
 
+export interface IpPoolAssemblyDeps {
+  /**
+   * Installer factory seam. Production leaves it unset and gets the real
+   * RoutingInstaller (imported lazily so undici stays out of the default
+   * install's module graph); tests inject a fake so the engage-routing wiring
+   * can be asserted without installing a global dispatcher into the process.
+   */
+  makeInstaller?: (deps: InstallerDeps) => IpPoolRuntime['installer']
+}
+
 /**
  * Assemble the routing stack. Returns null (with a logged reason) when the
  * host has no undici or the pool ends up empty — enabled-but-empty must
@@ -146,6 +195,7 @@ export interface IpPoolRuntime {
 export async function startIpPool(
   config: Opencode2dshConfig,
   logger: { info(message: string): void; warn(message: string): void },
+  deps: IpPoolAssemblyDeps = {},
 ): Promise<IpPoolRuntime | null> {
   const ipPool = config.ipPool ?? {}
   const pool = buildPoolFromConfig(config)
@@ -158,13 +208,15 @@ export async function startIpPool(
     return null
   }
 
-  const { RoutingInstaller } = await import('./pool/installer.ts')
-  const installer = new RoutingInstaller({
+  const installerDeps: InstallerDeps = {
     pool,
     undici,
     proxyHosts: ipPool.proxyHosts,
     logger,
-  })
+  }
+  const installer: IpPoolRuntime['installer'] = deps.makeInstaller !== undefined
+    ? deps.makeInstaller(installerDeps)
+    : new (await import('./pool/installer.ts')).RoutingInstaller(installerDeps)
 
   const admissionDeps: AdmissionDeps = {
     pool,
@@ -215,6 +267,11 @@ export async function startIpPool(
   /** Apply the config to the live objects (initial start + reconfigure). */
   const applyConfig = (): void => {
     const current = config.ipPool ?? {}
+    // Manual rows and the pin FIRST: they are table membership, and the
+    // subscription/free layers below must see the post-edit table. This is
+    // the hot path the settings card promises — without it, editing 固定主力
+    // wrote the config and left the old pin winning pick() until a restart.
+    syncManualExits(pool, current)
     pool.setTargetSize(current.free?.targetSize ?? 20)
     admissionDeps.blockedCountries = current.free?.blockedCountries
     admissionDeps.smokeModel = probeModels[0]
@@ -225,20 +282,6 @@ export async function startIpPool(
     const wantRefill = (current.free?.enabled ?? true) && current.enabled !== false
     if (wantRefill && refill === null) {
       refill = new RefillScheduler(pool, { ...admissionDeps, prober })
-      // Auto-install when the first refill lands exits (live-observed
-      // 2026-09-09): the free-source pool starts EMPTY, so the initial
-      // install() below stays deferred ("no exits configured") and nothing
-      // ever retried it — the pool filled up but routing never engaged
-      // until the user touched settings (reconfigure). Watch the pool and
-      // engage routing the moment the first exit is admitted.
-      refill.onAdmitted(() => {
-        if (!installer.enabled && current.enabled !== false && pool.snapshot().total > 0) {
-          installer.install()
-          if (installer.enabled) {
-            logger.info('opencode2dsh: first free exits admitted — exit routing engaged')
-          }
-        }
-      })
       refill.start()
     } else if (!wantRefill && refill !== null) {
       refill.stop()
@@ -267,10 +310,29 @@ export async function startIpPool(
   }
 
   let fetcherActive = false
+
+  /**
+   * Engage routing as soon as the pool stops being empty.
+   *
+   * A pool that assembles EMPTY (subscription-only profile, or free enabled
+   * but not yet refilled) skips the install() below and used to have no
+   * retry hook except a settings save: the exits landed minutes later and
+   * every request kept going direct while the card reported the pool as
+   * enabled. This watches the TABLE, not a source, so subscription, free and
+   * manual admissions all engage routing (live-observed 2026-10-12).
+   */
+  const engageRouting = (): void => {
+    if (config.ipPool?.enabled === false) return
+    if (installer.enabled || pool.snapshot().total === 0) return
+    installer.install()
+    if (installer.enabled) logger.info('opencode2dsh: exits admitted — exit routing engaged (live)')
+  }
+  pool.onAdmitted(engageRouting)
+
   if (pool.snapshot().total > 0) {
     installer.install()
   } else {
-    logger.warn('opencode2dsh: ipPool enabled but no exits configured; staying direct until settings add exits')
+    logger.warn('opencode2dsh: ipPool enabled but the pool is empty; staying direct until exits land (subscription/free admissions engage routing automatically)')
   }
   applyConfig()
 
