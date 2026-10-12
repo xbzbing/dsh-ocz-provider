@@ -77,7 +77,10 @@ export interface PoolStatusView {
   state: PoolState
   total: number
   bySource: Record<ExitSource, number>
+  /** Usable FREE-source exits — a subset of availableTotal, not the pool total. */
   availableFree: number
+  /** Usable exits across the whole pool, any source. */
+  availableTotal: number
   targetSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
@@ -127,6 +130,14 @@ export function buildStatusView(
     total: snapshot.total,
     bySource: snapshot.bySource,
     availableFree: snapshot.availableFree,
+    /**
+     * Usable exits across the WHOLE pool, any source. `availableFree` is only
+     * the free-source subset, so rendering it as a bare "可用 n/capacity"
+     * reads as "nothing is usable" to anyone running subscription/manual
+     * exits only — a live profile showed "可用 0/20 · 手填 1 · 订阅 12" while
+     * 7 of those 12 were healthy.
+     */
+    availableTotal: exits.filter((exit) => exit.state === 'ok').length,
     targetSize: runtime ? runtime.pool.targetSize : 20,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict }
