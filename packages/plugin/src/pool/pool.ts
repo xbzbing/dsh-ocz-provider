@@ -205,8 +205,10 @@ export class ExitPool {
    * Evict the worst exit to make room for a better candidate (whole pool, any
    * source, pinned never). Worst = lowest quality grade, then slowest, then
    * oldest — the same ordering `evictWorstFree()` uses, minus the source filter.
+   * Returns the evicted id (null when nothing can be evicted), because the
+   * caller has to close that exit's local listener too — see `Onboarder.trim()`.
    */
-  evictWorst(): boolean {
+  evictWorst(): string | null {
     const gradeRank: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3 }
     let worst: ExitNode | null = null
     for (const node of this.#nodes.values()) {
@@ -222,9 +224,9 @@ export class ExitPool {
         || (byGrade === 0 && byLatency === 0 && node.addedAt < worst.addedAt)
       if (worse) worst = node
     }
-    if (worst === null) return false
+    if (worst === null) return null
     this.remove(worst.id)
-    return true
+    return worst.id
   }
 
   /** Live re-apply of the free-pool target capacity (settings page, §5.1). */

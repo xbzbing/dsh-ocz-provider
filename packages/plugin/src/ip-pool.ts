@@ -354,6 +354,14 @@ export async function startIpPool(
         fetcher.start()
         fetcherActive = true
       }
+      // Lowering poolSize must converge the LIVE pool, not just the next
+      // onboarding: drop the worst exits and close their listeners with them
+      // (live 2026-10-14: capacity set to 10 while 16 exits were online and
+      // nothing moved). Serialized with the other config rebuilds inside the
+      // fetcher, and a no-op when the pool is at or under capacity.
+      if (pool.snapshot().total > pool.poolSize) {
+        void fetcher.enforceCapacity().catch(() => {})
+      }
     }
   }
 

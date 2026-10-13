@@ -189,6 +189,24 @@ export class SubscriptionFetcher {
   }
 
   /**
+   * Converge a live pool to a lowered `poolSize` (settings card, live): the
+   * onboarding drops the worst exits and closes their listeners. Returns how
+   * many were dropped; 0 when nothing is over capacity or no round has run yet.
+   */
+  async enforceCapacity(): Promise<number> {
+    if (this.#onboarder === null || this.#replacing) return 0
+    this.#replacing = true
+    try {
+      return await this.#onboarder.trim()
+    } catch (err) {
+      this.#logger?.warn(`opencode2dsh: trimming the pool to poolSize failed: ${err instanceof Error ? err.message : String(err)}`)
+      return 0
+    } finally {
+      this.#replacing = false
+    }
+  }
+
+  /**
    * An exit in the pool was refused by the upstream lane after onboarding (a
    * periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
    * the next-fastest reserve; with the reserve exhausted the exit is kept and

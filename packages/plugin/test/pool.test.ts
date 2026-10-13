@@ -458,14 +458,14 @@ test('evictWorst drops the slowest unpinned exit and never the pinned one', () =
   assert.equal(p.isFull(), true)
   // The pinned row is the best one here, but the guarantee is stronger: it is
   // never the eviction candidate even when it is the worst.
-  assert.equal(p.evictWorst(), true)
+  assert.equal(p.evictWorst(), 'b:2', 'and it names the evicted exit')
   assert.ok(p.has('a:1'), 'the pinned exit survives')
   assert.ok(!p.has('b:2'), 'the slowest unpinned exit made room')
 
   const onlyPinned = pool({ poolSize: 1 })
   onlyPinned.add(node({ id: 'p:1', exitIP: '4.4.4.4' }))
   onlyPinned.pin('p:1')
-  assert.equal(onlyPinned.evictWorst(), false, 'nothing is left to evict')
+  assert.equal(onlyPinned.evictWorst(), null, 'nothing is left to evict')
   assert.ok(onlyPinned.has('p:1'))
 })
 

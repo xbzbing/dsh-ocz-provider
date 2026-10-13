@@ -208,6 +208,48 @@ export class Onboarder {
   }
 
   /**
+   * Converge a live pool to a LOWERED capacity: drop the worst unpinned exits
+   * down to `pool.poolSize` and rebuild the config with only the survivors, so
+   * their listeners close with them. Without this, lowering `poolSize` from the
+   * settings card only bound the NEXT onboarding — the pool kept serving its old
+   * size and kept the extra ports open (the same "capacity that lies" failure as
+   * an orphaned listener, just in the other direction; live 2026-10-14: 16 exits
+   * against a freshly-set capacity of 10).
+   *
+   * Returns how many exits were dropped. No-op for a pool at or under capacity,
+   * and for a pool this onboarder does not own (no candidate list ⇒ nothing to
+   * rebuild).
+   */
+  async trim(): Promise<number> {
+    const { pool, logger } = this.#deps
+    if (this.#candidates.size === 0) return 0
+    const dropped: string[] = []
+    while (pool.list().length > pool.poolSize) {
+      const evicted = pool.evictWorst()
+      if (evicted === null) break
+      dropped.push(evicted)
+    }
+    if (dropped.length === 0) return 0
+
+    const slotOf = new Map([...this.#candidates.values()].map((candidate) => [candidate.address, candidate.slot]))
+    const survivors = new Set<number>()
+    for (const slot of this.#selected) {
+      const address = [...slotOf.entries()].find(([, value]) => value === slot)?.[0]
+      if (address === undefined || pool.has(address)) survivors.add(slot)
+    }
+    this.#selected = survivors
+    try {
+      await this.#deps.select([...this.#selected])
+    } catch (err) {
+      // The pool already dropped them; a failed rebuild only leaves their ports
+      // listening, which the next round clears.
+      logger?.warn(`opencode2dsh: sing-box rebuild after trimming to poolSize failed (${message(err)}); the dropped exits' ports stay open until the next round`)
+    }
+    logger?.info(`opencode2dsh: pool trimmed to ${pool.poolSize} (dropped ${dropped.length}: ${dropped.join(', ')})`)
+    return dropped.length
+  }
+
+  /**
    * A pool exit was refused after onboarding (a periodic probe verdict, or a
    * passive 401/403 the runtime observed): swap in the next reserve, or demote
    * it to the tail when there is none. Returns true when a replacement landed.

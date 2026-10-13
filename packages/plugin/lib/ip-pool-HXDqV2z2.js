@@ -2,7 +2,7 @@ import "./catalog-BraBPliY.js";
 import "./messages-CLaBfusR.js";
 import "./dispatcher-ko3LVHp4.js";
 import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-DIcUydC2.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-CSPCLacb.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -800,6 +800,44 @@ var Onboarder = class {
 		return result;
 	}
 	/**
+	* Converge a live pool to a LOWERED capacity: drop the worst unpinned exits
+	* down to `pool.poolSize` and rebuild the config with only the survivors, so
+	* their listeners close with them. Without this, lowering `poolSize` from the
+	* settings card only bound the NEXT onboarding — the pool kept serving its old
+	* size and kept the extra ports open (the same "capacity that lies" failure as
+	* an orphaned listener, just in the other direction; live 2026-10-14: 16 exits
+	* against a freshly-set capacity of 10).
+	*
+	* Returns how many exits were dropped. No-op for a pool at or under capacity,
+	* and for a pool this onboarder does not own (no candidate list ⇒ nothing to
+	* rebuild).
+	*/
+	async trim() {
+		const { pool, logger } = this.#deps;
+		if (this.#candidates.size === 0) return 0;
+		const dropped = [];
+		while (pool.list().length > pool.poolSize) {
+			const evicted = pool.evictWorst();
+			if (evicted === null) break;
+			dropped.push(evicted);
+		}
+		if (dropped.length === 0) return 0;
+		const slotOf = new Map([...this.#candidates.values()].map((candidate) => [candidate.address, candidate.slot]));
+		const survivors = /* @__PURE__ */ new Set();
+		for (const slot of this.#selected) {
+			const address = [...slotOf.entries()].find(([, value]) => value === slot)?.[0];
+			if (address === void 0 || pool.has(address)) survivors.add(slot);
+		}
+		this.#selected = survivors;
+		try {
+			await this.#deps.select([...this.#selected]);
+		} catch (err) {
+			logger?.warn(`opencode2dsh: sing-box rebuild after trimming to poolSize failed (${message(err)}); the dropped exits' ports stay open until the next round`);
+		}
+		logger?.info(`opencode2dsh: pool trimmed to ${pool.poolSize} (dropped ${dropped.length}: ${dropped.join(", ")})`);
+		return dropped.length;
+	}
+	/**
 	* A pool exit was refused after onboarding (a periodic probe verdict, or a
 	* passive 401/403 the runtime observed): swap in the next reserve, or demote
 	* it to the tail when there is none. Returns true when a replacement landed.
@@ -1484,6 +1522,23 @@ var SubscriptionFetcher = class {
 		return this.refresh();
 	}
 	/**
+	* Converge a live pool to a lowered `poolSize` (settings card, live): the
+	* onboarding drops the worst exits and closes their listeners. Returns how
+	* many were dropped; 0 when nothing is over capacity or no round has run yet.
+	*/
+	async enforceCapacity() {
+		if (this.#onboarder === null || this.#replacing) return 0;
+		this.#replacing = true;
+		try {
+			return await this.#onboarder.trim();
+		} catch (err) {
+			this.#logger?.warn(`opencode2dsh: trimming the pool to poolSize failed: ${err instanceof Error ? err.message : String(err)}`);
+			return 0;
+		} finally {
+			this.#replacing = false;
+		}
+	}
+	/**
 	* An exit in the pool was refused by the upstream lane after onboarding (a
 	* periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
 	* the next-fastest reserve; with the reserve exhausted the exit is kept and
@@ -1847,6 +1902,7 @@ async function startIpPool(config, logger, deps = {}) {
 				fetcher.start();
 				fetcherActive = true;
 			}
+			if (pool.snapshot().total > pool.poolSize) fetcher.enforceCapacity().catch(() => {});
 		}
 	};
 	let fetcherActive = false;
@@ -1888,7 +1944,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CtAbNxx4.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-Dxihhhbu.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
