@@ -1403,6 +1403,19 @@ function applyProbeVerdict(pool, id, verdict, model) {
 	else if (verdict.unverified) pool.markUnverified(id);
 	else pool.markOk(id, model);
 }
+/**
+* Should the periodic probe tick do work?
+*
+* Off means off: while the pool is disabled nothing routes through an exit,
+* so the tick can only spend zen quota on exits nobody is using — and it made
+* the settings card's exit table churn while the operator believed the plugin
+* was idle (live 2026-10-13: 13 exits probed with the pool switched off).
+* Absent stays enabled: the documented default is on, and defaulting the tick
+* off would silently stop probing for everyone.
+*/
+function probeTickEnabled(ipPool) {
+	return ipPool?.enabled !== false;
+}
 /** One manual/pinned row: unknown facts until the prober measures them. */
 function manualNode(id, protocol) {
 	return {
@@ -1666,6 +1679,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* honour the 2-minute dead-retry budget.
 	*/
 	const probeDue = async () => {
+		if (!probeTickEnabled(config.ipPool)) return 0;
 		const due = pool.dueForProbe(Date.now(), {
 			intervalMs: PROBE_INTERVAL_MS,
 			deadRetryMs: DEAD_RETRY_MS
@@ -1712,7 +1726,10 @@ async function startIpPool(config, logger, deps = {}) {
 				installer.install();
 				if (installer.enabled) logger.info("opencode2dsh: exit routing recovered — global dispatcher is free again (R1)");
 			} else if (!enable && installer.enabled) installer.disable();
-			if (wasEnabled !== enable) logger.info(`opencode2dsh: ip pool ${enable ? "enabled" : "disabled"} via settings (live)`);
+			if (wasEnabled !== enable) {
+				logger.info(`opencode2dsh: ip pool ${enable ? "enabled" : "disabled"} via settings (live)`);
+				if (enable) probeAll().catch(() => {});
+			}
 		},
 		probeAll,
 		probeExit,
@@ -1733,4 +1750,4 @@ async function startIpPool(config, logger, deps = {}) {
 }
 
 //#endregion
-export { applyProbeVerdict, buildPoolFromConfig, parseManualProxy, startIpPool, syncManualExits };
+export { applyProbeVerdict, buildPoolFromConfig, parseManualProxy, probeTickEnabled, startIpPool, syncManualExits };

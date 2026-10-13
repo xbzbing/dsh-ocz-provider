@@ -78,6 +78,20 @@ export function applyProbeVerdict(
   else pool.markOk(id, model)
 }
 
+/**
+ * Should the periodic probe tick do work?
+ *
+ * Off means off: while the pool is disabled nothing routes through an exit,
+ * so the tick can only spend zen quota on exits nobody is using — and it made
+ * the settings card's exit table churn while the operator believed the plugin
+ * was idle (live 2026-10-13: 13 exits probed with the pool switched off).
+ * Absent stays enabled: the documented default is on, and defaulting the tick
+ * off would silently stop probing for everyone.
+ */
+export function probeTickEnabled(ipPool: { enabled?: boolean } | undefined): boolean {
+  return ipPool?.enabled !== false
+}
+
 /** One manual/pinned row: unknown facts until the prober measures them. */
 function manualNode(id: string, protocol: 'http' | 'socks5'): ExitNode {
   return {
@@ -444,6 +458,7 @@ export async function startIpPool(
    * honour the 2-minute dead-retry budget.
    */
   const probeDue = async (): Promise<number> => {
+    if (!probeTickEnabled(config.ipPool)) return 0
     const due = pool.dueForProbe(Date.now(), { intervalMs: PROBE_INTERVAL_MS, deadRetryMs: DEAD_RETRY_MS })
     if (due.length === 0) return 0
     const byId = new Map(pool.list().map((entry) => [entry.id, entry]))
@@ -496,6 +511,12 @@ export async function startIpPool(
       }
       if (wasEnabled !== enable) {
         logger.info(`opencode2dsh: ip pool ${enable ? 'enabled' : 'disabled'} via settings (live)`)
+        // Switching on has to mean something within seconds: the periodic tick
+        // is paused while disabled, so without this kick the pool would sit
+        // unverified (pick() → null → direct) for up to a full probe interval
+        // — the "enabled but routing nothing" state this plugin keeps being
+        // caught in.
+        if (enable) void probeAll().catch(() => {})
       }
     },
     probeAll,
