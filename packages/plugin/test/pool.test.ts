@@ -510,3 +510,57 @@ test('remove() forgets the demotion with the node', () => {
   p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
   assert.equal(p.demoted('a:1'), false, 'a re-admitted exit starts at the head again')
 })
+
+// -- dead exits sink to the tail and ask the runtime to rotate (2026-10-14) ----
+
+test('a dead exit moves to the end of the pool order, once per transition', () => {
+  const p = pool()
+  // Subscription rows: free ones are evicted after deadEvictions strikes, which
+  // would empty the row before the ordering assertion could look at it.
+  p.add(node({ id: 'a:1', source: 'subscription', exitIP: '1.1.1.1' }))
+  p.add(node({ id: 'b:2', source: 'subscription', exitIP: '2.2.2.2' }))
+  p.add(node({ id: 'c:3', source: 'subscription', exitIP: '3.3.3.3' }))
+  p.markOk('a:1')
+  p.markOk('b:2')
+  p.markOk('c:3')
+  assert.deepEqual(p.list().map((entry) => entry.id), ['a:1', 'b:2', 'c:3'])
+
+  const deaths: string[] = []
+  p.onDead((id) => deaths.push(id))
+
+  assert.equal(p.markDeadStrike('a:1'), false, 'a subscription/manual row is never evicted')
+  assert.deepEqual(p.list().map((entry) => entry.id), ['b:2', 'c:3', 'a:1'], 'the dead exit sinks to the tail')
+  assert.deepEqual(deaths, ['a:1'], 'and the runtime is told to rotate')
+  assert.equal(p.isDead('a:1'), true)
+
+  // A second strike on the SAME exit must not re-insert it or fire again.
+  p.markDeadStrike('a:1')
+  p.markDeadStrike('a:1')
+  assert.deepEqual(deaths, ['a:1'], 'one transition, one rotation request')
+  assert.deepEqual(p.list().map((entry) => entry.id), ['b:2', 'c:3', 'a:1'])
+
+  // markDead() (the disable-without-dropping path) reports the same way.
+  p.markDead('b:2')
+  assert.deepEqual(deaths, ['a:1', 'b:2'])
+  assert.deepEqual(p.list().map((entry) => entry.id), ['c:3', 'a:1', 'b:2'])
+})
+
+test('a throwing dead watcher never fails the strike bookkeeping', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.onDead(() => { throw new Error('watcher blew up') })
+  assert.equal(p.markDeadStrike('a:1'), false)
+  assert.equal(p.isDead('a:1'), true)
+  assert.equal(p.list().length, 1)
+})
+
+test('a dead exit is not usable, whatever its position in the order', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 100 }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2', latencyMs: 900 }))
+  p.markOk('a:1')
+  p.markOk('b:2')
+  p.markDeadStrike('a:1')
+  assert.equal(p.isUsable('a:1', 'm'), false)
+  for (let index = 0; index < 10; index += 1) assert.equal(p.pick(`s-${index}`, 'm'), 'b:2')
+})

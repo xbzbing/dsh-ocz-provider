@@ -24,7 +24,7 @@ test('schema fills every default from an empty section', () => {
   assert.equal(value.enabled, false)
   assert.deepEqual(value.probeModels, [])
   assert.equal(value.maxConcurrentProbes, 3)
-  assert.equal(value.poolSize, 20, 'whole-pool capacity defaults to 20')
+  assert.equal(value.poolSize, 10, 'whole-pool capacity defaults to 10')
   assert.equal((value.free as Record<string, unknown>).enabled, true)
   assert.equal((value.free as Record<string, unknown>).targetSize, 20)
   assert.deepEqual((value.free as Record<string, unknown>).blockedCountries, ['CN'])

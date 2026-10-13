@@ -419,6 +419,8 @@
 
 .statsChip {
   padding: 2px 8px;
+  /* Summary chips carry "输出 704 tok/s" too — same nowrap rule. */
+  white-space: nowrap;
   border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-2, #f6f8fa);
@@ -535,14 +537,6 @@
   background: var(--dsw-alias-bg-layer-2, #f6f8fa);
 }
 
-/* The pool slot: this exit's position in the pool's own order (the onboarding
-   rank, fastest first), stamped before the modal's display sort. Muted and
-   never sortable — it names the slot, it is not a row number. */
-.statsIndex {
-  color: var(--dsw-alias-label-tertiary, #6b7280);
-  font-variant-numeric: tabular-nums;
-}
-
 /* The 本机 row closes the table: it is not an exit, so a heavier top border
    separates it from the sorted exit list while the muted ink keeps it from
    competing with the exits' own numbers. */
@@ -563,6 +557,9 @@
   margin-left: 6px;
   color: var(--dsw-alias-label-tertiary, #6b7280);
   font-size: 0.86em;
+  /* "37 tok/s" must not break between the number and its unit: a wrapped
+     "tok/s" reads as a second value in a dense numeric cell (live 2026-10-14). */
+  white-space: nowrap;
 }
 
 .statsDot {

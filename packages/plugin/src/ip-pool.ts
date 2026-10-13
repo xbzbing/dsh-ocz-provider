@@ -377,6 +377,20 @@ export async function startIpPool(
   }
   pool.onAdmitted(engageRouting)
 
+  /**
+   * A dead exit must not just sit in the table (live request 2026-10-14:
+   * "其余 dead 自动轮换，dead 的出口移至列表末尾"). The subscription layer swaps
+   * it for the next-fastest reserve and, when the reserve is exhausted, parks it
+   * at the pool tail — the pool holds its size either way. Only subscription
+   * exits rotate: free rows belong to the refill loop (they evict after repeated
+   * strikes) and manual/pinned rows are explicit user config.
+   */
+  pool.onDead((id) => {
+    if (config.ipPool?.enabled === false) return
+    if (pool.get(id)?.source !== 'subscription') return
+    void subscriptions?.replaceExit(id).catch(() => {})
+  })
+
   if (pool.snapshot().total > 0) {
     installer.install()
   } else {

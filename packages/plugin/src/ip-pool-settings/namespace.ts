@@ -74,11 +74,11 @@ export const IpPoolConfigSchema = Schema.object({
   maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
   /**
    * Whole-pool capacity — how many exits stay online at once, any source
-   * (default 20). The onboarding speed-tests every candidate, keeps the
+   * (default 10). The onboarding speed-tests every candidate, keeps the
    * fastest `poolSize` and shrinks the sing-box config to them, so this is
    * also the number of local SOCKS listeners the pool opens.
    */
-  poolSize: Schema.number().min(1).max(100).step(1).default(20),
+  poolSize: Schema.number().min(1).max(100).step(1).default(10),
   free: Schema.object({
     /** Free-source fetching master switch (docs §1.2 source 1). */
     enabled: Schema.boolean().default(true),
@@ -206,7 +206,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     enabled: raw.enabled ?? false,
     probeModels: raw.probeModels ?? [],
     maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
-    poolSize: raw.poolSize ?? 20,
+    poolSize: raw.poolSize ?? 10,
     free: {
       enabled: raw.free?.enabled ?? true,
       targetSize: raw.free?.targetSize ?? 20,

@@ -69,7 +69,7 @@ export interface PoolOptions {
   targetSize?: number
   /**
    * Whole-pool capacity: how many exits the pool keeps online at once, any
-   * source (settings `poolSize`, default 20). This is the number that bounds
+   * source (settings `poolSize`, default 10). This is the number that bounds
    * local connections too, because the onboarding shrinks the sing-box config
    * to the selected exits.
    *
@@ -125,6 +125,8 @@ export class ExitPool {
   #directRequests = 0
   /** Fired once per newly added node — see onAdmitted(). */
   #admittedCallbacks: Array<() => void> = []
+  /** Fired when an exit transitions to dead — see onDead(). */
+  #deadCallbacks: Array<(id: string) => void> = []
   /**
    * Exits rejected by the upstream lane (a failed OpenCode smoke, or a 401/403
    * verdict) with no reserve left to promote: they stay in the pool as the last
@@ -142,7 +144,7 @@ export class ExitPool {
 
   constructor(options: PoolOptions = {}) {
     this.#targetSize = options.targetSize ?? 20
-    this.#poolSize = options.poolSize ?? 20
+    this.#poolSize = options.poolSize ?? 10
     this.#cooldownBase = options.limitedCooldownBaseMs ?? 60_000
     this.#cooldownMax = options.limitedCooldownMaxMs ?? 30 * 60_000
     this.#banConfirmations = options.modelBanConfirmations ?? 2
@@ -178,12 +180,25 @@ export class ExitPool {
    * passive counters, activity) is keyed by id and survives untouched.
    */
   demoteToTail(id: string): boolean {
+    if (!this.#moveToTail(id)) return false
+    this.#demoted.add(id)
+    return true
+  }
+
+  /** The reorder half of demoteToTail, without the last-resort flag: a dead
+   *  exit sinks to the end of the table but recovers straight back into the
+   *  ranked set once a probe verifies it (`markOk` clears `#demoted` only). */
+  #moveToTail(id: string): boolean {
     const node = this.#nodes.get(id)
     if (node === undefined) return false
     this.#nodes.delete(id)
     this.#nodes.set(id, node)
-    this.#demoted.add(id)
     return true
+  }
+
+  /** Is this exit currently `dead` (transport failure / failed probe)? */
+  isDead(id: string): boolean {
+    return this.#health.get(id)?.state === 'dead'
   }
 
   /**
@@ -251,6 +266,28 @@ export class ExitPool {
     }
   }
 
+  /**
+   * Register a callback fired when an exit TRANSITIONS to `dead` (once per
+   * transition, not once per strike). The runtime uses it to rotate: the
+   * subscription layer swaps the dead exit for the next-fastest reserve, or
+   * parks it at the pool tail when no reserve is left (live request
+   * 2026-10-14 — "其余 dead 自动轮换").
+   */
+  onDead(callback: (id: string) => void): void {
+    this.#deadCallbacks.push(callback)
+  }
+
+  /** A watcher's failure must never fail the strike bookkeeping. */
+  #notifyDead(id: string): void {
+    for (const callback of this.#deadCallbacks) {
+      try {
+        callback(id)
+      } catch {
+        /* swallowed on purpose: bookkeeping is not the caller's error */
+      }
+    }
+  }
+
   /** Upsert a node (admission wrote its details); returns false on duplicate
    *  exit IP for a different address — two addresses sharing one exit IP are
    *  one quota bucket and must not both live in the pool (3.1). */
@@ -308,8 +345,13 @@ export class ExitPool {
   markDead(id: string): void {
     const health = this.#health.get(id)
     if (!health) return
+    const wasDead = health.state === 'dead'
     health.state = 'dead'
     health.inflight = false
+    if (!wasDead) {
+      this.#moveToTail(id)
+      this.#notifyDead(id)
+    }
   }
 
   /**
@@ -429,10 +471,18 @@ export class ExitPool {
     const node = this.#nodes.get(id)
     const health = this.#health.get(id)
     if (!node || !health) return false
+    const wasDead = health.state === 'dead'
     health.state = 'dead'
     health.inflight = false
     health.deadStrikes += 1
     health.deadAt = this.#now()
+    // A dead exit sinks to the end of the table (live request 2026-10-14) and
+    // tells the runtime to rotate a reserve in. Only on the TRANSITION: a node
+    // that keeps failing would otherwise be re-inserted on every strike.
+    if (!wasDead) {
+      this.#moveToTail(id)
+      this.#notifyDead(id)
+    }
     if (node.source === 'free' && health.deadStrikes >= this.#deadEvictions) {
       this.remove(id)
       return true

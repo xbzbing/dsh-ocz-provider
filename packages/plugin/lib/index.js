@@ -1026,7 +1026,7 @@ const IpPoolConfigSchema = Schema.object({
 	enabled: Schema.boolean().default(false),
 	probeModels: Schema.array(Schema.string()).default([]),
 	maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
-	poolSize: Schema.number().min(1).max(100).step(1).default(20),
+	poolSize: Schema.number().min(1).max(100).step(1).default(10),
 	free: Schema.object({
 		enabled: Schema.boolean().default(true),
 		targetSize: Schema.number().min(1).max(100).step(1).default(20),
@@ -1067,7 +1067,7 @@ function resolveIpPoolSettings(value) {
 		enabled: raw.enabled ?? false,
 		probeModels: raw.probeModels ?? [],
 		maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
-		poolSize: raw.poolSize ?? 20,
+		poolSize: raw.poolSize ?? 10,
 		free: {
 			enabled: raw.free?.enabled ?? true,
 			targetSize: raw.free?.targetSize ?? 20,
@@ -1324,7 +1324,7 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 		availableFree: snapshot.availableFree,
 		availableTotal,
 		targetSize: runtime ? runtime.pool.targetSize : 20,
-		poolSize: runtime ? runtime.pool.poolSize : 20,
+		poolSize: runtime ? runtime.pool.poolSize : 10,
 		pinned: snapshot.pinned !== "" ? {
 			id: snapshot.pinned,
 			strict: pinnedStrict
@@ -1596,7 +1596,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-BvTiDOX0.js");
+	const { startIpPool } = await import("./ip-pool-nCZF3unh.js");
 	return startIpPool(config, logger);
 };
 /**
