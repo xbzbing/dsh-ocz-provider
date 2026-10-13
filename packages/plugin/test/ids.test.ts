@@ -32,15 +32,62 @@ test('canonicalSessionID passes official sessions through unchanged', () => {
   assert.doesNotMatch('ses_0123456789abcdef01234567', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
 })
 
-test('canonicalSessionID hashes foreign ids into the canonical shape', () => {
-  // Regression vectors computed independently of the implementation
-  // (sha256("ses\0"+signal): 6B hex + 10B big-endian base62, width 14).
-  assert.equal(canonicalSessionID('"hello"'), 'ses_5158bbbedb260ySUUEO3741Ult')
-  assert.equal(canonicalSessionID('admission:1.2.3.4:8080'), 'ses_a226427749f939B83lyhD6aJHb')
-  // deterministic: same conversation keeps a stable session
+/**
+ * The free tier decodes the 12-hex prefix as ~(unix_ms*0x1000+counter) in
+ * its low 48 bits and 403s digest-shaped prefixes (2026-10-13; upstream
+ * jasonxu114514/opencode2api PR #69, decolua/9router#4780). Live-verified
+ * that day: digest prefix + gate body -> 403, minted prefix + gate body ->
+ * 200, the same minted id again -> 200.
+ */
+function decodedTimePrefixMs(id: string): number {
+  const field = BigInt('0x' + id.slice(4, 16))
+  const current = ((1n << 48n) - 1n - field) & ((1n << 48n) - 1n)
+  return Number(current >> 12n)
+}
+
+function digestTailOf(signal: string): string {
+  const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+  const sum = createHash('sha256').update('ses\x00' + signal).digest()
+  let n = BigInt('0x' + sum.subarray(6, 16).toString('hex'))
+  const out = new Array<string>(14)
+  for (let i = 13; i >= 0; i--) {
+    out[i] = alphabet.charAt(Number(n % 62n))
+    n /= 62n
+  }
+  return out.join('')
+}
+
+test('canonicalSessionID mints the time prefix from the clock (free-tier regression)', () => {
+  const id = canonicalSessionID('regression-probe')
+  assert.match(id, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+
+  // The prefix must decode back to (now mod 2^36): the official scheme only
+  // carries the low 36 bits of the millisecond timestamp, so compare modulo.
+  const decoded = decodedTimePrefixMs(id)
+  const now = Date.now() % 2 ** 36
+  let delta = now - decoded
+  if (delta > 2 ** 35) delta -= 2 ** 36
+  if (delta < -(2 ** 35)) delta += 2 ** 36
+  assert.ok(Math.abs(delta) < 60_000, `prefix decodes to ${decoded}ms, now is ${now}ms (delta ${delta}ms)`)
+
+  // A digest-shaped prefix would NOT decode to now — the exact id shape the
+  // gate rejects, pinned here so this fix cannot silently regress.
+  const digestPrefix = createHash('sha256').update('ses\x00regression-probe').digest().subarray(0, 6).toString('hex')
+  const digestDecoded = decodedTimePrefixMs(`ses_${digestPrefix}${digestTailOf('regression-probe')}`)
+  const mintedDecoded = decodedTimePrefixMs(id)
+  assert.notEqual(digestDecoded, mintedDecoded, 'a digest prefix must decode differently from a minted one')
+
+  // The digest tail is what keeps affinity: still sha256-derived, not random.
+  assert.ok(id.endsWith(digestTailOf('regression-probe')), 'tail stays digest-derived (affinity unchanged)')
+})
+
+test('canonicalSessionID is stable per signal and distinct across signals', () => {
+  // same conversation keeps a stable session (upstream PR #69 cache)
   assert.equal(canonicalSessionID('anything'), canonicalSessionID('anything'))
-  // distinct identities stay distinct
+  // distinct identities stay distinct — different tails at minimum
   assert.notEqual(canonicalSessionID('a'), canonicalSessionID('b'))
+  // two signals minted in the same millisecond still differ (counter + tail)
+  assert.notEqual(canonicalSessionID('same-ms-a'), canonicalSessionID('same-ms-b'))
 })
 
 test('deriveRequestIDs emits canonical-shape sessions', () => {
