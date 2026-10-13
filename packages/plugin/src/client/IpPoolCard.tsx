@@ -1,35 +1,36 @@
 /**
- * IP 池 page body: the editable form on the Plugins page (the `plugins.item`
- * slot). Configuration rides the OFFICIAL settings form the Plugins page
- * supplies (`ConfigPageForm`: a `ConfigFormSnapshot` plus `mutate`), so
- * dsh-llm-proxy's loopback fallback compat layer is deliberately absent
- * (docs/ip-pool.md §5, 2026-09-05 revision). Runtime state and probe actions
- * ride the plugin's own bridge (/status, /models, /probe). Every setting
- * applies live on save — no restart (docs/ip-pool.md §5).
+ * IP 池 page body: the editable form on the Plugins page. Two mounting eras
+ * share one card: the DSH 0.2 `plugins.bundle.config` slot embeds it directly
+ * on the bundle's detail page (设置 → 插件 → @opencode2dsh/dsh-plugin), and the
+ * pre-0.2 `plugins.item` slot lists it as an official-plugin page. Either
+ * way, configuration rides the settings provider's own ConfigForm (a
+ * `ConfigFormSnapshot` plus `mutate`), so dsh-llm-proxy's loopback fallback
+ * compat layer is deliberately absent (docs/ip-pool.md §5, 2026-09-05
+ * revision). Runtime state and probe actions ride the plugin's own bridge
+ * (/status, /models, /probe). Every setting applies live on save — no
+ * restart (docs/ip-pool.md §5).
  *
- * DSH 0.1.7: the Plugins page owns the card chrome, the one-liner and the save
- * control, so this component returns the one-liner for `view: 'summary'` and
- * the form for `view: 'page'`. The editable section is the `ipPool` volatile
- * node, so the served value is `{ ipPool: ... }` and every write path is
- * `['ipPool', <field>]`.
+ * The editable section is the `ipPool` volatile node, so the served value is
+ * `{ ipPool: ... }` and every write path is `['ipPool', <field>]`.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import type { ReactNode } from 'react'
 import { SettingsForm, type SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: the Plugins page's SlotMap merge (the 'plugins.item' list entry,
-// whose owner hands this page its one-liner and its ConfigPageForm).
+// Type-only: the Plugins page's SlotMap merge (the 'plugins.bundle.config'
+// keyed entry, whose owner embeds this form on the bundle's detail page, and
+// the legacy 'plugins.item' list entry).
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
-// Type-only: the settings provider's `ConfigFormSnapshot` and the page owner's
-// `ConfigPageForm`, the face this page now reads and writes through.
-import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: the settings provider's `ConfigFormSnapshot`/`ConfigForm`, the
+// faces this page reads and writes through.
+import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { en } from './locales.ts'
 import styles from './ip-pool.module.css'
 import { fieldWrite, poolWriteOps, type FieldWrite } from './settings-writes.ts'
 
-/** The reactive values and commands the Plugins page supplies for this page. */
+/** The reactive values and commands this page reads and writes through. */
 export interface ConfigPageForm {
-  /** Accepted Host values, refreshed by the page owner. */
+  /** Accepted Host values, refreshed by the provider. */
   readonly state: ConfigFormSnapshot<Record<string, unknown>>
   /** Submit field edits together with the revision the editor read. */
   mutate(ops: readonly ConfigPathOp[], expectedRevision?: number): Promise<boolean>
@@ -40,9 +41,24 @@ export type ConfigPathOp =
   | { op: 'set'; path: string[]; value: unknown }
   | { op: 'unset'; path: string[] }
 
+/** Locale-bound copy for the `settings.ip-pool` namespace. */
+export type IpPoolCardLocale = PropsLocale<'settings.ip-pool'>['t']
+
 /**
- * Props the Plugins page binds for the IP 池 page: the view it asked for, the
- * locale copy, and — for `view: 'page'` — the entry's settings form.
+ * The card's own contract: the view the owner asked for, the bound locale,
+ * and — for `view: 'page'` — the settings form. Both mounting eras hand the
+ * card a superset of this.
+ */
+export interface IpPoolCardOwnProps {
+  readonly view: 'summary' | 'page'
+  readonly t: IpPoolCardLocale
+  readonly form?: ConfigPageForm
+}
+
+/**
+ * Props the legacy `plugins.item` slot binds for the IP 池 page: the view it
+ * asked for, the locale copy, and — for `view: 'page'` — the entry's settings
+ * form.
  */
 export type IpPoolCardProps =
   PropsRuntime<'plugins.item'>
@@ -916,15 +932,42 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
 }
 
 /**
- * The IP 池 page on the Plugins page (`plugins.item`).
+ * The IP 池 page on the Plugins page.
  *
  * The Plugins page owns the card chrome and the save control: for
  * `view: 'summary'` this returns the one-liner the page shows under the entry
  * title, and for `view: 'page'` it returns the form bound to the entry's
  * served settings.
  */
-export function IpPoolCard(props: IpPoolCardProps): ReactNode {
+export function IpPoolCard(props: IpPoolCardOwnProps): ReactNode {
   const { form, t, view } = props
   if (view === 'summary') return <>{t('description')}</>
   return <CardBody settings={form} t={t} />
+}
+
+/**
+ * A `plugins.bundle.config` entry bound to one settings controller: the DSH
+ * 0.2 bundle page embeds the configuration directly on the bundle's detail
+ * page (设置 → 插件 → @opencode2dsh/dsh-plugin lands straight on this form),
+ * but unlike the row/item slots its render site hands over NO `form` — the
+ * page draws the section and nothing else. The registration therefore closes
+ * over the settings provider's own controller for the served entry and
+ * subscribes here, which is the same snapshot/mutate pair the page would
+ * have bound (config-form.d.ts: getSnapshot is stable until the next
+ * acceptance, subscribe fires on replacements).
+ */
+export function bundleConfigCard(controller: ConfigForm<Record<string, unknown>>): (props: { view: 'summary' | 'page'; t: IpPoolCardLocale }) => ReactNode {
+  return function BundleConfigCard(props): ReactNode {
+    const { view, t } = props
+    const snapshot = useSyncExternalStore(
+      useCallback((listener: () => void) => controller.subscribe(listener), [controller]),
+      useCallback(() => controller.getSnapshot(), [controller]),
+    )
+    const form = useMemo(() => ({
+      state: snapshot,
+      mutate: (ops: readonly ConfigPathOp[], expectedRevision?: number) => controller.mutate(ops, expectedRevision),
+    }), [controller, snapshot])
+    if (view === 'summary') return <>{t('description')}</>
+    return <CardBody settings={form} t={t} />
+  }
 }

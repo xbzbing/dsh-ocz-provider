@@ -41,68 +41,68 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"ghostButton": "QmduLW_ghostButton",
-	"tableGrid": "QmduLW_tableGrid",
-	"textarea": "QmduLW_textarea",
-	"saveStatusError": "QmduLW_saveStatusError",
+	"badgePinned": "QmduLW_badgePinned",
 	"footerUnit": "QmduLW_footerUnit",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"mono": "QmduLW_mono",
-	"radio": "QmduLW_radio",
-	"field": "QmduLW_field",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"statsContent": "QmduLW_statsContent",
-	"statsTable": "QmduLW_statsTable",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"select": "QmduLW_select",
-	"row": "QmduLW_row",
-	"body": "QmduLW_body",
-	"rowInput": "QmduLW_rowInput",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"stateCooling": "QmduLW_stateCooling",
-	"footerMain": "QmduLW_footerMain",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"saveStatus": "QmduLW_saveStatus",
-	"footerCompact": "QmduLW_footerCompact",
-	"compliance": "QmduLW_compliance",
-	"fieldHint": "QmduLW_fieldHint",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"footerText": "QmduLW_footerText",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"table": "QmduLW_table",
 	"statsModal": "QmduLW_statsModal",
-	"statsWrap": "QmduLW_statsWrap",
-	"footerSub": "QmduLW_footerSub",
-	"statsInflight": "QmduLW_statsInflight",
-	"stateDead": "QmduLW_stateDead",
-	"stateOk": "QmduLW_stateOk",
-	"rowRemove": "QmduLW_rowRemove",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"fieldRow": "QmduLW_fieldRow",
+	"status": "QmduLW_status",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"row": "QmduLW_row",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"mono": "QmduLW_mono",
+	"statsRowMuted": "QmduLW_statsRowMuted",
 	"statsRowLocal": "QmduLW_statsRowLocal",
 	"statsDot": "QmduLW_statsDot",
-	"rowAdd": "QmduLW_rowAdd",
-	"rowList": "QmduLW_rowList",
+	"footerMain": "QmduLW_footerMain",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"table": "QmduLW_table",
 	"input": "QmduLW_input",
-	"overviewBar": "QmduLW_overviewBar",
 	"footerIcon": "QmduLW_footerIcon",
-	"footerEntry": "QmduLW_footerEntry",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"status": "QmduLW_status",
-	"badge": "QmduLW_badge",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"rowLabel": "QmduLW_rowLabel",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"badgePinned": "QmduLW_badgePinned",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"statsDotBad": "QmduLW_statsDotBad",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"footerText": "QmduLW_footerText",
 	"statsSummary": "QmduLW_statsSummary",
+	"saveStatus": "QmduLW_saveStatus",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"footerEntry": "QmduLW_footerEntry",
+	"footerCompact": "QmduLW_footerCompact",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"field": "QmduLW_field",
 	"statsChip": "QmduLW_statsChip",
-	"section": "QmduLW_section"
+	"textarea": "QmduLW_textarea",
+	"badge": "QmduLW_badge",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"rowInput": "QmduLW_rowInput",
+	"rowLabel": "QmduLW_rowLabel",
+	"statsInflight": "QmduLW_statsInflight",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"rowAdd": "QmduLW_rowAdd",
+	"statsTable": "QmduLW_statsTable",
+	"tableGrid": "QmduLW_tableGrid",
+	"fieldHint": "QmduLW_fieldHint",
+	"stateOk": "QmduLW_stateOk",
+	"footerSub": "QmduLW_footerSub",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"rowRemove": "QmduLW_rowRemove",
+	"stateCooling": "QmduLW_stateCooling",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"section": "QmduLW_section",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"ghostButton": "QmduLW_ghostButton",
+	"saveStatusError": "QmduLW_saveStatusError",
+	"stateDead": "QmduLW_stateDead",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"rowList": "QmduLW_rowList",
+	"statsContent": "QmduLW_statsContent",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"statsWrap": "QmduLW_statsWrap",
+	"fieldRow": "QmduLW_fieldRow",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"body": "QmduLW_body",
+	"overviewBar": "QmduLW_overviewBar",
+	"radio": "QmduLW_radio",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"select": "QmduLW_select",
+	"compliance": "QmduLW_compliance"
 };
 
 //#endregion
@@ -1065,7 +1065,7 @@ function CardBody(props) {
 	});
 }
 /**
-* The IP 池 page on the Plugins page (`plugins.item`).
+* The IP 池 page on the Plugins page.
 *
 * The Plugins page owns the card chrome and the save control: for
 * `view: 'summary'` this returns the one-liner the page shows under the entry
@@ -1079,6 +1079,32 @@ function IpPoolCard(props) {
 		settings: form,
 		t
 	});
+}
+/**
+* A `plugins.bundle.config` entry bound to one settings controller: the DSH
+* 0.2 bundle page embeds the configuration directly on the bundle's detail
+* page (设置 → 插件 → @opencode2dsh/dsh-plugin lands straight on this form),
+* but unlike the row/item slots its render site hands over NO `form` — the
+* page draws the section and nothing else. The registration therefore closes
+* over the settings provider's own controller for the served entry and
+* subscribes here, which is the same snapshot/mutate pair the page would
+* have bound (config-form.d.ts: getSnapshot is stable until the next
+* acceptance, subscribe fires on replacements).
+*/
+function bundleConfigCard(controller) {
+	return function BundleConfigCard(props) {
+		const { view, t } = props;
+		const snapshot = (0, react.useSyncExternalStore)((0, react.useCallback)((listener) => controller.subscribe(listener), [controller]), (0, react.useCallback)(() => controller.getSnapshot(), [controller]));
+		const form = (0, react.useMemo)(() => ({
+			state: snapshot,
+			mutate: (ops, expectedRevision) => controller.mutate(ops, expectedRevision)
+		}), [controller, snapshot]);
+		if (view === "summary") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(react_jsx_runtime.Fragment, { children: t("description") });
+		return /* @__PURE__ */ (0, react_jsx_runtime.jsx)(CardBody, {
+			settings: form,
+			t
+		});
+	};
 }
 
 //#endregion
@@ -1597,18 +1623,19 @@ function apply(ctx) {
 	const slots = ctx.slots;
 	ctx.inject(["configForms"], (formCtx) => {
 		formCtx.effect(() => formCtx.configForms.whileServed([SETTINGS_NAMESPACE], () => {
-			const row = slots.inject("plugins.row.config", () => {
+			const bundle = slots.inject("plugins.bundle.config", () => {
+				const card = bundleConfigCard(formCtx.configForms.get(SETTINGS_NAMESPACE));
 				const disposers = ["@opencode2dsh/dsh-plugin", "opencode2dsh"].map((pkg) => slots.register({
-					name: "plugins.row.config",
-					key: `${pkg}#${SETTINGS_NAMESPACE}`,
+					name: "plugins.bundle.config",
+					key: pkg,
 					locale: NS
-				}, IpPoolCard));
+				}, card));
 				return () => {
 					for (const dispose of disposers) dispose();
 				};
 			});
 			const legacy = slots.inject("plugins.item", () => {
-				if (slots.spec("plugins.row.config") !== void 0) return () => {};
+				if (slots.spec("plugins.bundle.config") !== void 0) return () => {};
 				return slots.register({
 					name: "plugins.item",
 					id: SETTINGS_NAMESPACE,
@@ -1624,7 +1651,7 @@ function apply(ctx) {
 				locale: NS
 			}, ExitStatsEntry));
 			return () => {
-				row();
+				bundle();
 				legacy();
 				footer();
 			};

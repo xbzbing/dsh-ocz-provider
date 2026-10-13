@@ -35,10 +35,14 @@ test('client bundle is built and well-formed', () => {
 
 test('client mounts on the Plugins page while the Host serves the entry', () => {
   const source = bundle()
-  // DSH 0.1.7: the entry is a `plugins.item` LIST slot (id-keyed) owned by the
-  // Plugins page, not the old keyed `settings.plugin.item` card slot.
-  assert.ok(/name:\s*"plugins\.item"/.test(source), 'registers the plugins.item list entry')
-  assert.ok(/id:\s*SETTINGS_NAMESPACE/.test(source), 'entry is keyed by the settings entry id')
+  // DSH 0.2: the configuration rides the `plugins.bundle.config` KEYED slot,
+  // so clicking the bundle card lands straight on the form. The pre-0.2
+  // `plugins.item` LIST entry remains as the fallback for hosts that
+  // declaratively lack the bundle slot (checked via slots.spec).
+  assert.ok(/name:\s*"plugins\.bundle\.config"/.test(source), 'registers the plugins.bundle.config keyed entry')
+  assert.ok(/key:\s*pkg/.test(source), 'the keyed entry rides the bundle package name')
+  assert.ok(/name:\s*"plugins\.item"/.test(source), 'the legacy plugins.item list entry stays as fallback')
+  assert.ok(/id:\s*SETTINGS_NAMESPACE/.test(source), 'legacy entry is keyed by the settings entry id')
   // The gate: without it the page would show even where the Host serves no
   // settings, so the page mounts only while the namespace is served.
   assert.ok(source.includes('whileServed'), 'registration is gated on whileServed')
@@ -111,6 +115,6 @@ test('client manifest is declared in package.json', () => {
 
   const entry = readFileSync(new URL('../src/client/index.ts', import.meta.url), 'utf8')
   assert.match(entry, /export const inject = \['slots', 'locale'\]/, 'only stable services gate the main client fiber')
-  assert.ok(bundle().includes('plugins.row.config'), 'the DSH 0.2 row configuration is registered')
+  assert.ok(bundle().includes('plugins.bundle.config'), 'the DSH 0.2 bundle-page configuration is registered')
   assert.deepEqual(pkg.exports?.['./client'], './lib/client.js')
 })

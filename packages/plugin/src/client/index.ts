@@ -1,15 +1,19 @@
 /**
  * opencode2dsh — browser half. Registers the IP 池 page on the Plugins page
- * (设置 → 插件) through the `plugins.item` slot, which
+ * (设置 → 插件) through the `plugins.bundle.config` slot, which
  * @deepseek-ai/dsh-client-ui-plugin-manager owns, while the Host serves this
- * plugin's entry settings.
+ * plugin's entry settings. The bundle detail page (插件 → @opencode2dsh/
+ * dsh-plugin) embeds the configuration directly between the description and
+ * the rows — one level up from the pre-0.2 row's own configure control, which
+ * was the only mount point DSH 0.1.7 offered (that era falls back to the
+ * `plugins.item` official-plugin page below).
  *
- * DSH 0.1.7 moved the card: the Plugins page now owns the card chrome, the
- * one-liner and the save control, and hands the page a `ConfigPageForm`
- * (`{ state, mutate }`) for the served entry. So this half only
- *  - registers the entry's one-liner and page, and
- *  - registers while the Host serves the namespace, so a deployment that
- *    serves no `opencode2dsh` settings shows no trace of the card.
+ * Unlike `plugins.item`/`plugins.row.config`, the bundle page's render site
+ * hands the slot NO form — so the entry closes over the settings provider's
+ * own controller (`configForms.get`) instead of a page-bound one; see
+ * bundleConfigCard in IpPoolCard.tsx. Registration is gated on the Host
+ * serving the `opencode2dsh` namespace, so a deployment that serves no
+ * opencode2dsh settings shows no trace of the card.
  *
  * The editable section is the `ipPool` volatile node, so the served form's
  * value is `{ ipPool: ... }` and every write path is `['ipPool', <field>]`.
@@ -32,7 +36,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 // bottom-left stats button occupies — same contract usage-billing registers).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { ExitStatsEntry } from './ExitStatsEntry.tsx'
-import { IpPoolCard } from './IpPoolCard.tsx'
+import { IpPoolCard, bundleConfigCard } from './IpPoolCard.tsx'
 import type { IpPoolKey } from './locales.ts'
 import { en, zh } from './locales.ts'
 
@@ -84,17 +88,22 @@ export function apply(ctx: ClientContext): void {
     () => formCtx.configForms.whileServed(
       [SETTINGS_NAMESPACE],
       () => {
-        // 0.2 mounts configuration inside each installed bundle's row.
-        const row = slots.inject('plugins.row.config', () => {
+        // 0.2 embeds the configuration on the bundle's own detail page: one
+        // click on the bundle card lands on the form. The keyed entry rides
+        // the bundle's package name, and — unlike the row/item slots — its
+        // render site supplies no form, so the entry binds the settings
+        // provider's controller itself (bundleConfigCard).
+        const bundle = slots.inject('plugins.bundle.config', () => {
+          const card = bundleConfigCard(formCtx.configForms.get(SETTINGS_NAMESPACE))
           const disposers = ['@opencode2dsh/dsh-plugin', 'opencode2dsh'].map((pkg) => slots.register({
-            name: 'plugins.row.config',
-            key: `${pkg}#${SETTINGS_NAMESPACE}`,
+            name: 'plugins.bundle.config',
+            key: pkg,
             locale: NS,
-          }, IpPoolCard))
+          }, card))
           return () => { for (const dispose of disposers) dispose() }
         })
         const legacy = slots.inject('plugins.item', () => {
-          if (slots.spec('plugins.row.config') !== undefined) return () => {}
+          if (slots.spec('plugins.bundle.config') !== undefined) return () => {}
           return slots.register({
             name: 'plugins.item',
             id: SETTINGS_NAMESPACE,
@@ -112,7 +121,7 @@ export function apply(ctx: ClientContext): void {
           order: 10,
           locale: NS,
         }, ExitStatsEntry))
-        return () => { row(); legacy(); footer() }
+        return () => { bundle(); legacy(); footer() }
       },
     ),
     'opencode2dsh: settings page',
