@@ -318,6 +318,37 @@ test('markDeadStrike stamps deadAt and markOk clears it (revival bookkeeping)', 
   assert.equal(revived.deadStrikes, 0)
 })
 
+/**
+ * Live 2026-10-13: subscription exits whose probe failed were kept by
+ * admission.admitTrusted (docs 4.5) but then markOk()'d by the caller, so
+ * five dead nodes sat in the verified tier at grade S and absorbed real
+ * requests. markUnverified() is the correct mark: node kept, claim dropped.
+ */
+test('markUnverified: keeps the node, drops the ok claim, and yields to verified exits', () => {
+  const p = pool()
+  p.add(node({ id: 'sub:1', source: 'subscription', exitIP: '', latencyMs: 0, quality: 'C' }))
+  p.markOk('sub:1')
+  assert.equal(p.list()[0]!.health.state, 'ok')
+
+  p.markUnverified('sub:1')
+  assert.equal(p.list()[0]!.health.state, 'unknown', 'the ok claim is gone')
+  assert.ok(p.has('sub:1'), 'the paid line stays in the pool for the next probe')
+
+  // Still usable when nothing better is left (a probe-side failure must not
+  // empty a healthy pool), but never ranked above an exit that was verified.
+  p.add(node({ id: 'sub:2', source: 'subscription', exitIP: '9.9.9.9', latencyMs: 400 }))
+  p.markOk('sub:2')
+  for (let i = 0; i < 16; i += 1) {
+    assert.equal(p.pick(`ses-${i}`, 'm'), 'sub:2', 'verified exits are picked first')
+  }
+  p.markDead('sub:2')
+  assert.equal(p.pick('ses-last', 'm'), 'sub:1', 'unverified is still a last resort')
+
+  // A real transport failure still strikes it dead (it is not protected).
+  p.recordPassiveTransport('sub:1')
+  assert.equal(p.list().find((entry) => entry.id === 'sub:1')!.health.state, 'dead')
+})
+
 test('dueForProbe: a dead exit is retried only after deadRetryMs', () => {
   // Regression (live 2026-10-12): a false-positive transport strike retired an
   // exit permanently — `isUsable()` hides dead exits from pick(), so nothing

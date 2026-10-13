@@ -86,6 +86,15 @@ export function gradeOf(latencyMs: number): ExitNode['quality'] {
   return 'C'
 }
 
+/**
+ * Grade for an exit that was never measured. gradeOf(0) returns 'S' (a 0ms
+ * admission), so the trusted-admission fallback — which carries `latencyMs: 0`
+ * because the probe produced no facts — used to hand the BEST grade to the
+ * WORST exits, and the picker sorts by grade. An unmeasured exit ranks last
+ * until a probe actually measures it.
+ */
+export const UNVERIFIED_QUALITY: ExitNode['quality'] = 'C'
+
 const banKey = (exitId: string, model: string) => `${exitId}\u0000${model}`
 
 export class ExitPool {
@@ -215,6 +224,24 @@ export class ExitPool {
     const health = this.#health.get(id)
     if (!health) return
     health.state = 'dead'
+    health.inflight = false
+  }
+
+  /**
+   * A probe could not verify this exit (trusted-source admission fallback):
+   * keep the node — a subscription line is paid and `admission.admitTrusted`
+   * promises to revisit it — but drop its `ok` claim, so it leaves the
+   * verified tier that `pick()` ranks first.
+   *
+   * 'unknown' is still *usable* (`#isAvailable` only hides 'dead'), which is
+   * deliberate: a probe-side failure (Zen rejecting the smoke request, an
+   * echo endpoint hiccup) must not empty a healthy pool. It only means an
+   * exit that was never measured no longer outranks one that was.
+   */
+  markUnverified(id: string): void {
+    const health = this.#health.get(id)
+    if (!health) return
+    health.state = 'unknown'
     health.inflight = false
   }
 

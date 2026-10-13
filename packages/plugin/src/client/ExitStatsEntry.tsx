@@ -160,18 +160,29 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               <tbody>
                 {rows.map((exit) => {
                   const usableRow = isUsable(exit)
-                  const dotClass = usableRow ? styles.statsDotOk : exit.cooling ? styles.statsDotWarn : styles.statsDotBad
+                  const dotClass = usableRow
+                    ? styles.statsDotOk
+                    : exit.state === 'dead'
+                      ? styles.statsDotBad
+                      : styles.statsDotWarn
                   const stateLabel = usableRow
                     ? t('statsStateUsable')
                     : exit.cooling
                       ? t('stateCooling')
                       : exit.state === 'dead'
                         ? t('stateDead')
-                        : t('stateUnknown')
+                        : t('statsStateUnverified')
                   return (
                     <tr key={exit.id} className={usableRow ? undefined : styles.statsRowMuted}>
                       <td className={styles.mono}>
-                        {exit.exitIP || exit.id}{exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}
+                        {/* An exit that was never verified has no exit IP. The
+                            local SOCKS5 endpoint used to be printed here as if
+                            it were one (live 2026-10-13: half the table read
+                            127.0.0.1:30xxx), so it now sits after an explicit
+                            dash, muted, as the debuggable handle it really is. */}
+                        {exit.exitIP !== '' ? exit.exitIP : t('statsNever')}
+                        {exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}
+                        {exit.exitIP === '' && <span className={styles.statsEndpoint}>{exit.id}</span>}
                       </td>
                       <td>{exit.exitLocation || '—'}</td>
                       <td>
