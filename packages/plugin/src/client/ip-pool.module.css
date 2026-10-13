@@ -460,19 +460,21 @@
   font-size: 12px;
 }
 
-/* Column budget (sums to 100%): 10 columns — `#` was prepended to the nine
-   that were already here (token totals split into input/output/cache), so IP
-   and last-used gave up a point each to keep the dense numeric columns intact. */
-.statsTable th:nth-child(1) { width: 4%; }
-.statsTable th:nth-child(2) { width: 18%; }
-.statsTable th:nth-child(3) { width: 11%; }
-.statsTable th:nth-child(4) { width: 9%; }
-.statsTable th:nth-child(5) { width: 8%; }
+/* Column budget (sums to 100%): 8 columns — IP, state, requests, input, output
+   (which also carries the "N tok/s" note), cache, latency, last-used. The `#`
+   slot column and the location column were both dropped on request
+   (2026-10-14); the IP column now owns the location as a tooltip, so it takes
+   the width those two gave back. Keep this block in step with the header: a
+   leftover rule silently squeezes the first column (measured 2026-10-14: IP at
+   4% after `#` was removed but its width rules stayed). */
+.statsTable th:nth-child(1) { width: 25%; }
+.statsTable th:nth-child(2) { width: 12%; }
+.statsTable th:nth-child(3) { width: 8%; }
+.statsTable th:nth-child(4) { width: 8%; }
+.statsTable th:nth-child(5) { width: 11%; }
 .statsTable th:nth-child(6) { width: 8%; }
-.statsTable th:nth-child(7) { width: 8%; }
-.statsTable th:nth-child(8) { width: 8%; }
-.statsTable th:nth-child(9) { width: 8%; }
-.statsTable th:nth-child(10) { width: 18%; }
+.statsTable th:nth-child(7) { width: 9%; }
+.statsTable th:nth-child(8) { width: 19%; }
 
 .statsTable th {
   text-align: left;

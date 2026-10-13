@@ -531,7 +531,6 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
             <tr>
               <th>{t('exitAddress')}</th>
               <th>{t('exitSource')}</th>
-              <th>{t('exitLocation')}</th>
               <th>{t('exitLatency')}</th>
               <th>{t('exitQuality')}</th>
               <th>{t('exitIp')}</th>
@@ -545,10 +544,10 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
               <tr key={exit.id}>
                 <td className={styles.mono}>{exit.id}{exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}</td>
                 <td>{exit.source}</td>
-                <td>{exit.exitLocation || '—'}</td>
                 <td>{exit.latencyMs > 0 ? `${exit.latencyMs}ms` : '—'}</td>
                 <td>{exit.latencyMs > 0 ? exit.quality : '—'}</td>
-                <td className={styles.mono}>{exit.exitIP || '—'}</td>
+                {/* Location as a hover tooltip on the IP, not a column. */}
+                <td className={styles.mono} title={exit.exitLocation || undefined}>{exit.exitIP || '—'}</td>
                 <td>{stateCell(exit)}</td>
                 <td className={styles.mono}>
                   {exit.passive.ok > 0 || exit.passive.limited > 0 || exit.passive.refused > 0 || exit.passive.dead > 0 || exit.passive.transport > 0
@@ -564,7 +563,7 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
               </tr>
             ))}
             {status.exits.length === 0 && (
-              <tr><td colSpan={9} className={styles.status}>{t('statusUnavailable')}</td></tr>
+              <tr><td colSpan={8} className={styles.status}>{t('statusUnavailable')}</td></tr>
             )}
           </tbody>
         </table>
