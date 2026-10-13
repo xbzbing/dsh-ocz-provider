@@ -323,6 +323,11 @@
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+  /* The footer row can carry more than one trigger (another plugin's sits on
+     the left), and a shared row leaves each button roughly half as wide. The
+     narrow variant below keys off THIS button's width, so the switch needs no
+     knowledge of how many siblings the host rendered. */
+  container-type: inline-size;
 }
 
 .footerEntry:hover {
@@ -361,7 +366,7 @@
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
-/* Collapsed sidebar: only the token count, sized to survive a ~48px rail
+/* Collapsed sidebar: only the token count, sized to survive a ~56px rail
    without pushing the icon out of the row. */
 .footerEntryCompact {
   gap: 4px;
@@ -376,6 +381,33 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/*
+ * The same token-only label for a WIDE sidebar whose button got squeezed by a
+ * second footer trigger. 180px is the switch: two buttons in a ~260px row
+ * land near 130px each (the live screenshot that prompted this), one button
+ * owns ~250px, and the request/token pair needs about 130px plus the icon and
+ * padding. Browsers without container-query support simply keep both numbers.
+ */
+.footerCompactOnNarrow {
+  display: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@container (max-width: 180px) {
+  .footerText {
+    display: none;
+  }
+
+  .footerCompactOnNarrow {
+    display: inline;
+  }
 }
 
 .statsSummary {
