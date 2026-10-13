@@ -13,8 +13,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
-import { PoolRoutingDispatcher, routingContext, type RoutingContext } from '../src/pool/dispatcher.ts'
-import { DIRECT_EXIT_ID, UsageTracker, attributeUsage, usageTracker } from '../src/pool/usage.ts'
+import { PoolRoutingDispatcher, resolveProxyHosts, routingContext, type RoutingContext } from '../src/pool/dispatcher.ts'
+import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, UsageTracker, attributeUsage, usageTracker } from '../src/pool/usage.ts'
 import { ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import type { HarnessChunk, PiDoneMessage, PiEvent } from '../src/adapter/events.ts'
 import type { HarnessGenerateOptions } from '../src/adapter/messages.ts'
@@ -112,7 +112,7 @@ test('dispatcher stamps the picked exit into the routing context', () => {
   assert.equal(pool.directRequests, 0)
 })
 
-test('dispatcher: direct fallback stamps the direct bucket; foreign hosts stamp nothing', () => {
+test('dispatcher: direct bias stamps the direct bucket; foreign hosts stamp 本机', () => {
   const pool = new ExitPool() // empty → pick() returns null
   const { seam } = capturingSeam()
   const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
@@ -128,8 +128,48 @@ test('dispatcher: direct fallback stamps the direct bucket; foreign hosts stamp 
   routingContext.run(foreign, () => {
     router.dispatch({ origin: 'https://example.com/x' } as never, {} as never)
   })
-  assert.equal(foreign.exitId, undefined, 'hosts outside the pool are out of scope')
-  assert.equal(pool.directRequests, 1, 'nothing new counted for foreign hosts')
+  assert.equal(foreign.exitId, LOCAL_EXIT_ID, 'non-pool hosts egress from this machine → 本机')
+  assert.equal(pool.directRequests, 1, 'the fallback counter stays a pool-host measure')
+
+  const loopback: RoutingContext = { model: 'm', session: 's' }
+  routingContext.run(loopback, () => {
+    router.dispatch({ origin: 'http://127.0.0.1:3080/status' } as never, {} as never)
+  })
+  assert.equal(loopback.exitId, undefined, 'loopback is the host talking to itself — never counted')
+})
+
+// -- proxy-host resolution (live regression, 2026-10-13) ---------------------------
+
+test('proxy hosts: an empty list means the default, never an empty routing set', () => {
+  // The live bug: the settings schema default is [], and the old
+  // `options.proxyHosts ?? DEFAULT_PROXY_HOSTS` guard waved that through as
+  // an EMPTY set — every request took the direct branch while /status kept
+  // displaying opencode.ai, so the pool looked enabled and routed nothing.
+  assert.deepEqual(resolveProxyHosts([]), ['opencode.ai'])
+  assert.deepEqual(resolveProxyHosts(undefined), ['opencode.ai'])
+  assert.deepEqual(resolveProxyHosts(['']), ['opencode.ai'], 'blank entries are not hosts')
+  assert.deepEqual(resolveProxyHosts(['API.Example.com:443']), ['api.example.com'])
+
+  const pool = new ExitPool()
+  pool.add(node({ id: 'p:1', latencyMs: 10 }))
+  pool.markOk('p:1')
+  const { seam } = capturingSeam()
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: [] })
+
+  const store: RoutingContext = { model: 'm', session: 's' }
+  routingContext.run(store, () => {
+    router.dispatch(POOL_HOST, {} as never)
+  })
+  assert.equal(store.exitId, 'p:1', 'an empty configured list still routes the default host through the pool')
+  assert.equal(pool.activity('p:1').inFlight, 1)
+  assert.equal(pool.directRequests, 0)
+
+  router.setProxyHosts([])
+  const after: RoutingContext = { model: 'm', session: 's' }
+  routingContext.run(after, () => {
+    router.dispatch(POOL_HOST, {} as never)
+  })
+  assert.equal(after.exitId, 'p:1', 'the live re-apply keeps the same empty-means-default rule')
 })
 
 test('request lifecycle: exactly one end per dispatch, even with a double terminal', () => {
@@ -211,9 +251,11 @@ test('attributeUsage records stamped usage and passes every chunk through untouc
   })
 
   const bare: { exitId?: string } = {}
-  const untouched = (async function* () { yield usage })()
+  const untouched = (async function*() { yield usage })()
   for await (const chunk of attributeUsage(bare, untouched, tracker)) assert.equal(chunk, usage)
-  assert.equal(tracker.exits().length, 1, 'a request that never entered the pool is never counted')
+  assert.deepEqual(tracker.totals(LOCAL_EXIT_ID), {
+    requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 0, totalTokens: 10,
+  }, 'no stamp = egressed from this machine (本机), never an uncounted sample')
 })
 
 // -- adapter end-to-end -------------------------------------------------------------
@@ -264,7 +306,7 @@ function scripted(stamp: string | undefined) {
   return adapter
 }
 
-test('adapter e2e: usage lands on the stamped exit; unstamped traffic stays uncounted', async () => {
+test('adapter e2e: usage lands on the stamped exit; unstamped traffic lands on 本机', async () => {
   usageTracker.reset()
   try {
     const chunks: HarnessChunk[] = []
@@ -276,8 +318,11 @@ test('adapter e2e: usage lands on the stamped exit; unstamped traffic stays unco
     })
 
     for await (const _chunk of scripted(undefined).stream(options)) { /* drain */ }
-    assert.equal(usageTracker.totals('h:9').requests, 1, 'the unstamped run added nothing')
-    assert.equal(usageTracker.exits().length, 1)
+    assert.equal(usageTracker.totals('h:9').requests, 1, 'the unstamped run added nothing to the exit')
+    assert.deepEqual(usageTracker.totals(LOCAL_EXIT_ID), {
+      requests: 1, inputTokens: 10, outputTokens: 20, cacheReadTokens: 3, cacheWriteTokens: 2, totalTokens: 30,
+    }, 'a request that never entered the pool is 本机 traffic, not a dropped sample')
+    assert.ok(usageTracker.lastUsedAt(LOCAL_EXIT_ID) > 0, 'and it stamps the 本机 last-used column')
   } finally {
     usageTracker.reset()
   }

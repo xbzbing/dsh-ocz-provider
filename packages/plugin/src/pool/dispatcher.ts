@@ -19,7 +19,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { Agent, ProxyAgent, type Dispatcher } from 'undici'
 
 import type { ExitPool } from './pool.ts'
-import { DIRECT_EXIT_ID } from './usage.ts'
+import { DIRECT_EXIT_ID, LOCAL_EXIT_ID } from './usage.ts'
 
 /** Structural seam over npm undici so tests can inject fakes. */
 export interface UndiciSeam {
@@ -81,6 +81,24 @@ export interface PoolRoutingOptions {
 const DEFAULT_PROXY_HOSTS = ['opencode.ai']
 const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
 
+/**
+ * The effective proxied-host set: an absent OR EMPTY list means the default.
+ *
+ * Empty must fall back exactly like absent. Live-observed 2026-10-13: the
+ * settings layer hands the runtime `proxyHosts: []` (that schema's own
+ * default), and the old `?? DEFAULT_PROXY_HOSTS` guard waved it straight
+ * through as an EMPTY host set — so every model call took the direct branch
+ * while the settings card kept displaying `opencode.ai` (its display
+ * fallback), i.e. the pool reported itself enabled and healthy and silently
+ * routed nothing.
+ */
+export function resolveProxyHosts(hosts?: readonly string[] | null): string[] {
+  const normalized = (hosts ?? [])
+    .map((host) => normalizeHost(host))
+    .filter((host) => host !== '')
+  return normalized.length > 0 ? normalized : DEFAULT_PROXY_HOSTS.map((host) => normalizeHost(host))
+}
+
 /** 'host:port' -> 'host' (bracket-aware) for host matching. */
 export function normalizeHost(host: string): string {
   if (!host) return ''
@@ -135,9 +153,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   constructor(options: PoolRoutingOptions) {
     this.#pool = options.pool
     this.#undici = options.undici
-    this.#proxyHosts = new Set(
-      (options.proxyHosts ?? DEFAULT_PROXY_HOSTS).map((host) => normalizeHost(host)),
-    )
+    this.#proxyHosts = new Set(resolveProxyHosts(options.proxyHosts))
     this.#agentLruCap = options.agentLruCap ?? 16
     this.#sentinelMs = options.sentinelMs ?? 2_000
     // Window (b) must stay looser than the ADAPTER's own first-event budget,
@@ -153,10 +169,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
 
   /** Live re-apply of the proxied-host list (settings page, docs §5.1). */
   setProxyHosts(hosts: string[] | undefined): void {
-    const next = hosts && hosts.length > 0
-      ? new Set(hosts.map((host) => normalizeHost(host)))
-      : new Set(DEFAULT_PROXY_HOSTS.map((host) => normalizeHost(host)))
-    this.#proxyHosts = next
+    this.#proxyHosts = new Set(resolveProxyHosts(hosts))
   }
 
   /** The proxied-host set as configured (diagnostics / status bridge). */
@@ -209,7 +222,19 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     }
     const origin = String(options.origin ?? '')
     const host = normalizeHost(origin)
-    if (isLoopback(host) || !this.#proxyHosts.has(host)) {
+    // Loopback is the host talking to itself (bridge, sing-box control):
+    // never counted, never proxied.
+    if (isLoopback(host)) {
+      return this.#direct.dispatch(options, handler)
+    }
+    if (!this.#proxyHosts.has(host)) {
+      // Outside the pool by configuration. Model traffic still reaches this
+      // branch when the host list does not cover the API host (the empty
+      // list bug, live 2026-10-13), so stamp the 本机 bucket: the adapter
+      // then attributes that response's tokens to "egressed locally"
+      // instead of dropping them into an invisible void.
+      const context = routingContext.getStore()
+      if (context !== undefined) context.exitId = LOCAL_EXIT_ID
       return this.#direct.dispatch(options, handler)
     }
     const context = routingContext.getStore() ?? {}

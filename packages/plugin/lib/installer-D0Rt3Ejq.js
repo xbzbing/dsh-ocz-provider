@@ -1,4 +1,4 @@
-import { t as PoolRoutingDispatcher } from "./dispatcher-CSK7Qvyj.js";
+import { r as resolveProxyHosts, t as PoolRoutingDispatcher } from "./dispatcher-C7TaiMG4.js";
 
 //#region src/pool/installer.ts
 var RoutingInstaller = class {
@@ -18,6 +18,15 @@ var RoutingInstaller = class {
 	/** The deferral reason exposed to the status bridge / settings card. */
 	get deferredReason() {
 		return this.#deferredReason;
+	}
+	/**
+	* The host list actually in force. Reads the running router when one is
+	* installed (its own default already applied), otherwise resolves the
+	* configured value — so the settings card can never display a default the
+	* router is not using, the exact mismatch that hid the empty-list bug.
+	*/
+	get proxyHosts() {
+		return this.#current?.proxyHosts ?? resolveProxyHosts(this.#deps.proxyHosts);
 	}
 	/** Live re-apply of the proxied-host list (forwards to the running router). */
 	setProxyHosts(hosts) {

@@ -14,7 +14,7 @@
 
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
-import { DIRECT_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
+import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
 export const IP_POOL_BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
@@ -108,8 +108,16 @@ export interface PoolStatusView {
   refill: RefillView | null
   subscription: SubscriptionView | null
   /** Pool-host requests that fell back to direct (empty pool / no agent) with
-   *  the tokens attributed there — the stats modal's 直连兜底 row. */
+   *  the tokens attributed there — the stats modal's 直连兜底 chip. */
   direct: { requests: number; tokens: TokenTotals }
+  /**
+   * Model traffic that egressed from THIS machine instead of a pool exit:
+   * hosts outside {@link proxyHosts} (including the empty-host-list case that
+   * silently routed everything locally) plus the {@link direct} fallbacks.
+   * Requests/tokens come from the usage tracker, so a response with no usage
+   * event is not counted — the same basis as the per-exit token column.
+   */
+  local: { requests: number; tokens: TokenTotals; lastUsedAt: number }
   at: number
 }
 
@@ -214,7 +222,36 @@ export function buildStatusView(
       requests: runtime ? runtime.pool.directRequests : 0,
       tokens: runtime ? usageTracker.totals(DIRECT_EXIT_ID) : emptyTotals(),
     },
+    local: localView(),
     at: now,
+  }
+}
+
+/**
+ * Merge the two local-egress buckets into the modal's 本机 row.
+ *
+ * `direct` = pool-host traffic that should have used an exit but could not;
+ * `local` = hosts outside the proxy set (and every request while routing is
+ * off). Both left this machine, so the row sums them, while the request
+ * count prefers the pool's dispatch counter when it has one: that counter
+ * sees the request even when no usage event follows (an aborted turn), which
+ * a token-only bucket would silently drop.
+ */
+function localView(): { requests: number; tokens: TokenTotals; lastUsedAt: number } {
+  const direct = usageTracker.totals(DIRECT_EXIT_ID)
+  const local = usageTracker.totals(LOCAL_EXIT_ID)
+  const tokens: TokenTotals = {
+    requests: direct.requests + local.requests,
+    inputTokens: direct.inputTokens + local.inputTokens,
+    outputTokens: direct.outputTokens + local.outputTokens,
+    cacheReadTokens: direct.cacheReadTokens + local.cacheReadTokens,
+    cacheWriteTokens: direct.cacheWriteTokens + local.cacheWriteTokens,
+    totalTokens: direct.totalTokens + local.totalTokens,
+  }
+  return {
+    requests: tokens.requests,
+    tokens,
+    lastUsedAt: Math.max(usageTracker.lastUsedAt(DIRECT_EXIT_ID), usageTracker.lastUsedAt(LOCAL_EXIT_ID)),
   }
 }
 

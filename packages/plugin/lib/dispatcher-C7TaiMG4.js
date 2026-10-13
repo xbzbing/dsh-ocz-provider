@@ -4,6 +4,14 @@ import "undici";
 //#region src/pool/usage.ts
 /** Pseudo exit id for pool-host traffic that fell back to a direct connection. */
 const DIRECT_EXIT_ID = "direct";
+/**
+* Pseudo exit id for traffic this process sent out from the local machine
+* instead of through a pool exit (hosts outside the pool, or every request
+* while routing is off). Separate from {@link DIRECT_EXIT_ID}, which is the
+* narrower diagnostic "should have used the pool but could not" bucket; the
+* status bridge merges both into the modal's 本机 row.
+*/
+const LOCAL_EXIT_ID = "local";
 function zeroTotals() {
 	return {
 		requests: 0,
@@ -19,6 +27,8 @@ const emptyTotals = zeroTotals;
 /** Mutable accumulator map keyed by exit id. One instance per process. */
 var UsageTracker = class {
 	#byExit = /* @__PURE__ */ new Map();
+	/** Last record time per bucket (epoch ms) — the modal's 最后使用 column. */
+	#lastAt = /* @__PURE__ */ new Map();
 	/** Attribute one response's usage to one exit id. */
 	record(exitId, usage) {
 		const bucket = this.#byExit.get(exitId) ?? zeroTotals();
@@ -31,10 +41,15 @@ var UsageTracker = class {
 		bucket.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
 		bucket.totalTokens += input + output;
 		this.#byExit.set(exitId, bucket);
+		this.#lastAt.set(exitId, Date.now());
 	}
 	/** A copy of one bucket (zeros when nothing was recorded). */
 	totals(exitId) {
 		return { ...this.#byExit.get(exitId) ?? zeroTotals() };
+	}
+	/** Epoch ms of the last recorded response for one bucket (0 = never). */
+	lastUsedAt(exitId) {
+		return this.#lastAt.get(exitId) ?? 0;
 	}
 	/** Every exit id with recorded usage (diagnostics). */
 	exits() {
@@ -43,6 +58,7 @@ var UsageTracker = class {
 	/** Test seam / future reset action. */
 	reset() {
 		this.#byExit.clear();
+		this.#lastAt.clear();
 	}
 };
 /** The process-lifetime tracker: adapter writes, status bridge reads. */
@@ -53,12 +69,16 @@ const usageTracker = new UsageTracker();
 * output so each attempt's tokens land on the exit that actually carried
 * that attempt (a rotate restart therefore splits correctly across exits).
 *
-* A context without an `exitId` means the request never entered the pool
-* dispatcher — those tokens are out of scope and pass through untouched.
+* A context with no stamp means nothing routed this request through a pool
+* exit — the pool is off, the host is outside the proxy set, or routing was
+* never installed. That is exactly the 本机 ledger, so the usage lands in
+* {@link LOCAL_EXIT_ID} rather than being dropped: the modal can then show
+* that model traffic is leaving from this machine even while the pool looks
+* healthy (the failure mode this bucket was added for, live 2026-10-13).
 */
 async function* attributeUsage(store, source, tracker = usageTracker) {
 	for await (const chunk of source) {
-		if (chunk.type === "usage" && store.exitId !== void 0) tracker.record(store.exitId, chunk.usage);
+		if (chunk.type === "usage") tracker.record(store.exitId ?? LOCAL_EXIT_ID, chunk.usage);
 		yield chunk;
 	}
 }
@@ -71,6 +91,21 @@ async function* attributeUsage(store, source, tracker = usageTracker) {
 const routingContext = new AsyncLocalStorage();
 const DEFAULT_PROXY_HOSTS = ["opencode.ai"];
 const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i;
+/**
+* The effective proxied-host set: an absent OR EMPTY list means the default.
+*
+* Empty must fall back exactly like absent. Live-observed 2026-10-13: the
+* settings layer hands the runtime `proxyHosts: []` (that schema's own
+* default), and the old `?? DEFAULT_PROXY_HOSTS` guard waved it straight
+* through as an EMPTY host set — so every model call took the direct branch
+* while the settings card kept displaying `opencode.ai` (its display
+* fallback), i.e. the pool reported itself enabled and healthy and silently
+* routed nothing.
+*/
+function resolveProxyHosts(hosts) {
+	const normalized = (hosts ?? []).map((host) => normalizeHost(host)).filter((host) => host !== "");
+	return normalized.length > 0 ? normalized : DEFAULT_PROXY_HOSTS.map((host) => normalizeHost(host));
+}
 /** 'host:port' -> 'host' (bracket-aware) for host matching. */
 function normalizeHost(host) {
 	if (!host) return "";
@@ -106,7 +141,7 @@ var PoolRoutingDispatcher = class {
 	constructor(options) {
 		this.#pool = options.pool;
 		this.#undici = options.undici;
-		this.#proxyHosts = new Set((options.proxyHosts ?? DEFAULT_PROXY_HOSTS).map((host) => normalizeHost(host)));
+		this.#proxyHosts = new Set(resolveProxyHosts(options.proxyHosts));
 		this.#agentLruCap = options.agentLruCap ?? 16;
 		this.#sentinelMs = options.sentinelMs ?? 2e3;
 		this.#headersMs = options.headersMs ?? 3e4;
@@ -115,7 +150,7 @@ var PoolRoutingDispatcher = class {
 	}
 	/** Live re-apply of the proxied-host list (settings page, docs §5.1). */
 	setProxyHosts(hosts) {
-		this.#proxyHosts = hosts && hosts.length > 0 ? new Set(hosts.map((host) => normalizeHost(host))) : new Set(DEFAULT_PROXY_HOSTS.map((host) => normalizeHost(host)));
+		this.#proxyHosts = new Set(resolveProxyHosts(hosts));
 	}
 	/** The proxied-host set as configured (diagnostics / status bridge). */
 	get proxyHosts() {
@@ -163,7 +198,12 @@ var PoolRoutingDispatcher = class {
 			return false;
 		}
 		const host = normalizeHost(String(options.origin ?? ""));
-		if (isLoopback(host) || !this.#proxyHosts.has(host)) return this.#direct.dispatch(options, handler);
+		if (isLoopback(host)) return this.#direct.dispatch(options, handler);
+		if (!this.#proxyHosts.has(host)) {
+			const context$1 = routingContext.getStore();
+			if (context$1 !== void 0) context$1.exitId = LOCAL_EXIT_ID;
+			return this.#direct.dispatch(options, handler);
+		}
 		const context = routingContext.getStore() ?? {};
 		const model = context.model ?? "default";
 		const session = context.session ?? "default";
@@ -319,4 +359,4 @@ var PoolRoutingDispatcher = class {
 };
 
 //#endregion
-export { attributeUsage as a, DIRECT_EXIT_ID as i, exitProxyUri as n, emptyTotals as o, routingContext as r, usageTracker as s, PoolRoutingDispatcher as t };
+export { DIRECT_EXIT_ID as a, emptyTotals as c, routingContext as i, usageTracker as l, exitProxyUri as n, LOCAL_EXIT_ID as o, resolveProxyHosts as r, attributeUsage as s, PoolRoutingDispatcher as t };

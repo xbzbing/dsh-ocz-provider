@@ -143,9 +143,14 @@ export function applyIpPoolSettings(
         () => controller.runtime,
         () => ({
           pinnedStrict: controller.settings().pinnedStrict,
-          proxyHosts: controller.runtime?.installer && controller.settings().proxyHosts.length > 0
-            ? controller.settings().proxyHosts
-            : ['opencode.ai'],
+          // Report what the router is ACTUALLY using, not what the settings
+          // say plus a display default: the two diverged silently while the
+          // proxy-host list was empty and the card kept showing opencode.ai
+          // (live 2026-10-13), which is exactly how a fully-direct pool
+          // looked healthy.
+          proxyHosts: controller.runtime?.installer?.proxyHosts !== undefined
+            ? [...controller.runtime.installer.proxyHosts]
+            : (controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ['opencode.ai']),
           // The card's state badge follows the free-source machine only while
           // that source is on; with free disabled the same thresholds apply
           // to the whole pool (a subscription-only profile used to sit on
