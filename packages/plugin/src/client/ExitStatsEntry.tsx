@@ -103,13 +103,13 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     <>
       <button
         type="button"
-        className={styles.footerEntry}
+        className={wide ? styles.footerEntry : `${styles.footerEntry} ${styles.footerEntryCompact}`}
         onClick={() => setOpen(true)}
         title={t('footerTitle')}
         aria-haspopup="dialog"
       >
         <span className={styles.footerIcon} aria-hidden="true">◈</span>
-        {wide && (
+        {wide ? (
           <span className={styles.footerText}>
             <span className={styles.footerMain}>
               {status === null
@@ -121,6 +121,16 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               {' · '}
               {compact(totals.tokens)} tok
             </span>
+          </span>
+        ) : (
+          /* Collapsed sidebar: one number fits, and it is the token count —
+             the request count is what the expanded line is for. The full
+             breakdown stays reachable through the tooltip and the modal. */
+          <span
+            className={styles.footerCompact}
+            title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok`}
+          >
+            {status === null ? '—' : compact(totals.tokens)}
           </span>
         )}
       </button>
