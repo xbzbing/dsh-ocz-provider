@@ -120,7 +120,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         aria-haspopup="dialog"
       >
         <span className={styles.footerIcon} aria-hidden="true">◈</span>
-        {wide ? (
+        {wide && (
           <span className={styles.footerText}>
             <span className={styles.footerMain}>
               {status === null || poolOff
@@ -133,17 +133,24 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               {compact(totals.tokens)} tok
             </span>
           </span>
-        ) : (
-          /* Collapsed sidebar: one number fits, and it is the token count —
-             the request count is what the expanded line is for. The full
-             breakdown stays reachable through the tooltip and the modal. */
-          <span
-            className={styles.footerCompact}
-            title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok`}
-          >
-            {status === null ? '—' : compact(totals.tokens)}
-          </span>
         )}
+        {/*
+          Two footer buttons share this row (another plugin's trigger sits on
+          the left), and a shared row leaves each button about half as wide —
+          the request/token pair stops fitting and the operator asked for just
+          the token count there (live 2026-10-13). Which variant is live is a
+          layout question, not a state question, so it is answered by the
+          button's OWN width through a container query: the wide sidebar keeps
+          both numbers when this button has the row to itself, and falls back
+          to the token count the moment a second button squeezes it. The rail
+          (wide === false, 56px) always takes the compact span.
+        */}
+        <span
+          className={wide ? styles.footerCompactOnNarrow : styles.footerCompact}
+          title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok`}
+        >
+          {status === null ? '—' : compact(totals.tokens)}
+        </span>
       </button>
       <Modal
         open={open}
