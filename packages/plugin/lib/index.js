@@ -1596,7 +1596,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-nCZF3unh.js");
+	const { startIpPool } = await import("./ip-pool-HXDqV2z2.js");
 	return startIpPool(config, logger);
 };
 /**

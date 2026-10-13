@@ -236,3 +236,36 @@ test('a speed pass that measures nothing keeps candidates unranked at the tail',
   assert.ok(pool.list().every((entry) => pool.demoted(entry.id)))
   assert.ok(pool.list().every((entry) => entry.health.state === 'unknown'))
 })
+
+test('trim() converges a live pool to a lowered capacity and closes the dropped listeners', async () => {
+  // Onboard 6 with capacity 6 — the selection IS every candidate, so no shrink
+  // happens yet (and the harness records no select call). Latency shrinks with
+  // the port here, so the FASTEST are the last slots.
+  const { pool, nodes, onboarder, selections } = harness({
+    count: 6,
+    poolSize: 6,
+    latencyMs: (port) => (BASE_PORT + 7 - port) * 10,
+  })
+  await onboarder.run(nodes)
+  assert.equal(pool.list().length, 6)
+  assert.deepEqual(selections, [], 'a selection that is every candidate needs no rebuild')
+
+  // Lowering the capacity must converge the live pool: the worst (slowest, all
+  // grade S here) go, and the rebuild keeps only the survivors so their ports
+  // close with them.
+  pool.setPoolSize(2)
+  const dropped = await onboarder.trim()
+  assert.equal(dropped, 4)
+  assert.equal(pool.list().length, 2, 'the pool is at its new capacity')
+  // The selection keeps its onboarding order (speed order, fastest first), so
+  // the rebuild is handed [5, 4] — the two fastest — and nothing else.
+  assert.deepEqual(selections, [[5, 4]], 'the rebuild keeps only the two fastest slots')
+  assert.deepEqual(
+    pool.list().map((entry) => entry.id).sort(),
+    [`127.0.0.1:${BASE_PORT + 5}`, `127.0.0.1:${BASE_PORT + 6}`],
+  )
+
+  // A pool already at or under capacity is left alone (no needless rebuild).
+  assert.equal(await onboarder.trim(), 0)
+  assert.equal(selections.length, 1)
+})
