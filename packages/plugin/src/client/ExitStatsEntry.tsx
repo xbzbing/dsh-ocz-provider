@@ -18,8 +18,24 @@ import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import { BRIDGE_PREFIX, type PoolStatusView } from './IpPoolCard.tsx'
+import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPoolCard.tsx'
 import styles from './ip-pool.module.css'
+
+/**
+ * The display total: input + output + cacheRead + cacheWrite. The tracker's
+ * `totalTokens` is the net-new figure (input is normalized to exclude the
+ * cache buckets upstream), which read ~3x smaller than the Agent's own
+ * all-in count (live 2026-10-13) — the footer and the modal show the
+ * all-in number so the two agree; the breakdown stays in the table notes.
+ */
+function grandTotal(tokens: TokenTotalsView): number {
+  return tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
+}
+
+/** Cache share of one bucket, for the per-row note (0 hides the note). */
+function cacheTotal(tokens: TokenTotalsView): number {
+  return tokens.cacheReadTokens + tokens.cacheWriteTokens
+}
 
 export type ExitStatsEntryProps =
   PropsRuntime<'sidebar.footer.action'>
@@ -84,9 +100,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
 
   const totals = useMemo(() => {
     const localRequests = status?.local?.requests ?? 0
-    const localTokens = status?.local?.tokens.totalTokens ?? 0
+    const localTokens = status?.local?.tokens
     const requests = (status?.exits ?? []).reduce((sum, exit) => sum + exit.requests, 0) + localRequests
-    const tokens = (status?.exits ?? []).reduce((sum, exit) => sum + exit.tokens.totalTokens, 0) + localTokens
+    const tokens = (status?.exits ?? []).reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
     const inFlight = (status?.exits ?? []).reduce((sum, exit) => sum + exit.inFlight, 0)
     return { requests, tokens, inFlight }
   }, [status])
@@ -219,7 +235,12 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         {stateLabel}
                       </td>
                       <td>{exit.requests.toLocaleString()}</td>
-                      <td>{compact(exit.tokens.totalTokens)}</td>
+                      <td>
+                        {compact(grandTotal(exit.tokens))}
+                        {cacheTotal(exit.tokens) > 0 && (
+                          <span className={styles.statsEndpoint}>{t('statsCacheNote', { count: compact(cacheTotal(exit.tokens)) })}</span>
+                        )}
+                      </td>
                       <td>{exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t('statsNever')}</td>
                       <td>
                         {exit.inFlight > 0 && (
@@ -238,7 +259,16 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                     {t('statsLocalState')}
                   </td>
                   <td>{(status?.local?.requests ?? 0).toLocaleString()}</td>
-                  <td>{compact(status?.local?.tokens.totalTokens ?? 0)}</td>
+                  <td>
+                    {status?.local === undefined ? t('statsNever') : (
+                      <>
+                        {compact(grandTotal(status.local.tokens))}
+                        {cacheTotal(status.local.tokens) > 0 && (
+                          <span className={styles.statsEndpoint}>{t('statsCacheNote', { count: compact(cacheTotal(status.local.tokens)) })}</span>
+                        )}
+                      </>
+                    )}
+                  </td>
                   <td>{t('statsNever')}</td>
                   <td>{timeLabel(status?.local?.lastUsedAt ?? 0, t('statsNever'))}</td>
                 </tr>
