@@ -19,7 +19,8 @@ function zeroTotals() {
 		outputTokens: 0,
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
-		totalTokens: 0
+		totalTokens: 0,
+		outputMs: 0
 	};
 }
 /** A fresh all-zero bucket (bridge stubs for a disabled pool). */
@@ -40,6 +41,7 @@ var UsageTracker = class {
 		bucket.cacheReadTokens += usage.cacheReadTokens ?? 0;
 		bucket.cacheWriteTokens += usage.cacheWriteTokens ?? 0;
 		bucket.totalTokens += input + output;
+		bucket.outputMs += usage.durationMs ?? 0;
 		this.#byExit.set(exitId, bucket);
 		this.#lastAt.set(exitId, Date.now());
 	}
@@ -69,6 +71,16 @@ const usageTracker = new UsageTracker();
 * output so each attempt's tokens land on the exit that actually carried
 * that attempt (a rotate restart therefore splits correctly across exits).
 *
+* Also measures each response's decode window — the wall time from the FIRST
+* output delta (text/reasoning/tool-call) to the `usage` chunk — and hands
+* it to the tracker as `durationMs`, the denominator of the tok/s column.
+* Prompt processing and queueing before the first token are excluded on
+* purpose: the number answers "how fast does this exit generate", not "how
+* long did the user wait". Each usage closes the window the preceding
+* deltas opened — a later response in the same stream starts a fresh one,
+* so multi-response streams do not inflate a single window. A response with
+* no output delta (empty/aborted before any token) records no window.
+*
 * A context with no stamp means nothing routed this request through a pool
 * exit — the pool is off, the host is outside the proxy set, or routing was
 * never installed. That is exactly the 本机 ledger, so the usage lands in
@@ -76,9 +88,18 @@ const usageTracker = new UsageTracker();
 * that model traffic is leaving from this machine even while the pool looks
 * healthy (the failure mode this bucket was added for, live 2026-10-13).
 */
-async function* attributeUsage(store, source, tracker = usageTracker) {
+async function* attributeUsage(store, source, tracker = usageTracker, now = Date.now) {
+	let firstDeltaAt;
 	for await (const chunk of source) {
-		if (chunk.type === "usage") tracker.record(store.exitId ?? LOCAL_EXIT_ID, chunk.usage);
+		if (chunk.type === "text-delta" || chunk.type === "reasoning-delta" || chunk.type === "tool-call-delta") firstDeltaAt ??= now();
+		else if (chunk.type === "usage") {
+			const durationMs = firstDeltaAt === void 0 ? void 0 : Math.max(1, now() - firstDeltaAt);
+			firstDeltaAt = void 0;
+			tracker.record(store.exitId ?? LOCAL_EXIT_ID, {
+				...chunk.usage,
+				durationMs
+			});
+		}
 		yield chunk;
 	}
 }

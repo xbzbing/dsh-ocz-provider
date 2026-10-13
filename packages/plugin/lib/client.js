@@ -41,70 +41,70 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"collapseToggle": "QmduLW_collapseToggle",
-	"statsContent": "QmduLW_statsContent",
-	"stateDead": "QmduLW_stateDead",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"rowList": "QmduLW_rowList",
+	"ghostButton": "QmduLW_ghostButton",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"stateCooling": "QmduLW_stateCooling",
 	"radio": "QmduLW_radio",
-	"statsSortArrow": "QmduLW_statsSortArrow",
-	"fieldHint": "QmduLW_fieldHint",
-	"tableGrid": "QmduLW_tableGrid",
+	"statsDotOk": "QmduLW_statsDotOk",
 	"saveStatusOk": "QmduLW_saveStatusOk",
+	"rowInput": "QmduLW_rowInput",
 	"saveStatus": "QmduLW_saveStatus",
-	"overviewBar": "QmduLW_overviewBar",
-	"footerIcon": "QmduLW_footerIcon",
-	"footerSub": "QmduLW_footerSub",
-	"footerCompact": "QmduLW_footerCompact",
-	"badgePinned": "QmduLW_badgePinned",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"stateOk": "QmduLW_stateOk",
+	"fieldRow": "QmduLW_fieldRow",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"tableGrid": "QmduLW_tableGrid",
+	"row": "QmduLW_row",
+	"fieldHint": "QmduLW_fieldHint",
+	"status": "QmduLW_status",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"statsChip": "QmduLW_statsChip",
+	"rowAdd": "QmduLW_rowAdd",
+	"statsContent": "QmduLW_statsContent",
 	"statsRowMuted": "QmduLW_statsRowMuted",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"statsDot": "QmduLW_statsDot",
+	"section": "QmduLW_section",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"badgePinned": "QmduLW_badgePinned",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"footerCompact": "QmduLW_footerCompact",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"statsTable": "QmduLW_statsTable",
+	"statsSortButton": "QmduLW_statsSortButton",
+	"rowLabel": "QmduLW_rowLabel",
+	"input": "QmduLW_input",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"statsInflight": "QmduLW_statsInflight",
+	"textarea": "QmduLW_textarea",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"stateDead": "QmduLW_stateDead",
+	"statsWrap": "QmduLW_statsWrap",
+	"overviewBar": "QmduLW_overviewBar",
+	"rowRemove": "QmduLW_rowRemove",
+	"table": "QmduLW_table",
+	"footerIcon": "QmduLW_footerIcon",
 	"field": "QmduLW_field",
 	"saveStatusError": "QmduLW_saveStatusError",
-	"compliance": "QmduLW_compliance",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"stateCooling": "QmduLW_stateCooling",
-	"row": "QmduLW_row",
-	"footerMain": "QmduLW_footerMain",
-	"statsWrap": "QmduLW_statsWrap",
-	"footerText": "QmduLW_footerText",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"stateOk": "QmduLW_stateOk",
-	"footerUnit": "QmduLW_footerUnit",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"rowAdd": "QmduLW_rowAdd",
-	"ghostButton": "QmduLW_ghostButton",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"footerEntry": "QmduLW_footerEntry",
-	"statsChip": "QmduLW_statsChip",
-	"textarea": "QmduLW_textarea",
-	"select": "QmduLW_select",
-	"rowRemove": "QmduLW_rowRemove",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
 	"mono": "QmduLW_mono",
-	"status": "QmduLW_status",
-	"rowInput": "QmduLW_rowInput",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"statsDot": "QmduLW_statsDot",
-	"statsInflight": "QmduLW_statsInflight",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"fieldRow": "QmduLW_fieldRow",
-	"statsSortButton": "QmduLW_statsSortButton",
 	"statsSummary": "QmduLW_statsSummary",
-	"body": "QmduLW_body",
-	"statsModal": "QmduLW_statsModal",
-	"rowList": "QmduLW_rowList",
-	"rowLabel": "QmduLW_rowLabel",
-	"statsEndpoint": "QmduLW_statsEndpoint",
 	"badge": "QmduLW_badge",
+	"footerMain": "QmduLW_footerMain",
+	"statsSortArrow": "QmduLW_statsSortArrow",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"compliance": "QmduLW_compliance",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"footerUnit": "QmduLW_footerUnit",
+	"footerEntry": "QmduLW_footerEntry",
+	"select": "QmduLW_select",
 	"statsRowLocal": "QmduLW_statsRowLocal",
-	"statsTable": "QmduLW_statsTable",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"table": "QmduLW_table",
-	"input": "QmduLW_input",
-	"section": "QmduLW_section",
-	"statsDotLocal": "QmduLW_statsDotLocal"
+	"footerText": "QmduLW_footerText",
+	"statsModal": "QmduLW_statsModal",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"body": "QmduLW_body",
+	"footerSub": "QmduLW_footerSub"
 };
 
 //#endregion
@@ -1125,6 +1125,16 @@ function grandTotal(tokens) {
 function cacheTotal(tokens) {
 	return tokens.cacheReadTokens + tokens.cacheWriteTokens;
 }
+/**
+* Output speed in tok/s: output tokens over the recorded decode window.
+* A bucket with no timed response (nothing ever streamed, or a host from
+* before the field existed) reads 0 and the caller hides the note.
+*/
+function outputSpeed(tokens) {
+	const ms = tokens.outputMs ?? 0;
+	if (ms <= 0 || tokens.outputTokens <= 0) return 0;
+	return Math.round(tokens.outputTokens * 1e3 / ms);
+}
 /** Compact token label: 1_234_567 → 1.2M, 856 → 856. */
 function compact(value) {
 	if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
@@ -1187,10 +1197,16 @@ function ExitStatsEntry({ wide, t }) {
 		const localRequests = status?.local?.requests ?? 0;
 		const localTokens = status?.local?.tokens;
 		const exits = status?.exits ?? [];
+		const requests = exits.reduce((sum, exit) => sum + exit.requests, 0) + localRequests;
+		const tokens = exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === void 0 ? 0 : grandTotal(localTokens));
+		const inFlight = exits.reduce((sum, exit) => sum + exit.inFlight, 0);
+		const outputTokens = exits.reduce((sum, exit) => sum + exit.tokens.outputTokens, 0) + (localTokens?.outputTokens ?? 0);
+		const outputMs = exits.reduce((sum, exit) => sum + (exit.tokens.outputMs ?? 0), 0) + (localTokens?.outputMs ?? 0);
 		return {
-			requests: exits.reduce((sum, exit) => sum + exit.requests, 0) + localRequests,
-			tokens: exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === void 0 ? 0 : grandTotal(localTokens)),
-			inFlight: exits.reduce((sum, exit) => sum + exit.inFlight, 0)
+			requests,
+			tokens,
+			inFlight,
+			speed: outputMs > 0 && outputTokens > 0 ? Math.round(outputTokens * 1e3 / outputMs) : 0
 		};
 	}, [status]);
 	const usable = status?.availableTotal ?? 0;
@@ -1308,6 +1324,10 @@ function ExitStatsEntry({ wide, t }) {
 						className: ip_pool_module_css_default.statsChip,
 						children: t("statsSummaryTokens", { count: compact(totals.tokens) })
 					}),
+					totals.speed > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: t("statsSummarySpeed", { count: totals.speed.toLocaleString() })
+					}),
 					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 						className: ip_pool_module_css_default.statsChip,
 						children: t("statsSummaryInflight", { count: totals.inFlight })
@@ -1368,7 +1388,10 @@ function ExitStatsEntry({ wide, t }) {
 								}), stateLabel] }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.requests.toLocaleString() }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.inputTokens) }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.outputTokens) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [compact(exit.tokens.outputTokens), outputSpeed(exit.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ip_pool_module_css_default.statsEndpoint,
+									children: t("statsSpeedNote", { count: outputSpeed(exit.tokens).toLocaleString() })
+								})] }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: cacheTotal(exit.tokens) > 0 ? compact(cacheTotal(exit.tokens)) : "—" }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t("statsNever") }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -1392,7 +1415,10 @@ function ExitStatsEntry({ wide, t }) {
 							}), t("statsLocalState")] }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : compact(status.local.tokens.inputTokens) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : compact(status.local.tokens.outputTokens) }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [compact(status.local.tokens.outputTokens), outputSpeed(status.local.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ip_pool_module_css_default.statsEndpoint,
+								children: t("statsSpeedNote", { count: outputSpeed(status.local.tokens).toLocaleString() })
+							})] }) }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 || cacheTotal(status.local.tokens) === 0 ? "—" : compact(cacheTotal(status.local.tokens)) }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) })
@@ -1495,6 +1521,8 @@ const zh = {
 	statsClose: "关闭",
 	statsSummaryRequests: "请求 {count}",
 	statsSummaryTokens: "Token {count}",
+	statsSummarySpeed: "输出 {count} tok/s",
+	statsSpeedNote: "{count} tok/s",
 	statsSummaryInflight: "在途 {count}",
 	statsSummaryLocal: "本机 {count}",
 	statsSummaryDirect: "直连兜底 {count} 次",
@@ -1613,6 +1641,8 @@ const en = {
 	statsClose: "Close",
 	statsSummaryRequests: "{count} requests",
 	statsSummaryTokens: "{count} tokens",
+	statsSummarySpeed: "output {count} tok/s",
+	statsSpeedNote: "{count} tok/s",
 	statsSummaryInflight: "{count} in flight",
 	statsSummaryLocal: "{count} local",
 	statsSummaryDirect: "{count} direct fallbacks",

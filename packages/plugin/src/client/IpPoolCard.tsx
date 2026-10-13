@@ -151,6 +151,9 @@ export interface TokenTotalsView {
   cacheReadTokens: number
   cacheWriteTokens: number
   totalTokens: number
+  /** Cumulative decode window (ms); the tok/s denominator. Hosts from
+   *  before this field existed serve the view without it. */
+  outputMs?: number
 }
 
 /** The bridge prefix (same-origin, loopback-only on the host). */

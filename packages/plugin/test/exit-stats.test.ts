@@ -216,17 +216,17 @@ test('the silence sentinel ends a request that never got a single callback', asy
 
 test('UsageTracker accumulates per exit, keeps cache buckets separate, resets clean', () => {
   const tracker = new UsageTracker()
-  tracker.record('e:1', { inputTokens: 100, outputTokens: 50, cacheReadTokens: 40 })
-  tracker.record('e:1', { inputTokens: 10, outputTokens: 5 })
+  tracker.record('e:1', { inputTokens: 100, outputTokens: 50, cacheReadTokens: 40, durationMs: 1_500 })
+  tracker.record('e:1', { inputTokens: 10, outputTokens: 5, durationMs: 500 })
   tracker.record(DIRECT_EXIT_ID, {})
   assert.deepEqual(tracker.totals('e:1'), {
-    requests: 2, inputTokens: 110, outputTokens: 55, cacheReadTokens: 40, cacheWriteTokens: 0, totalTokens: 165,
+    requests: 2, inputTokens: 110, outputTokens: 55, cacheReadTokens: 40, cacheWriteTokens: 0, totalTokens: 165, outputMs: 2_000,
   })
   assert.deepEqual(tracker.totals('direct'), {
-    requests: 1, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0,
+    requests: 1, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, outputMs: 0,
   })
   assert.deepEqual(tracker.totals('unknown'), {
-    requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0,
+    requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, outputMs: 0,
   })
   assert.deepEqual([...tracker.exits()].sort(), ['direct', 'e:1'])
   tracker.reset()
@@ -237,25 +237,31 @@ test('attributeUsage records stamped usage and passes every chunk through untouc
   const tracker = new UsageTracker()
   const usage: HarnessChunk = { type: 'usage', usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2 } }
   const store: { exitId?: string } = { exitId: 'x:1' }
+  // Two responses in one stream: deltas at t=0/t=100, usage at t=250/t=400 —
+  // each usage closes its OWN decode window at the delta that opened it.
+  const clock = { at: 0 }
+  const now = (): number => clock.at
   const source = (async function* () {
-    yield usage
-    yield usage
+    clock.at = 0; yield { type: 'text-delta', index: 0, text: 'a' } satisfies HarnessChunk
+    clock.at = 250; yield usage
+    clock.at = 300; yield { type: 'text-delta', index: 0, text: 'b' } satisfies HarnessChunk
+    clock.at = 400; yield usage
   })()
 
   const out: HarnessChunk[] = []
-  for await (const chunk of attributeUsage(store, source, tracker)) out.push(chunk)
-  assert.equal(out.length, 2)
-  assert.equal(out[0], usage, 'identity preserved — the wrapper never rewrites the stream')
+  for await (const chunk of attributeUsage(store, source, tracker, now)) out.push(chunk)
+  assert.equal(out.length, 4)
+  assert.equal(out[1], usage, 'identity preserved — the wrapper never rewrites the stream')
   assert.deepEqual(tracker.totals('x:1'), {
-    requests: 2, inputTokens: 14, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: 0, totalTokens: 20,
-  })
+    requests: 2, inputTokens: 14, outputTokens: 6, cacheReadTokens: 4, cacheWriteTokens: 0, totalTokens: 20, outputMs: 350,
+  }, 'decode windows: 250ms + 100ms')
 
   const bare: { exitId?: string } = {}
   const untouched = (async function*() { yield usage })()
   for await (const chunk of attributeUsage(bare, untouched, tracker)) assert.equal(chunk, usage)
   assert.deepEqual(tracker.totals(LOCAL_EXIT_ID), {
-    requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 0, totalTokens: 10,
-  }, 'no stamp = egressed from this machine (本机), never an uncounted sample')
+    requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 2, cacheWriteTokens: 0, totalTokens: 10, outputMs: 0,
+  }, 'no stamp = egressed from this machine (本机), never an uncounted sample; no delta = no decode window')
 })
 
 // -- adapter end-to-end -------------------------------------------------------------
@@ -313,15 +319,21 @@ test('adapter e2e: usage lands on the stamped exit; unstamped traffic lands on �
     for await (const chunk of scripted('h:9').stream(options)) chunks.push(chunk)
     assert.deepEqual(chunks.at(-2), { type: 'usage', usage: { inputTokens: 10, outputTokens: 20, cacheReadTokens: 3, cacheWriteTokens: 2 } })
     assert.deepEqual(chunks.at(-1), { type: 'finish', reason: { kind: 'stop' } })
-    assert.deepEqual(usageTracker.totals('h:9'), {
+    // The decode window is wall-clock, so its exact ms is not assertable
+    // here — pin every counter and require the window to be a real number.
+    const { outputMs, ...exitCounters } = usageTracker.totals('h:9')
+    assert.deepEqual(exitCounters, {
       requests: 1, inputTokens: 10, outputTokens: 20, cacheReadTokens: 3, cacheWriteTokens: 2, totalTokens: 30,
     })
+    assert.ok(outputMs >= 0 && Number.isFinite(outputMs), 'the stamped exit carries a decode window')
 
     for await (const _chunk of scripted(undefined).stream(options)) { /* drain */ }
     assert.equal(usageTracker.totals('h:9').requests, 1, 'the unstamped run added nothing to the exit')
-    assert.deepEqual(usageTracker.totals(LOCAL_EXIT_ID), {
+    const { outputMs: localMs, ...localCounters } = usageTracker.totals(LOCAL_EXIT_ID)
+    assert.deepEqual(localCounters, {
       requests: 1, inputTokens: 10, outputTokens: 20, cacheReadTokens: 3, cacheWriteTokens: 2, totalTokens: 30,
     }, 'a request that never entered the pool is 本机 traffic, not a dropped sample')
+    assert.ok(localMs >= 0 && Number.isFinite(localMs), 'the 本机 bucket carries its own decode window')
     assert.ok(usageTracker.lastUsedAt(LOCAL_EXIT_ID) > 0, 'and it stamps the 本机 last-used column')
   } finally {
     usageTracker.reset()
