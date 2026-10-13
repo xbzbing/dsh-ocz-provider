@@ -14,6 +14,7 @@
  * they reset when the host restarts, and the modal says so.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
@@ -61,6 +62,17 @@ function isUsable(exit: PoolStatusView['exits'][number]): boolean {
   return exit.state === 'ok' && !exit.cooling
 }
 
+/** The sortable columns: request count, the three token buckets, latency. */
+type SortKey = 'requests' | 'input' | 'output' | 'cache' | 'latency'
+
+/** One exit's value under a sort key. */
+function sortMetric(exit: PoolStatusView['exits'][number], key: SortKey): number {
+  if (key === 'input') return exit.tokens.inputTokens
+  if (key === 'output') return exit.tokens.outputTokens
+  if (key === 'cache') return cacheTotal(exit.tokens)
+  return exit.requests
+}
+
 /**
  * The footer entry: one register()-mounted button plus its modal.
  * @param props - sidebar column state, locale-bound `t`, standard seats.
@@ -70,6 +82,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const [status, setStatus] = useState<PoolStatusView | null>(null)
   const [open, setOpen] = useState(false)
   const [failed, setFailed] = useState(false)
+  /** Headline ordering contract: newest click wins, request count is home. */
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'requests', dir: 'desc' })
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -101,9 +115,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const totals = useMemo(() => {
     const localRequests = status?.local?.requests ?? 0
     const localTokens = status?.local?.tokens
-    const requests = (status?.exits ?? []).reduce((sum, exit) => sum + exit.requests, 0) + localRequests
-    const tokens = (status?.exits ?? []).reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
-    const inFlight = (status?.exits ?? []).reduce((sum, exit) => sum + exit.inFlight, 0)
+    const exits = status?.exits ?? []
+    const requests = exits.reduce((sum, exit) => sum + exit.requests, 0) + localRequests
+    const tokens = exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
+    const inFlight = exits.reduce((sum, exit) => sum + exit.inFlight, 0)
     return { requests, tokens, inFlight }
   }, [status])
 
@@ -118,12 +133,42 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
    */
   const poolOff = status !== null && status.enabled === false
 
-  // Sorted by request count — the modal's headline ordering contract.
-  const rows = useMemo(
-    () => poolOff
-      ? []
-      : [...(status?.exits ?? [])].sort((left, right) => right.requests - left.requests || left.latencyMs - right.latencyMs),
-    [status, poolOff],
+  // Sorted by the clicked column — request count descending is the home
+  // position. An unprobed exit (latency 0) sinks to the bottom under every
+  // latency direction: "unknown" is not "fastest".
+  const rows = useMemo(() => {
+    if (poolOff) return []
+    const unknown = Number.POSITIVE_INFINITY
+    return [...(status?.exits ?? [])].sort((left, right) => {
+      if (sort.key === 'latency') {
+        const a = left.latencyMs > 0 ? left.latencyMs : unknown
+        const b = right.latencyMs > 0 ? right.latencyMs : unknown
+        if (a === b) return right.requests - left.requests || left.id.localeCompare(right.id)
+        if (a === unknown) return 1
+        if (b === unknown) return -1
+        return sort.dir === 'asc' ? a - b : b - a
+      }
+      const directed = sortMetric(left, sort.key) - sortMetric(right, sort.key)
+      return (sort.dir === 'asc' ? directed : -directed)
+        || right.requests - left.requests
+        || left.id.localeCompare(right.id)
+    })
+  }, [status, poolOff, sort])
+
+  /** One sortable column header: click once for that column descending, again to flip. */
+  const sortableHeader = (key: SortKey, label: string): ReactNode => (
+    <th aria-sort={sort.key === key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        className={styles.statsSortButton}
+        onClick={() => setSort((current) => ({ key, dir: current.key === key && current.dir === 'desc' ? 'asc' : 'desc' }))}
+      >
+        {label}
+        <span className={styles.statsSortArrow} aria-hidden="true">
+          {sort.key === key ? (sort.dir === 'asc' ? '▲' : '▼') : ''}
+        </span>
+      </button>
+    </th>
   )
 
   return (
@@ -139,9 +184,13 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         {wide && (
           <span className={styles.footerText}>
             <span className={styles.footerMain}>
-              {status === null || poolOff
+              {status === null
                 ? t('footerDisabled')
-                : <>{usable}<span className={styles.footerUnit}> / {total} {t('footerLabel')}</span></>}
+                : poolOff
+                  // Pool off = every request leaves from this machine: the
+                  // count that matters is "本地直连", not a dead "0/13".
+                  ? t('footerLocal')
+                  : <>{usable}<span className={styles.footerUnit}> / {total} {t('footerLabel')}</span></>}
             </span>
             <span className={styles.footerSub}>
               {t('footerRequests', { count: totals.requests.toLocaleString() })}
@@ -165,7 +214,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           className={wide ? styles.footerCompactOnNarrow : styles.footerCompact}
           title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok`}
         >
-          {status === null ? '—' : compact(totals.tokens)}
+          {status === null ? '—' : `${compact(totals.tokens)} tok`}
         </span>
       </button>
       <Modal
@@ -196,9 +245,11 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   <th>{t('statsColIp')}</th>
                   <th>{t('statsColLocation')}</th>
                   <th>{t('statsColState')}</th>
-                  <th>{t('statsColRequests')}</th>
-                  <th>{t('statsColTokens')}</th>
-                  <th>{t('statsColLatency')}</th>
+                  {sortableHeader('requests', t('statsColRequests'))}
+                  {sortableHeader('input', t('statsColInput'))}
+                  {sortableHeader('output', t('statsColOutput'))}
+                  {sortableHeader('cache', t('statsColCache'))}
+                  {sortableHeader('latency', t('statsColLatency'))}
                   <th>{t('statsColLastUsed')}</th>
                 </tr>
               </thead>
@@ -235,12 +286,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         {stateLabel}
                       </td>
                       <td>{exit.requests.toLocaleString()}</td>
-                      <td>
-                        {compact(grandTotal(exit.tokens))}
-                        {cacheTotal(exit.tokens) > 0 && (
-                          <span className={styles.statsEndpoint}>{t('statsCacheNote', { count: compact(cacheTotal(exit.tokens)) })}</span>
-                        )}
-                      </td>
+                      <td>{compact(exit.tokens.inputTokens)}</td>
+                      <td>{compact(exit.tokens.outputTokens)}</td>
+                      <td>{cacheTotal(exit.tokens) > 0 ? compact(cacheTotal(exit.tokens)) : '—'}</td>
                       <td>{exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t('statsNever')}</td>
                       <td>
                         {exit.inFlight > 0 && (
@@ -259,16 +307,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                     {t('statsLocalState')}
                   </td>
                   <td>{(status?.local?.requests ?? 0).toLocaleString()}</td>
-                  <td>
-                    {status?.local === undefined ? t('statsNever') : (
-                      <>
-                        {compact(grandTotal(status.local.tokens))}
-                        {cacheTotal(status.local.tokens) > 0 && (
-                          <span className={styles.statsEndpoint}>{t('statsCacheNote', { count: compact(cacheTotal(status.local.tokens)) })}</span>
-                        )}
-                      </>
-                    )}
-                  </td>
+                  <td>{status?.local === undefined ? t('statsNever') : compact(status.local.tokens.inputTokens)}</td>
+                  <td>{status?.local === undefined ? t('statsNever') : compact(status.local.tokens.outputTokens)}</td>
+                  <td>{status?.local === undefined || cacheTotal(status.local.tokens) === 0 ? '—' : compact(cacheTotal(status.local.tokens))}</td>
                   <td>{t('statsNever')}</td>
                   <td>{timeLabel(status?.local?.lastUsedAt ?? 0, t('statsNever'))}</td>
                 </tr>
