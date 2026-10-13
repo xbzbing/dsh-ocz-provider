@@ -263,7 +263,6 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               <thead>
                 <tr>
                   <th>{t('statsColIp')}</th>
-                  <th>{t('statsColLocation')}</th>
                   <th>{t('statsColState')}</th>
                   {sortableHeader('requests', t('statsColRequests'))}
                   {sortableHeader('input', t('statsColInput'))}
@@ -292,7 +291,11 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                           : t('statsStateUnverified')
                   return (
                     <tr key={exit.id} className={usableRow ? undefined : styles.statsRowMuted}>
-                      <td className={styles.mono}>
+                      {/* The location rides the IP cell as a tooltip instead of
+                          taking a column of its own (live request 2026-10-14):
+                          it is reference data you look up per row, and the table
+                          is dense enough that the column cost more than it gave. */}
+                      <td className={styles.mono} title={exit.exitLocation || undefined}>
                         {/* An exit that was never verified has no exit IP. The
                             local SOCKS5 endpoint used to be printed here as if
                             it were one (live 2026-10-13: half the table read
@@ -302,7 +305,6 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         {exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}
                         {exit.exitIP === '' && <span className={styles.statsEndpoint}>{exit.id}</span>}
                       </td>
-                      <td>{exit.exitLocation || '—'}</td>
                       <td>
                         <span className={`${styles.statsDot} ${dotClass}`} aria-hidden="true" />
                         {stateLabel}
@@ -328,7 +330,6 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                 })}
                 <tr className={styles.statsRowLocal} data-local-egress>
                   <td className={styles.mono}>{t('statsLocalIp')}</td>
-                  <td>{t('statsLocalLocation')}</td>
                   <td>
                     <span className={`${styles.statsDot} ${styles.statsDotLocal}`} aria-hidden="true" />
                     {t('statsLocalState')}
