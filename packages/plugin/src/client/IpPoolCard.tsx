@@ -338,7 +338,10 @@ function TextField(props: {
 
 /** One editable string-list (manual proxies / subscription URLs / probe models). */
 function StringList(props: {
-  label: string
+  /** Optional: a section that already renders a heading passes none, so the
+   *  same text never appears twice in a row (live 2026-10-14: the manual and
+   *  subscription sections showed their title AND this label, both identical). */
+  label?: string
   hint: string
   values: string[]
   placeholder: string
@@ -356,7 +359,7 @@ function StringList(props: {
   }
   return (
     <div className={styles.field} data-testid={testId}>
-      <span className={styles.fieldLabel}>{label}</span>
+      {label !== undefined && label !== '' && <span className={styles.fieldLabel}>{label}</span>}
       <span className={styles.fieldHint}>{hint}</span>
       {values.length > 0 && (
         <ul className={styles.rowList}>
@@ -789,7 +792,6 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       <div className={styles.section}>
         <span className={styles.sectionTitle}>{t('sectionManual')}</span>
         <StringList
-          label={t('sectionManual')}
           hint={t('manualHint')}
           values={form.manual}
           placeholder={t('manualPlaceholder')}
@@ -801,7 +803,6 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       <div className={styles.section}>
         <span className={styles.sectionTitle}>{t('sectionSubscription')}</span>
         <StringList
-          label={t('sectionSubscription')}
           hint={t('subscriptionHint')}
           values={form.subscriptionUrls}
           placeholder={t('subscriptionPlaceholder')}
