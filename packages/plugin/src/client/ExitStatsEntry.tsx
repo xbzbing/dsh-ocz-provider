@@ -38,6 +38,17 @@ function cacheTotal(tokens: TokenTotalsView): number {
   return tokens.cacheReadTokens + tokens.cacheWriteTokens
 }
 
+/**
+ * Output speed in tok/s: output tokens over the recorded decode window.
+ * A bucket with no timed response (nothing ever streamed, or a host from
+ * before the field existed) reads 0 and the caller hides the note.
+ */
+function outputSpeed(tokens: TokenTotalsView): number {
+  const ms = tokens.outputMs ?? 0
+  if (ms <= 0 || tokens.outputTokens <= 0) return 0
+  return Math.round((tokens.outputTokens * 1000) / ms)
+}
+
 export type ExitStatsEntryProps =
   PropsRuntime<'sidebar.footer.action'>
   & PropsLocale<'settings.ip-pool'>
@@ -119,7 +130,12 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     const requests = exits.reduce((sum, exit) => sum + exit.requests, 0) + localRequests
     const tokens = exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
     const inFlight = exits.reduce((sum, exit) => sum + exit.inFlight, 0)
-    return { requests, tokens, inFlight }
+    // Pool-wide output speed: the weighted mean over every timed response
+    // (sum output tokens / sum decode window), not an average of averages.
+    const outputTokens = exits.reduce((sum, exit) => sum + exit.tokens.outputTokens, 0) + (localTokens?.outputTokens ?? 0)
+    const outputMs = exits.reduce((sum, exit) => sum + (exit.tokens.outputMs ?? 0), 0) + (localTokens?.outputMs ?? 0)
+    const speed = outputMs > 0 && outputTokens > 0 ? Math.round((outputTokens * 1000) / outputMs) : 0
+    return { requests, tokens, inFlight, speed }
   }, [status])
 
   const usable = status?.availableTotal ?? 0
@@ -230,6 +246,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           <span className={styles.statsChip}>{poolOff ? t('footerDisabled') : t('footerUsable', { usable, total })}</span>
           <span className={styles.statsChip}>{t('statsSummaryRequests', { count: totals.requests.toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryTokens', { count: compact(totals.tokens) })}</span>
+          {totals.speed > 0 && (
+            <span className={styles.statsChip}>{t('statsSummarySpeed', { count: totals.speed.toLocaleString() })}</span>
+          )}
           <span className={styles.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
           <span className={styles.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
@@ -287,7 +306,12 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                       </td>
                       <td>{exit.requests.toLocaleString()}</td>
                       <td>{compact(exit.tokens.inputTokens)}</td>
-                      <td>{compact(exit.tokens.outputTokens)}</td>
+                      <td>
+                        {compact(exit.tokens.outputTokens)}
+                        {outputSpeed(exit.tokens) > 0 && (
+                          <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: outputSpeed(exit.tokens).toLocaleString() })}</span>
+                        )}
+                      </td>
                       <td>{cacheTotal(exit.tokens) > 0 ? compact(cacheTotal(exit.tokens)) : '—'}</td>
                       <td>{exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t('statsNever')}</td>
                       <td>
@@ -308,7 +332,16 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   </td>
                   <td>{(status?.local?.requests ?? 0).toLocaleString()}</td>
                   <td>{status?.local === undefined ? t('statsNever') : compact(status.local.tokens.inputTokens)}</td>
-                  <td>{status?.local === undefined ? t('statsNever') : compact(status.local.tokens.outputTokens)}</td>
+                  <td>
+                    {status?.local === undefined ? t('statsNever') : (
+                      <>
+                        {compact(status.local.tokens.outputTokens)}
+                        {outputSpeed(status.local.tokens) > 0 && (
+                          <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: outputSpeed(status.local.tokens).toLocaleString() })}</span>
+                        )}
+                      </>
+                    )}
+                  </td>
                   <td>{status?.local === undefined || cacheTotal(status.local.tokens) === 0 ? '—' : compact(cacheTotal(status.local.tokens))}</td>
                   <td>{t('statsNever')}</td>
                   <td>{timeLabel(status?.local?.lastUsedAt ?? 0, t('statsNever'))}</td>

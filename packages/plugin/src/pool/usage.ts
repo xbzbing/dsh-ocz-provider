@@ -39,6 +39,12 @@ export interface TokenUsage {
   outputTokens?: number
   cacheReadTokens?: number
   cacheWriteTokens?: number
+  /**
+   * Decode window in ms (first output delta → usage chunk), measured by
+   * attributeUsage. Drives the tok/s column: output tokens per second of
+   * actual generation, excluding queueing before the first token.
+   */
+  durationMs?: number
 }
 
 /** Accumulated counters for one exit (or the direct bucket). */
@@ -52,10 +58,12 @@ export interface TokenTotals {
   cacheWriteTokens: number
   /** input + output; cache reads/writes are reported separately. */
   totalTokens: number
+  /** Cumulative decode window (ms) of the recorded responses. */
+  outputMs: number
 }
 
 function zeroTotals(): TokenTotals {
-  return { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 }
+  return { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, outputMs: 0 }
 }
 
 /** A fresh all-zero bucket (bridge stubs for a disabled pool). */
@@ -78,6 +86,7 @@ export class UsageTracker {
     bucket.cacheReadTokens += usage.cacheReadTokens ?? 0
     bucket.cacheWriteTokens += usage.cacheWriteTokens ?? 0
     bucket.totalTokens += input + output
+    bucket.outputMs += usage.durationMs ?? 0
     this.#byExit.set(exitId, bucket)
     this.#lastAt.set(exitId, Date.now())
   }
@@ -113,6 +122,16 @@ export const usageTracker = new UsageTracker()
  * output so each attempt's tokens land on the exit that actually carried
  * that attempt (a rotate restart therefore splits correctly across exits).
  *
+ * Also measures each response's decode window — the wall time from the FIRST
+ * output delta (text/reasoning/tool-call) to the `usage` chunk — and hands
+ * it to the tracker as `durationMs`, the denominator of the tok/s column.
+ * Prompt processing and queueing before the first token are excluded on
+ * purpose: the number answers "how fast does this exit generate", not "how
+ * long did the user wait". Each usage closes the window the preceding
+ * deltas opened — a later response in the same stream starts a fresh one,
+ * so multi-response streams do not inflate a single window. A response with
+ * no output delta (empty/aborted before any token) records no window.
+ *
  * A context with no stamp means nothing routed this request through a pool
  * exit — the pool is off, the host is outside the proxy set, or routing was
  * never installed. That is exactly the 本机 ledger, so the usage lands in
@@ -124,10 +143,18 @@ export async function* attributeUsage(
   store: { exitId?: string },
   source: AsyncGenerator<HarnessChunk>,
   tracker: UsageTracker = usageTracker,
+  now: () => number = Date.now,
 ): AsyncGenerator<HarnessChunk> {
+  let firstDeltaAt: number | undefined
   for await (const chunk of source) {
-    if (chunk.type === 'usage') {
-      tracker.record(store.exitId ?? LOCAL_EXIT_ID, chunk.usage)
+    if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta' || chunk.type === 'tool-call-delta') {
+      firstDeltaAt ??= now()
+    } else if (chunk.type === 'usage') {
+      // Each usage closes the window the PRECEDING deltas opened; a stream
+      // carrying several responses (a recovery re-send) starts a fresh one.
+      const durationMs = firstDeltaAt === undefined ? undefined : Math.max(1, now() - firstDeltaAt)
+      firstDeltaAt = undefined
+      tracker.record(store.exitId ?? LOCAL_EXIT_ID, { ...chunk.usage, durationMs })
     }
     yield chunk
   }

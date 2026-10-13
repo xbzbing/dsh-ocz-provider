@@ -252,6 +252,7 @@ function localView(): { requests: number; tokens: TokenTotals; lastUsedAt: numbe
     cacheReadTokens: direct.cacheReadTokens + local.cacheReadTokens,
     cacheWriteTokens: direct.cacheWriteTokens + local.cacheWriteTokens,
     totalTokens: direct.totalTokens + local.totalTokens,
+    outputMs: direct.outputMs + local.outputMs,
   }
   return {
     requests: tokens.requests,

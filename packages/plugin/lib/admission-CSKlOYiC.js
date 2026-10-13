@@ -1,6 +1,6 @@
 import { f as disguiseHeaders, h as stableID, m as randomID, p as opencodeUserAgent, r as ZEN_BASE_URL, u as canonicalSessionID } from "./catalog-BraBPliY.js";
 import { a as freeLaneGateTool, t as FREE_LANE_GATE_TOOL_NAMES } from "./messages-CLaBfusR.js";
-import { n as exitProxyUri } from "./dispatcher-Duu4cMIa.js";
+import { n as exitProxyUri } from "./dispatcher-ko3LVHp4.js";
 
 //#region src/pool/pool.ts
 /** Quality grade from admission latency (GoProxy thresholds). */

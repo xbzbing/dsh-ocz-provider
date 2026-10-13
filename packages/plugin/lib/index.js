@@ -1,6 +1,6 @@
 import { d as deriveRequestIDs, f as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, r as ZEN_BASE_URL } from "./catalog-BraBPliY.js";
 import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CLaBfusR.js";
-import { a as routingContext, c as attributeUsage, l as emptyTotals, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as usageTracker } from "./dispatcher-Duu4cMIa.js";
+import { a as routingContext, c as attributeUsage, l as emptyTotals, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as usageTracker } from "./dispatcher-ko3LVHp4.js";
 import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1372,7 +1372,8 @@ function localView() {
 		outputTokens: direct.outputTokens + local.outputTokens,
 		cacheReadTokens: direct.cacheReadTokens + local.cacheReadTokens,
 		cacheWriteTokens: direct.cacheWriteTokens + local.cacheWriteTokens,
-		totalTokens: direct.totalTokens + local.totalTokens
+		totalTokens: direct.totalTokens + local.totalTokens,
+		outputMs: direct.outputMs + local.outputMs
 	};
 	return {
 		requests: tokens.requests,
@@ -1590,7 +1591,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-BvrUCGrk.js");
+	const { startIpPool } = await import("./ip-pool-Dxep4qWn.js");
 	return startIpPool(config, logger);
 };
 /**

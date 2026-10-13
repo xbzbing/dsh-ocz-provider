@@ -213,23 +213,23 @@ test('status view: per-exit tokens, direct and 本机 ride the bridge', () => {
     const view = buildStatusView(fakeRuntime() as never, false, [])
     const manual = view.exits.find((e) => e.id === 'http://10.0.0.1:3128')
     assert.deepEqual(manual?.tokens, {
-      requests: 2, inputTokens: 120, outputTokens: 60, cacheReadTokens: 40, cacheWriteTokens: 0, totalTokens: 180,
+      requests: 2, inputTokens: 120, outputTokens: 60, cacheReadTokens: 40, cacheWriteTokens: 0, totalTokens: 180, outputMs: 0,
     })
     assert.deepEqual(view.direct.tokens, {
-      requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 10,
+      requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 10, outputMs: 0,
     })
     // 本机 merges the two local-egress buckets: pool-host fallbacks plus
     // hosts outside the proxy set. This is the row that catches a pool
     // which looks healthy while every request leaves from this machine.
     assert.deepEqual(view.local, {
       requests: 2,
-      tokens: { requests: 2, inputTokens: 12, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 16 },
+      tokens: { requests: 2, inputTokens: 12, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 16, outputMs: 0 },
       lastUsedAt: view.local.lastUsedAt,
     })
     assert.ok(view.local.lastUsedAt > 0, 'the 本机 row carries its own last-used stamp')
     // A disabled stub reports zeros everywhere — no stale lifetime numbers.
     const stub = buildStatusView(null, false, [])
-    assert.deepEqual(stub.direct, { requests: 0, tokens: { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 } })
+    assert.deepEqual(stub.direct, { requests: 0, tokens: { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0, outputMs: 0 } })
   } finally {
     usageTracker.reset()
   }
