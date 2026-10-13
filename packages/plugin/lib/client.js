@@ -31,7 +31,7 @@ let react_jsx_runtime = require("react/jsx-runtime");
 react_jsx_runtime = __toESM(react_jsx_runtime);
 
 //#region \0dsh-css:/Users/ankh/workspace/private/opencode2dsh/packages/plugin/src/client/ip-pool.module.css.mjs
-const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:4%}.QmduLW_statsTable th:nth-child(2){width:18%}.QmduLW_statsTable th:nth-child(3){width:11%}.QmduLW_statsTable th:nth-child(4){width:9%}.QmduLW_statsTable th:nth-child(5),.QmduLW_statsTable th:nth-child(6),.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8),.QmduLW_statsTable th:nth-child(9){width:8%}.QmduLW_statsTable th:nth-child(10){width:18%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsIndex{color:var(--dsw-alias-label-tertiary,#6b7280);font-variant-numeric:tabular-nums}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsDotLocal{background:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
+const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{white-space:nowrap;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:4%}.QmduLW_statsTable th:nth-child(2){width:18%}.QmduLW_statsTable th:nth-child(3){width:11%}.QmduLW_statsTable th:nth-child(4){width:9%}.QmduLW_statsTable th:nth-child(5),.QmduLW_statsTable th:nth-child(6),.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8),.QmduLW_statsTable th:nth-child(9){width:8%}.QmduLW_statsTable th:nth-child(10){width:18%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsDotLocal{background:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
 const tagId = "@opencode2dsh/dsh-plugin/ip-pool.module.css";
 if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 	const tag = document.createElement("style");
@@ -41,71 +41,70 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"badgeCritical": "QmduLW_badgeCritical",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"statsSummary": "QmduLW_statsSummary",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"footerSub": "QmduLW_footerSub",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"select": "QmduLW_select",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"input": "QmduLW_input",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"rowInput": "QmduLW_rowInput",
-	"stateDead": "QmduLW_stateDead",
-	"rowRemove": "QmduLW_rowRemove",
-	"statsSortButton": "QmduLW_statsSortButton",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"footerText": "QmduLW_footerText",
-	"footerIcon": "QmduLW_footerIcon",
-	"section": "QmduLW_section",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"fieldHint": "QmduLW_fieldHint",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"statsModal": "QmduLW_statsModal",
-	"status": "QmduLW_status",
-	"textarea": "QmduLW_textarea",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"saveStatus": "QmduLW_saveStatus",
-	"compliance": "QmduLW_compliance",
-	"footerEntry": "QmduLW_footerEntry",
-	"statsContent": "QmduLW_statsContent",
-	"rowLabel": "QmduLW_rowLabel",
-	"rowAdd": "QmduLW_rowAdd",
-	"footerMain": "QmduLW_footerMain",
-	"statsDot": "QmduLW_statsDot",
-	"body": "QmduLW_body",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"radio": "QmduLW_radio",
-	"statsChip": "QmduLW_statsChip",
 	"stateCooling": "QmduLW_stateCooling",
-	"badge": "QmduLW_badge",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"rowList": "QmduLW_rowList",
-	"overviewBar": "QmduLW_overviewBar",
-	"table": "QmduLW_table",
-	"mono": "QmduLW_mono",
-	"footerUnit": "QmduLW_footerUnit",
-	"tableGrid": "QmduLW_tableGrid",
-	"badgePinned": "QmduLW_badgePinned",
-	"statsTable": "QmduLW_statsTable",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"statsInflight": "QmduLW_statsInflight",
-	"statsSortArrow": "QmduLW_statsSortArrow",
-	"statsWrap": "QmduLW_statsWrap",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"footerCompact": "QmduLW_footerCompact",
-	"fieldRow": "QmduLW_fieldRow",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"statsRowLocal": "QmduLW_statsRowLocal",
-	"row": "QmduLW_row",
-	"ghostButton": "QmduLW_ghostButton",
+	"statsEndpoint": "QmduLW_statsEndpoint",
 	"field": "QmduLW_field",
+	"select": "QmduLW_select",
+	"footerIcon": "QmduLW_footerIcon",
+	"table": "QmduLW_table",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"statsRowLocal": "QmduLW_statsRowLocal",
+	"rowList": "QmduLW_rowList",
+	"statsTable": "QmduLW_statsTable",
+	"overviewBar": "QmduLW_overviewBar",
+	"statsSortArrow": "QmduLW_statsSortArrow",
+	"rowInput": "QmduLW_rowInput",
+	"section": "QmduLW_section",
+	"footerEntry": "QmduLW_footerEntry",
+	"radio": "QmduLW_radio",
+	"compliance": "QmduLW_compliance",
+	"rowLabel": "QmduLW_rowLabel",
+	"input": "QmduLW_input",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"row": "QmduLW_row",
+	"status": "QmduLW_status",
+	"footerMain": "QmduLW_footerMain",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"tableGrid": "QmduLW_tableGrid",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"footerCompact": "QmduLW_footerCompact",
+	"saveStatus": "QmduLW_saveStatus",
+	"mono": "QmduLW_mono",
+	"stateDead": "QmduLW_stateDead",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"statsSummary": "QmduLW_statsSummary",
+	"footerUnit": "QmduLW_footerUnit",
+	"statsWrap": "QmduLW_statsWrap",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"saveStatusError": "QmduLW_saveStatusError",
 	"stateOk": "QmduLW_stateOk",
-	"statsIndex": "QmduLW_statsIndex"
+	"footerText": "QmduLW_footerText",
+	"body": "QmduLW_body",
+	"statsInflight": "QmduLW_statsInflight",
+	"textarea": "QmduLW_textarea",
+	"badge": "QmduLW_badge",
+	"badgePinned": "QmduLW_badgePinned",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"statsSortButton": "QmduLW_statsSortButton",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"fieldHint": "QmduLW_fieldHint",
+	"ghostButton": "QmduLW_ghostButton",
+	"statsDot": "QmduLW_statsDot",
+	"rowRemove": "QmduLW_rowRemove",
+	"footerSub": "QmduLW_footerSub",
+	"statsChip": "QmduLW_statsChip",
+	"fieldRow": "QmduLW_fieldRow",
+	"statsContent": "QmduLW_statsContent",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"rowAdd": "QmduLW_rowAdd",
+	"statsModal": "QmduLW_statsModal"
 };
 
 //#endregion
@@ -164,7 +163,7 @@ const DEFAULTS = {
 	enabled: false,
 	probeModels: [],
 	maxConcurrentProbes: 3,
-	poolSize: 20,
+	poolSize: 10,
 	manual: [],
 	subscription: {
 		urls: [],
@@ -504,10 +503,6 @@ function ExitTable(props) {
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
 			className: ip_pool_module_css_default.tableGrid,
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
-					className: ip_pool_module_css_default.statsIndex,
-					children: t("exitIndex")
-				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitAddress") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitSource") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitLocation") }),
@@ -517,11 +512,7 @@ function ExitTable(props) {
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitState") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitPassive") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {})
-			] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [status.exits.map((exit, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-					className: ip_pool_module_css_default.statsIndex,
-					children: index + 1
-				}),
+			] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [status.exits.map((exit) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
 					className: ip_pool_module_css_default.mono,
 					children: [exit.id, exit.pinned ? ` · ${t("exitPinnedMark")}` : ""]
@@ -553,7 +544,7 @@ function ExitTable(props) {
 					children: t("exitPin")
 				})] })
 			] }, exit.id)), status.exits.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-				colSpan: 10,
+				colSpan: 9,
 				className: ip_pool_module_css_default.status,
 				children: t("statusUnavailable")
 			}) })] })]
@@ -1258,10 +1249,7 @@ function ExitStatsEntry({ wide, t }) {
 	const rows = (0, react.useMemo)(() => {
 		if (poolOff) return [];
 		const unknown = Number.POSITIVE_INFINITY;
-		return (status?.exits ?? []).map((exit, index) => ({
-			...exit,
-			slot: index + 1
-		})).sort((left, right) => {
+		return [...status?.exits ?? []].sort((left, right) => {
 			if (sort.key === "latency") {
 				const a = left.latencyMs > 0 ? left.latencyMs : unknown;
 				const b = right.latencyMs > 0 ? right.latencyMs : unknown;
@@ -1393,10 +1381,6 @@ function ExitStatsEntry({ wide, t }) {
 				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
 					className: ip_pool_module_css_default.statsTable,
 					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
-							className: ip_pool_module_css_default.statsIndex,
-							children: t("statsColIndex")
-						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLocation") }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
@@ -1413,10 +1397,6 @@ function ExitStatsEntry({ wide, t }) {
 						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
 							className: usableRow ? void 0 : ip_pool_module_css_default.statsRowMuted,
 							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-									className: ip_pool_module_css_default.statsIndex,
-									children: exit.slot
-								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
 									className: ip_pool_module_css_default.mono,
 									children: [
@@ -1451,10 +1431,6 @@ function ExitStatsEntry({ wide, t }) {
 						className: ip_pool_module_css_default.statsRowLocal,
 						"data-local-egress": true,
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-								className: ip_pool_module_css_default.statsIndex,
-								children: "—"
-							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 								className: ip_pool_module_css_default.mono,
 								children: t("statsLocalIp")
@@ -1543,7 +1519,6 @@ const zh = {
 	probeAll: "批量探活",
 	probeRunning: "探活中 {done}/{total}…",
 	sectionExits: "出口列表",
-	exitIndex: "#",
 	exitAddress: "地址",
 	exitSource: "来源",
 	exitLocation: "位置",
@@ -1582,7 +1557,6 @@ const zh = {
 	statsSummaryLocal: "本机 {count}",
 	statsSummaryDirect: "直连兜底 {count} 次",
 	statsColIp: "出口 IP",
-	statsColIndex: "#",
 	statsColLocation: "位置",
 	statsColState: "状态",
 	statsColRequests: "请求数",
@@ -1669,7 +1643,6 @@ const en = {
 	probeRunning: "Probing {done}/{total}…",
 	sectionExits: "Exits",
 	exitAddress: "Address",
-	exitIndex: "#",
 	exitSource: "Source",
 	exitLocation: "Location",
 	exitLatency: "Latency",
@@ -1707,7 +1680,6 @@ const en = {
 	statsSummaryLocal: "{count} local",
 	statsSummaryDirect: "{count} direct fallbacks",
 	statsColIp: "Exit IP",
-	statsColIndex: "#",
 	statsColLocation: "Location",
 	statsColState: "State",
 	statsColRequests: "Requests",

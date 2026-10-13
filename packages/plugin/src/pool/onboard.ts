@@ -262,8 +262,16 @@ export class Onboarder {
         this.#deps.logger?.warn(`opencode2dsh: exit ${current.address} refused by the upstream lane and no reserve is left; kept at the pool tail`)
         return
       }
+      // Build the NEXT selection and hand exactly that to the rebuild. Passing
+      // `selected + next` before the swap (the pre-2026-10-14 shape) left the
+      // refused slot in the config: the pool dropped the exit while sing-box
+      // kept listening on its port — measured live as 21 local listeners for 16
+      // pool exits, i.e. five orphaned ports.
+      const nextSelection = new Set(this.#selected)
+      nextSelection.delete(current.slot)
+      nextSelection.add(next.slot)
       try {
-        await this.#deps.select([...this.#selected, next.slot])
+        await this.#deps.select([...nextSelection])
       } catch (err) {
         // The rebuild failed: keep the refused exit rather than losing a slot.
         this.#reserve.unshift(next)
@@ -272,8 +280,7 @@ export class Onboarder {
         this.#deps.logger?.warn(`opencode2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${current.address} stays at the tail`)
         return
       }
-      this.#selected.delete(current.slot)
-      this.#selected.add(next.slot)
+      this.#selected = nextSelection
       this.#deps.pool.remove(current.address)
       result.promoted += 1
       const verdict = await this.#smoke(next)

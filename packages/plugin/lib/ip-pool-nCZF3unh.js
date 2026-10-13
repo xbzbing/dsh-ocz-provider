@@ -2,7 +2,7 @@ import "./catalog-BraBPliY.js";
 import "./messages-CLaBfusR.js";
 import "./dispatcher-ko3LVHp4.js";
 import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-DnInSsBU.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-DIcUydC2.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -850,8 +850,11 @@ var Onboarder = class {
 				this.#deps.logger?.warn(`opencode2dsh: exit ${current.address} refused by the upstream lane and no reserve is left; kept at the pool tail`);
 				return;
 			}
+			const nextSelection = new Set(this.#selected);
+			nextSelection.delete(current.slot);
+			nextSelection.add(next.slot);
 			try {
-				await this.#deps.select([...this.#selected, next.slot]);
+				await this.#deps.select([...nextSelection]);
 			} catch (err) {
 				this.#reserve.unshift(next);
 				this.#keepDemoted(current);
@@ -859,8 +862,7 @@ var Onboarder = class {
 				this.#deps.logger?.warn(`opencode2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${current.address} stays at the tail`);
 				return;
 			}
-			this.#selected.delete(current.slot);
-			this.#selected.add(next.slot);
+			this.#selected = nextSelection;
 			this.#deps.pool.remove(current.address);
 			result.promoted += 1;
 			const verdict = await this.#smoke(next);
@@ -1396,6 +1398,10 @@ var SubscriptionFetcher = class {
 	/** Last onboarding round's controller — holds the speed facts and the
 	*  reserve, so a later refusal can be replaced (see replaceExit()). */
 	#onboarder = null;
+	/** One replacement at a time: each one rebuilds the sing-box config, and a
+	*  burst of dead exits must not stack rebuilds (the periodic probe retries
+	*  whatever a skipped one missed). */
+	#replacing = false;
 	#logger;
 	constructor(deps, options = {}) {
 		this.#deps = deps;
@@ -1487,12 +1493,15 @@ var SubscriptionFetcher = class {
 	* onboarder yet" (no subscription round has run in this process).
 	*/
 	async replaceExit(exitId) {
-		if (this.#onboarder === null) return false;
+		if (this.#onboarder === null || this.#replacing) return false;
+		this.#replacing = true;
 		try {
 			return await this.#onboarder.replace(exitId);
 		} catch (err) {
 			this.#logger?.warn(`opencode2dsh: replacing refused exit ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`);
 			return false;
+		} finally {
+			this.#replacing = false;
 		}
 	}
 	start() {
@@ -1858,6 +1867,19 @@ async function startIpPool(config, logger, deps = {}) {
 		if (installer.enabled) logger.info("opencode2dsh: exits admitted — exit routing engaged (live)");
 	};
 	pool.onAdmitted(engageRouting);
+	/**
+	* A dead exit must not just sit in the table (live request 2026-10-14:
+	* "其余 dead 自动轮换，dead 的出口移至列表末尾"). The subscription layer swaps
+	* it for the next-fastest reserve and, when the reserve is exhausted, parks it
+	* at the pool tail — the pool holds its size either way. Only subscription
+	* exits rotate: free rows belong to the refill loop (they evict after repeated
+	* strikes) and manual/pinned rows are explicit user config.
+	*/
+	pool.onDead((id) => {
+		if (config.ipPool?.enabled === false) return;
+		if (pool.get(id)?.source !== "subscription") return;
+		subscriptions?.replaceExit(id).catch(() => {});
+	});
 	if (pool.snapshot().total > 0) installer.install();
 	else logger.warn("opencode2dsh: ipPool enabled but the pool is empty; staying direct until exits land (subscription/free admissions engage routing automatically)");
 	applyConfig();
@@ -1866,7 +1888,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CNfRiv5B.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CtAbNxx4.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {

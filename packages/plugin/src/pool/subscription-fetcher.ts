@@ -96,6 +96,10 @@ export class SubscriptionFetcher {
   /** Last onboarding round's controller — holds the speed facts and the
    *  reserve, so a later refusal can be replaced (see replaceExit()). */
   #onboarder: Onboarder | null = null
+  /** One replacement at a time: each one rebuilds the sing-box config, and a
+   *  burst of dead exits must not stack rebuilds (the periodic probe retries
+   *  whatever a skipped one missed). */
+  #replacing = false
   #logger?: SubscriptionOptions['logger']
 
   constructor(deps: SubscriptionDeps, options: SubscriptionOptions = {}) {
@@ -194,12 +198,15 @@ export class SubscriptionFetcher {
    * onboarder yet" (no subscription round has run in this process).
    */
   async replaceExit(exitId: string): Promise<boolean> {
-    if (this.#onboarder === null) return false
+    if (this.#onboarder === null || this.#replacing) return false
+    this.#replacing = true
     try {
       return await this.#onboarder.replace(exitId)
     } catch (err) {
       this.#logger?.warn(`opencode2dsh: replacing refused exit ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`)
       return false
+    } finally {
+      this.#replacing = false
     }
   }
 

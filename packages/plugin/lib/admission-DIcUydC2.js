@@ -34,6 +34,8 @@ var ExitPool = class {
 	#directRequests = 0;
 	/** Fired once per newly added node — see onAdmitted(). */
 	#admittedCallbacks = [];
+	/** Fired when an exit transitions to dead — see onDead(). */
+	#deadCallbacks = [];
 	/**
 	* Exits rejected by the upstream lane (a failed OpenCode smoke, or a 401/403
 	* verdict) with no reserve left to promote: they stay in the pool as the last
@@ -50,7 +52,7 @@ var ExitPool = class {
 	#now;
 	constructor(options = {}) {
 		this.#targetSize = options.targetSize ?? 20;
-		this.#poolSize = options.poolSize ?? 20;
+		this.#poolSize = options.poolSize ?? 10;
 		this.#cooldownBase = options.limitedCooldownBaseMs ?? 6e4;
 		this.#cooldownMax = options.limitedCooldownMaxMs ?? 30 * 6e4;
 		this.#banConfirmations = options.modelBanConfirmations ?? 2;
@@ -81,12 +83,23 @@ var ExitPool = class {
 	* passive counters, activity) is keyed by id and survives untouched.
 	*/
 	demoteToTail(id) {
+		if (!this.#moveToTail(id)) return false;
+		this.#demoted.add(id);
+		return true;
+	}
+	/** The reorder half of demoteToTail, without the last-resort flag: a dead
+	*  exit sinks to the end of the table but recovers straight back into the
+	*  ranked set once a probe verifies it (`markOk` clears `#demoted` only). */
+	#moveToTail(id) {
 		const node = this.#nodes.get(id);
 		if (node === void 0) return false;
 		this.#nodes.delete(id);
 		this.#nodes.set(id, node);
-		this.#demoted.add(id);
 		return true;
+	}
+	/** Is this exit currently `dead` (transport failure / failed probe)? */
+	isDead(id) {
+		return this.#health.get(id)?.state === "dead";
 	}
 	/**
 	* Evict the worst exit to make room for a better candidate (whole pool, any
@@ -144,6 +157,22 @@ var ExitPool = class {
 			callback();
 		} catch {}
 	}
+	/**
+	* Register a callback fired when an exit TRANSITIONS to `dead` (once per
+	* transition, not once per strike). The runtime uses it to rotate: the
+	* subscription layer swaps the dead exit for the next-fastest reserve, or
+	* parks it at the pool tail when no reserve is left (live request
+	* 2026-10-14 — "其余 dead 自动轮换").
+	*/
+	onDead(callback) {
+		this.#deadCallbacks.push(callback);
+	}
+	/** A watcher's failure must never fail the strike bookkeeping. */
+	#notifyDead(id) {
+		for (const callback of this.#deadCallbacks) try {
+			callback(id);
+		} catch {}
+	}
 	/** Upsert a node (admission wrote its details); returns false on duplicate
 	*  exit IP for a different address — two addresses sharing one exit IP are
 	*  one quota bucket and must not both live in the pool (3.1). */
@@ -188,8 +217,13 @@ var ExitPool = class {
 	markDead(id) {
 		const health = this.#health.get(id);
 		if (!health) return;
+		const wasDead = health.state === "dead";
 		health.state = "dead";
 		health.inflight = false;
+		if (!wasDead) {
+			this.#moveToTail(id);
+			this.#notifyDead(id);
+		}
 	}
 	/**
 	* A probe could not verify this exit (trusted-source admission fallback):
@@ -296,10 +330,15 @@ var ExitPool = class {
 		const node = this.#nodes.get(id);
 		const health = this.#health.get(id);
 		if (!node || !health) return false;
+		const wasDead = health.state === "dead";
 		health.state = "dead";
 		health.inflight = false;
 		health.deadStrikes += 1;
 		health.deadAt = this.#now();
+		if (!wasDead) {
+			this.#moveToTail(id);
+			this.#notifyDead(id);
+		}
 		if (node.source === "free" && health.deadStrikes >= this.#deadEvictions) {
 			this.remove(id);
 			return true;

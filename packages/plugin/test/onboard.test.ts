@@ -145,7 +145,7 @@ test('onboarding keeps the fastest poolSize and shrinks the conversion to exactl
 
 test('a refused exit is replaced by the next-fastest reserve', async () => {
   // 5 candidates, capacity 3: speed order is slots 4,3,2 with 1,0 in reserve.
-  const { pool, nodes, onboarder } = harness({
+  const { pool, nodes, onboarder, selections } = harness({
     count: 5,
     poolSize: 3,
     latencyMs: (port) => (BASE_PORT + 6 - port) * 10,
@@ -156,6 +156,12 @@ test('a refused exit is replaced by the next-fastest reserve', async () => {
   assert.equal(result.promoted, 1)
   assert.equal(result.demoted, 0)
   assert.equal(pool.list().length, 3, 'the pool holds its capacity')
+  // The rebuild must be handed the NEXT selection, never `selected + next`:
+  // the pre-2026-10-14 shape left the refused slot in the config, so sing-box
+  // kept listening on a port no exit owned (measured live: 21 listeners for 16
+  // pool exits). Every select() call is therefore a subset of the live pool.
+  assert.deepEqual(selections, [[4, 3, 2], [3, 2, 1]], 'the refused slot leaves the config with it')
+  assert.ok(selections.every((slots) => slots.length <= 3))
   assert.ok(!pool.has(`127.0.0.1:${BASE_PORT + 5}`), 'the refused exit left the pool')
   assert.ok(pool.has(`127.0.0.1:${BASE_PORT + 2}`), 'the next reserve (slot 1) took the slot')
   assert.ok(pool.has(`127.0.0.1:${BASE_PORT + 3}`))

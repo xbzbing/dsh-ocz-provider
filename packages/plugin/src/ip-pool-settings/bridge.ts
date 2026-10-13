@@ -104,7 +104,7 @@ export interface PoolStatusView {
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
   targetSize: number
-  /** Whole-pool capacity in force (settings `poolSize`, default 20). */
+  /** Whole-pool capacity in force (settings `poolSize`, default 10). */
   poolSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
@@ -207,7 +207,7 @@ export function buildStatusView(
     availableFree: snapshot.availableFree,
     availableTotal,
     targetSize: runtime ? runtime.pool.targetSize : 20,
-    poolSize: runtime ? runtime.pool.poolSize : 20,
+    poolSize: runtime ? runtime.pool.poolSize : 10,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict }
       : null,

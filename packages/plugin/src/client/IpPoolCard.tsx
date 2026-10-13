@@ -178,7 +178,7 @@ const DEFAULTS: IpPoolSettingsValue = {
   enabled: false,
   probeModels: [],
   maxConcurrentProbes: 3,
-  poolSize: 20,
+  poolSize: 10,
   manual: [],
   // Mirrors the Host schema default (docs §5.1, DEFAULT_SUBSCRIPTION_USER_AGENT
   // in src/pool/subscription.ts). Spelled as a literal here on purpose: the
@@ -529,7 +529,6 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
         <table className={styles.tableGrid}>
           <thead>
             <tr>
-              <th className={styles.statsIndex}>{t('exitIndex')}</th>
               <th>{t('exitAddress')}</th>
               <th>{t('exitSource')}</th>
               <th>{t('exitLocation')}</th>
@@ -542,9 +541,8 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
             </tr>
           </thead>
           <tbody>
-            {status.exits.map((exit, index) => (
+            {status.exits.map((exit) => (
               <tr key={exit.id}>
-                <td className={styles.statsIndex}>{index + 1}</td>
                 <td className={styles.mono}>{exit.id}{exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}</td>
                 <td>{exit.source}</td>
                 <td>{exit.exitLocation || '—'}</td>
@@ -566,7 +564,7 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
               </tr>
             ))}
             {status.exits.length === 0 && (
-              <tr><td colSpan={10} className={styles.status}>{t('statusUnavailable')}</td></tr>
+              <tr><td colSpan={9} className={styles.status}>{t('statusUnavailable')}</td></tr>
             )}
           </tbody>
         </table>

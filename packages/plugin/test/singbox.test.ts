@@ -300,12 +300,12 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
   fetcher.setUrls(['https://sub.example.com/token'])
   const state = await fetcher.refresh()
   // 38 anytls nodes convert, but the onboarding keeps only the pool's capacity
-  // (20 by default) and shrinks the conversion to them — the whole point of
-  // "池子默认 20 个 / 避免建立太多本地连接" (live request 2026-10-13).
-  assert.equal(state.convertedAdmitted, 20)
+  // (10 by default) and shrinks the conversion to them — the whole point of
+  // "池子数量 10 个 / 避免建立太多本地连接" (live request 2026-10-13/14).
+  assert.equal(state.convertedAdmitted, 10)
   assert.equal(state.pendingConversion.length, 0)
-  assert.equal(pool.list().length, 20, 'the pool holds its capacity, not all 38 candidates')
-  assert.deepEqual(shrinks, [20], 'the conversion is rebuilt with exactly the selected slots')
+  assert.equal(pool.list().length, 10, 'the pool holds its capacity, not all 38 candidates')
+  assert.deepEqual(shrinks, [10], 'the conversion is rebuilt with exactly the selected slots')
   assert.ok(pool.list().every((entry) => entry.source === 'subscription'))
   // Every admitted address is one of the converted candidates (slot-stable
   // ports), and the other 18 are reserve rather than listeners.
@@ -455,7 +455,7 @@ test('subscription refresh: nodes that fail every measurement stay unverified at
   const state = await fetcher.refresh()
 
   assert.equal(state.convertedAdmitted, 0, 'nothing passed the connectivity test')
-  assert.equal(pool.list().length, 20, 'the pool still holds its capacity (paid line, docs 4.5)')
+  assert.equal(pool.list().length, 10, 'the pool still holds its capacity (paid line, docs 4.5)')
   const health = pool.list().map((entry) => entry.health.state)
   assert.ok(health.every((state) => state !== 'ok'), `nothing may claim health: ${health.join(',')}`)
   assert.ok(pool.list().every((entry) => entry.exitIP === ''))
