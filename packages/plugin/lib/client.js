@@ -41,68 +41,68 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"rowAdd": "QmduLW_rowAdd",
-	"statsRowLocal": "QmduLW_statsRowLocal",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"footerUnit": "QmduLW_footerUnit",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"fieldRow": "QmduLW_fieldRow",
-	"body": "QmduLW_body",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"saveStatus": "QmduLW_saveStatus",
-	"statsModal": "QmduLW_statsModal",
-	"rowLabel": "QmduLW_rowLabel",
-	"statsChip": "QmduLW_statsChip",
-	"field": "QmduLW_field",
-	"status": "QmduLW_status",
-	"fieldHint": "QmduLW_fieldHint",
-	"textarea": "QmduLW_textarea",
-	"table": "QmduLW_table",
-	"stateOk": "QmduLW_stateOk",
-	"statsContent": "QmduLW_statsContent",
-	"statsTable": "QmduLW_statsTable",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"footerMain": "QmduLW_footerMain",
-	"footerSub": "QmduLW_footerSub",
-	"compliance": "QmduLW_compliance",
-	"rowRemove": "QmduLW_rowRemove",
-	"footerCompact": "QmduLW_footerCompact",
-	"row": "QmduLW_row",
-	"stateDead": "QmduLW_stateDead",
-	"overviewBar": "QmduLW_overviewBar",
-	"input": "QmduLW_input",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"rowList": "QmduLW_rowList",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"statsInflight": "QmduLW_statsInflight",
-	"statsWrap": "QmduLW_statsWrap",
-	"stateCooling": "QmduLW_stateCooling",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"footerIcon": "QmduLW_footerIcon",
 	"fieldLabel": "QmduLW_fieldLabel",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"badge": "QmduLW_badge",
+	"compliance": "QmduLW_compliance",
+	"rowLabel": "QmduLW_rowLabel",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"stateOk": "QmduLW_stateOk",
+	"radio": "QmduLW_radio",
+	"badgePinned": "QmduLW_badgePinned",
+	"table": "QmduLW_table",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"statsTable": "QmduLW_statsTable",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"statsModal": "QmduLW_statsModal",
+	"footerMain": "QmduLW_footerMain",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"footerSub": "QmduLW_footerSub",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"footerCompact": "QmduLW_footerCompact",
+	"statsInflight": "QmduLW_statsInflight",
+	"rowAdd": "QmduLW_rowAdd",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"tableGrid": "QmduLW_tableGrid",
 	"footerText": "QmduLW_footerText",
+	"section": "QmduLW_section",
+	"fieldHint": "QmduLW_fieldHint",
+	"saveStatusError": "QmduLW_saveStatusError",
 	"statsDotOk": "QmduLW_statsDotOk",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"stateCooling": "QmduLW_stateCooling",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"fieldRow": "QmduLW_fieldRow",
 	"mono": "QmduLW_mono",
+	"ghostButton": "QmduLW_ghostButton",
+	"rowList": "QmduLW_rowList",
+	"overviewBar": "QmduLW_overviewBar",
+	"status": "QmduLW_status",
+	"statsContent": "QmduLW_statsContent",
+	"select": "QmduLW_select",
+	"statsWrap": "QmduLW_statsWrap",
+	"footerIcon": "QmduLW_footerIcon",
+	"field": "QmduLW_field",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"statsChip": "QmduLW_statsChip",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"rowRemove": "QmduLW_rowRemove",
+	"stateDead": "QmduLW_stateDead",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"statsRowLocal": "QmduLW_statsRowLocal",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"statsSummary": "QmduLW_statsSummary",
+	"body": "QmduLW_body",
 	"rowInput": "QmduLW_rowInput",
+	"input": "QmduLW_input",
+	"row": "QmduLW_row",
+	"saveStatus": "QmduLW_saveStatus",
+	"footerUnit": "QmduLW_footerUnit",
+	"textarea": "QmduLW_textarea",
 	"footerEntry": "QmduLW_footerEntry",
 	"statsDot": "QmduLW_statsDot",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"select": "QmduLW_select",
-	"badge": "QmduLW_badge",
-	"tableGrid": "QmduLW_tableGrid",
-	"statsSummary": "QmduLW_statsSummary",
-	"ghostButton": "QmduLW_ghostButton",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"badgePinned": "QmduLW_badgePinned",
-	"section": "QmduLW_section",
-	"radio": "QmduLW_radio"
+	"statsDotWarn": "QmduLW_statsDotWarn"
 };
 
 //#endregion
@@ -161,11 +161,6 @@ const DEFAULTS = {
 	enabled: false,
 	probeModels: [],
 	maxConcurrentProbes: 3,
-	free: {
-		enabled: true,
-		targetSize: 20,
-		blockedCountries: ["CN"]
-	},
 	manual: [],
 	subscription: {
 		urls: [],
@@ -186,9 +181,6 @@ function redactUrl(url) {
 function emptyForm() {
 	return {
 		enabled: DEFAULTS.enabled,
-		freeEnabled: DEFAULTS.free.enabled,
-		targetSize: String(DEFAULTS.free.targetSize),
-		blockedCountries: DEFAULTS.free.blockedCountries.join(","),
 		manual: [],
 		subscriptionUrls: [],
 		refreshMs: String(DEFAULTS.subscription.refreshMs),
@@ -203,9 +195,6 @@ function emptyForm() {
 function formFromValue(value) {
 	return {
 		enabled: value.enabled,
-		freeEnabled: value.free.enabled,
-		targetSize: String(value.free.targetSize),
-		blockedCountries: value.free.blockedCountries.join(","),
 		manual: [...value.manual],
 		subscriptionUrls: [...value.subscription.urls],
 		refreshMs: String(value.subscription.refreshMs),
@@ -230,10 +219,6 @@ function servedSection(state) {
 	return {
 		...DEFAULTS,
 		...served,
-		free: {
-			...DEFAULTS.free,
-			...served?.free
-		},
 		subscription: {
 			...DEFAULTS.subscription,
 			...served?.subscription,
@@ -259,11 +244,6 @@ function diffWrites(form, value, base) {
 		if (edit !== void 0) writes.push(edit);
 	};
 	push("enabled", form.enabled, value.enabled, base.enabled);
-	push("free", {
-		enabled: form.freeEnabled,
-		targetSize: Number(form.targetSize),
-		blockedCountries: splitCsv(form.blockedCountries)
-	}, value.free, base.free);
 	push("manual", form.manual, value.manual, base.manual);
 	push("subscription", {
 		urls: form.subscriptionUrls,
@@ -277,32 +257,12 @@ function diffWrites(form, value, base) {
 	push("maxConcurrentProbes", Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes);
 	return writes;
 }
-function splitCsv(line) {
-	return line.split(",").map((part) => part.trim().toUpperCase()).filter((part) => part.length > 0);
-}
 /** Clearing the UA field restores the default instead of writing an empty
 *  header — the Host schema and the runtime both treat empty as "default",
 *  and this keeps a cleared field from looking like a pending change. */
 function normalizedUserAgent(value) {
 	const trimmed = value.trim();
 	return trimmed === "" ? DEFAULTS.subscription.userAgent : trimmed;
-}
-/** One-line live refill progress: stage + counters (docs §5.3). */
-function refillProgressLine(progress, t) {
-	const parts = [{
-		fetch: t("refillStageFetch"),
-		coarse: t("refillStageCoarse"),
-		admit: t("refillStageAdmit"),
-		idle: t("refillStageIdle")
-	}[progress.stage]];
-	if (progress.stage === "fetch") {
-		const sources = t("refillCountSources").replace("{done}", String(progress.sourcesDone)).replace("{total}", String(progress.sourcesTotal));
-		const rows = t("refillCountFetched").replace("{n}", String(progress.fetched));
-		parts.push(sources + " · " + rows);
-	}
-	if (progress.stage === "coarse") parts.push(t("refillCountCoarse").replace("{done}", String(progress.coarseDone)).replace("{total}", String(progress.candidates)).replace("{passed}", String(progress.coarsePassed)));
-	if (progress.stage === "admit") parts.push(t("refillCountAdmit").replace("{done}", String(progress.admissions)).replace("{admitted}", String(progress.admitted)));
-	return parts.join(" · ");
 }
 /** One labeled input. */
 function TextField(props) {
@@ -665,7 +625,6 @@ function CardBody(props) {
 		};
 	}, []);
 	const probing = status !== null && status.prober.queued + status.prober.inFlight > 0;
-	const refilling = status?.refill?.progress.running === true;
 	const refreshStatus = (0, react.useCallback)(async () => {
 		try {
 			const body = await (await fetch(`${BRIDGE_PREFIX}/status`, {
@@ -684,13 +643,12 @@ function CardBody(props) {
 	(0, react.useEffect)(() => {
 		if (snapshot?.status !== "ready" || !hydratedRef.current || !form.enabled) return;
 		refreshStatus();
-		const interval = setInterval(() => void refreshStatus(), probing || refilling ? 1e3 : 3e3);
+		const interval = setInterval(() => void refreshStatus(), probing ? 1e3 : 3e3);
 		return () => clearInterval(interval);
 	}, [
 		snapshot?.status,
 		form.enabled,
 		probing,
-		refilling,
 		refreshStatus,
 		hydratedRef.current
 	]);
@@ -699,15 +657,12 @@ function CardBody(props) {
 		children: t("statusLoading")
 	});
 	const validate = () => {
-		const size = Number(form.targetSize);
-		if (!/^\d+$/.test(form.targetSize.trim()) || size < 1 || size > 100) return t("invalidRange");
 		const conc = Number(form.maxConcurrentProbes);
 		if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return t("invalidRange");
 		const refresh = Number(form.refreshMs);
 		if (!/^\d+$/.test(form.refreshMs.trim()) || refresh < 6e4) return t("invalidRange");
 		for (const entry of form.manual) if (!/^https?:\/\/[^\s:]+:\d{1,5}$|^socks5:\/\/[^\s:]+:\d{1,5}$|^socks5h?:\/\/\[[^\]]+\]:\d{1,5}$/.test(entry)) return t("invalidProxy");
 		for (const url of form.subscriptionUrls) if (!/^https?:\/\/.+/.test(url)) return t("invalidUrl");
-		for (const country of splitCsv(form.blockedCountries)) if (!/^[A-Z]{2}$/.test(country)) return t("invalidCountry");
 		for (const model of form.probeModels) if (model.trim() === "") return t("invalidModel");
 		return null;
 	};
@@ -827,87 +782,6 @@ function CardBody(props) {
 						className: ip_pool_module_css_default.fieldHint,
 						children: [" ", t("enabledHint")]
 					})] })]
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-					className: ip_pool_module_css_default.section,
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ip_pool_module_css_default.sectionTitle,
-							children: t("sectionFree")
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("label", {
-							className: ip_pool_module_css_default.radio,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
-								type: "checkbox",
-								checked: form.freeEnabled,
-								"data-testid": "field-freeEnabled",
-								onChange: (event) => {
-									setSaved(false);
-									setForm({
-										...form,
-										freeEnabled: event.target.checked
-									});
-								}
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: ip_pool_module_css_default.fieldLabel,
-								children: t("freeEnabled")
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
-								className: ip_pool_module_css_default.fieldHint,
-								children: [" ", t("freeEnabledHint")]
-							})] })]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-							className: ip_pool_module_css_default.fieldRow,
-							children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TextField, {
-								label: t("freeTargetSize"),
-								hint: t("freeTargetSizeHint"),
-								value: form.targetSize,
-								testId: "field-targetSize",
-								type: "number",
-								min: 1,
-								max: 100,
-								step: 1,
-								onChange: (value) => {
-									setSaved(false);
-									setForm({
-										...form,
-										targetSize: value
-									});
-								}
-							}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)(TextField, {
-								label: t("freeBlockedCountries"),
-								hint: t("freeBlockedCountriesHint"),
-								value: form.blockedCountries,
-								testId: "field-blockedCountries",
-								onChange: (value) => {
-									setSaved(false);
-									setForm({
-										...form,
-										blockedCountries: value
-									});
-								}
-							})]
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: ip_pool_module_css_default.ghostButton,
-							"data-testid": "refill-now",
-							disabled: actionBusy || !form.enabled || refilling,
-							onClick: () => {
-								bridgeAction({ scope: "refill" });
-							},
-							children: refilling ? t("refillRunning") : t("refillNow")
-						}),
-						refilling && status?.refill?.progress !== void 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ip_pool_module_css_default.status,
-							"data-testid": "refill-progress",
-							children: refillProgressLine(status.refill.progress, t)
-						}),
-						!refilling && status?.refill?.progress.stage === "idle" && (status.refill.progress.admitted > 0 || status.refill.progress.admissions > 0) && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: ip_pool_module_css_default.status,
-							children: t("refillSummary").replace("{admitted}", String(status.refill.progress.admitted)).replace("{fetched}", String(status.refill.progress.candidates))
-						})
-					]
 				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 					className: ip_pool_module_css_default.section,
@@ -1459,24 +1333,6 @@ const zh = {
 	poolSources: "出口来源：免费 {free} · 手填 {manual} · 订阅 {subscription}",
 	pinnedBadge: "固定主力",
 	deferredNotice: "路由已退避：{reason}",
-	sectionFree: "免费源（free）",
-	freeEnabled: "免费源抓取",
-	freeEnabledHint: "从公共免费代理清单抓取并准入；关闭后只用下述两类出口。",
-	freeTargetSize: "目标容量（targetSize）",
-	freeTargetSizeHint: "免费池要补到的可用出口数（1-100，默认 20）。",
-	freeBlockedCountries: "地理黑名单（blockedCountries）",
-	freeBlockedCountriesHint: "ISO 国家码（逗号分隔），命中的出口不收。默认 CN。",
-	refillNow: "立即补充",
-	refillRunning: "补充中…",
-	refillStageFetch: "① 拉取免费源清单",
-	refillStageCoarse: "② 粗筛存活",
-	refillStageAdmit: "③ 准入探测",
-	refillStageIdle: "完成",
-	refillCountSources: "已拉取 {done}/{total} 个源",
-	refillCountFetched: "共 {n} 条",
-	refillCountCoarse: "已筛 {done}/{total} · 存活 {passed}",
-	refillCountAdmit: "已探 {done} · 入池 {admitted}",
-	refillSummary: "上轮补充：入池 {admitted} 个（候选 {fetched}）",
 	sectionManual: "手填代理（manual）",
 	manualHint: "一行一个：http://host:port 或 socks5://host:port。适合自备节点/专线。",
 	manualAdd: "添加代理",
@@ -1569,7 +1425,6 @@ const zh = {
 	invalidRange: "数值超出允许范围。",
 	invalidProxy: "代理地址格式应为 http://host:port 或 socks5://host:port。",
 	invalidUrl: "请填写合法的 http(s) URL。",
-	invalidCountry: "国家码应为两个字母（如 CN），逗号分隔。",
 	invalidModel: "模型 id 不能为空。",
 	refreshError: "状态获取失败"
 };
@@ -1593,24 +1448,6 @@ const en = {
 	poolSources: "Sources: free {free} · manual {manual} · subscription {subscription}",
 	pinnedBadge: "pinned",
 	deferredNotice: "Routing deferred: {reason}",
-	sectionFree: "Free sources (free)",
-	freeEnabled: "Free-source fetching",
-	freeEnabledHint: "Fetch public free-proxy lists and admit survivors; off uses only the sources below.",
-	freeTargetSize: "Target size (targetSize)",
-	freeTargetSizeHint: "Usable free exits the pool refills to (1-100, default 20).",
-	freeBlockedCountries: "Geo blocklist (blockedCountries)",
-	freeBlockedCountriesHint: "ISO country codes, comma-separated; matching exits are refused. Default CN.",
-	refillNow: "Refill now",
-	refillRunning: "Refilling…",
-	refillStageFetch: "① fetching source lists",
-	refillStageCoarse: "② coarse screening",
-	refillStageAdmit: "③ admission probes",
-	refillStageIdle: "done",
-	refillCountSources: "{done}/{total} sources answered",
-	refillCountFetched: "{n} rows",
-	refillCountCoarse: "screened {done}/{total} · {passed} alive",
-	refillCountAdmit: "probed {done} · admitted {admitted}",
-	refillSummary: "last round: admitted {admitted} (of {fetched} candidates)",
 	sectionManual: "Manual proxies (manual)",
 	manualHint: "One per line: http://host:port or socks5://host:port. For your own nodes.",
 	manualAdd: "Add proxy",
@@ -1703,7 +1540,6 @@ const en = {
 	invalidRange: "A value is out of range.",
 	invalidProxy: "Expected http://host:port or socks5://host:port.",
 	invalidUrl: "Enter a valid http(s) URL.",
-	invalidCountry: "Country codes are two letters (e.g. CN), comma-separated.",
 	invalidModel: "Model id must not be empty.",
 	refreshError: "Status fetch failed"
 };

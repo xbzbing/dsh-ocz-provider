@@ -68,7 +68,6 @@ export interface IpPoolSettingsValue {
   enabled: boolean
   probeModels: string[]
   maxConcurrentProbes: number
-  free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   manual: string[]
   subscription: { urls: string[]; refreshMs: number; userAgent: string }
   /** Previous composition spelling, migrated on a subscription edit. */
@@ -118,10 +117,6 @@ export interface PoolStatusView {
     tokens: TokenTotalsView
   }>
   prober: { queued: number; inFlight: number; enqueued: number; completed: number }
-  refill: {
-    admitted: number; rejected: number; fetched: number; coarsePassed: number; state: string; at: number
-    progress: { running: boolean; stage: 'fetch' | 'coarse' | 'admit' | 'idle'; sourcesDone: number; sourcesTotal: number; fetched: number; candidates: number; coarsePassed: number; coarseDone: number; admissions: number; admitted: number }
-  } | null
   subscription: { urlCount: number; pendingConversion: number; convertedAdmitted: number; plaintextAdmitted: number; lastFetch: number; lastError: string } | null
   /** Pool-host requests that fell back to direct, with their tokens. */
   direct: { requests: number; tokens: TokenTotalsView }
@@ -157,7 +152,6 @@ const DEFAULTS: IpPoolSettingsValue = {
   enabled: false,
   probeModels: [],
   maxConcurrentProbes: 3,
-  free: { enabled: true, targetSize: 20, blockedCountries: ['CN'] },
   manual: [],
   // Mirrors the Host schema default (docs §5.1, DEFAULT_SUBSCRIPTION_USER_AGENT
   // in src/pool/subscription.ts). Spelled as a literal here on purpose: the
@@ -180,9 +174,6 @@ function redactUrl(url: string): string {
 /** Draft form state (strings for inputs; arrays kept as string lists). */
 interface FormState {
   enabled: boolean
-  freeEnabled: boolean
-  targetSize: string
-  blockedCountries: string
   manual: string[]
   subscriptionUrls: string[]
   refreshMs: string
@@ -197,9 +188,6 @@ interface FormState {
 function emptyForm(): FormState {
   return {
     enabled: DEFAULTS.enabled,
-    freeEnabled: DEFAULTS.free.enabled,
-    targetSize: String(DEFAULTS.free.targetSize),
-    blockedCountries: DEFAULTS.free.blockedCountries.join(','),
     manual: [],
     subscriptionUrls: [],
     refreshMs: String(DEFAULTS.subscription.refreshMs),
@@ -215,9 +203,6 @@ function emptyForm(): FormState {
 function formFromValue(value: IpPoolSettingsValue): FormState {
   return {
     enabled: value.enabled,
-    freeEnabled: value.free.enabled,
-    targetSize: String(value.free.targetSize),
-    blockedCountries: value.free.blockedCountries.join(','),
     manual: [...value.manual],
     subscriptionUrls: [...value.subscription.urls],
     refreshMs: String(value.subscription.refreshMs),
@@ -252,7 +237,6 @@ function servedSection(state: ConfigFormSnapshot<Record<string, unknown>> | unde
   const legacyUrls = served?.subscriptions ?? []
   return {
     ...DEFAULTS, ...served,
-    free: { ...DEFAULTS.free, ...served?.free },
     subscription: { ...DEFAULTS.subscription, ...served?.subscription, ...(nestedUrls.length > 0 ? {} : { urls: legacyUrls }) },
     singbox: { ...DEFAULTS.singbox, ...served?.singbox },
   }
@@ -270,7 +254,6 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
     if (edit !== undefined) writes.push(edit)
   }
   push('enabled', form.enabled, value.enabled, base.enabled)
-  push('free', { enabled: form.freeEnabled, targetSize: Number(form.targetSize), blockedCountries: splitCsv(form.blockedCountries) }, value.free, base.free)
   push('manual', form.manual, value.manual, base.manual)
   push('subscription', { urls: form.subscriptionUrls, refreshMs: Number(form.refreshMs), userAgent: normalizedUserAgent(form.userAgent) }, value.subscription, base.subscription)
   push('singbox', { path: form.singboxPath }, value.singbox, base.singbox)
@@ -281,42 +264,12 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
   return writes
 }
 
-function splitCsv(line: string): string[] {
-  return line.split(',').map((part) => part.trim().toUpperCase()).filter((part) => part.length > 0)
-}
-
 /** Clearing the UA field restores the default instead of writing an empty
  *  header — the Host schema and the runtime both treat empty as "default",
  *  and this keeps a cleared field from looking like a pending change. */
 function normalizedUserAgent(value: string): string {
   const trimmed = value.trim()
   return trimmed === '' ? DEFAULTS.subscription.userAgent : trimmed
-}
-
-/** One-line live refill progress: stage + counters (docs §5.3). */
-function refillProgressLine(
-  progress: NonNullable<PoolStatusView['refill']>['progress'],
-  t: IpPoolCardProps['t'],
-): string {
-  const stageText: Record<typeof progress.stage, string> = {
-    fetch: t('refillStageFetch'),
-    coarse: t('refillStageCoarse'),
-    admit: t('refillStageAdmit'),
-    idle: t('refillStageIdle'),
-  }
-  const parts = [stageText[progress.stage]]
-  if (progress.stage === 'fetch') {
-    const sources = t('refillCountSources').replace('{done}', String(progress.sourcesDone)).replace('{total}', String(progress.sourcesTotal))
-    const rows = t('refillCountFetched').replace('{n}', String(progress.fetched))
-    parts.push(sources + ' · ' + rows)
-  }
-  if (progress.stage === 'coarse') {
-    parts.push(t('refillCountCoarse').replace('{done}', String(progress.coarseDone)).replace('{total}', String(progress.candidates)).replace('{passed}', String(progress.coarsePassed)))
-  }
-  if (progress.stage === 'admit') {
-    parts.push(t('refillCountAdmit').replace('{done}', String(progress.admissions)).replace('{admitted}', String(progress.admitted)))
-  }
-  return parts.join(' · ')
 }
 
 /** One labeled input. */
@@ -654,9 +607,8 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     return () => { cancelled = true }
   }, [])
 
-  // Poll the bridge /status: 1s while probing or refilling, 3s otherwise (docs §5.3).
+  // Poll the bridge /status: 1s while probing, 3s otherwise (docs §5.3).
   const probing = status !== null && status.prober.queued + status.prober.inFlight > 0
-  const refilling = status?.refill?.progress.running === true
   const refreshStatus = useCallback(async (): Promise<void> => {
     try {
       const response = await fetch(`${BRIDGE_PREFIX}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
@@ -674,17 +626,15 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   useEffect(() => {
     if (snapshot?.status !== 'ready' || !hydratedRef.current || !form.enabled) return
     void refreshStatus()
-    const interval = setInterval(() => void refreshStatus(), probing || refilling ? 1_000 : 3_000)
+    const interval = setInterval(() => void refreshStatus(), probing ? 1_000 : 3_000)
     return () => clearInterval(interval)
-  }, [snapshot?.status, form.enabled, probing, refilling, refreshStatus, hydratedRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snapshot?.status, form.enabled, probing, refreshStatus, hydratedRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (snapshot?.status === 'loading') {
     return <p className={styles.status}>{t('statusLoading')}</p>
   }
 
   const validate = (): string | null => {
-    const size = Number(form.targetSize)
-    if (!/^\d+$/.test(form.targetSize.trim()) || size < 1 || size > 100) return t('invalidRange')
     const conc = Number(form.maxConcurrentProbes)
     if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return t('invalidRange')
     const refresh = Number(form.refreshMs)
@@ -694,9 +644,6 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     }
     for (const url of form.subscriptionUrls) {
       if (!/^https?:\/\/.+/.test(url)) return t('invalidUrl')
-    }
-    for (const country of splitCsv(form.blockedCountries)) {
-      if (!/^[A-Z]{2}$/.test(country)) return t('invalidCountry')
     }
     for (const model of form.probeModels) {
       if (model.trim() === '') return t('invalidModel')
@@ -755,7 +702,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   }
 
   /** One bridge action (/probe). */
-  const bridgeAction = async (body: { scope: 'all' | 'refill' | 'subscription' } | { scope: 'exit'; exitId: string }): Promise<void> => {
+  const bridgeAction = async (body: { scope: 'all' | 'subscription' } | { scope: 'exit'; exitId: string }): Promise<void> => {
     setActionBusy(true)
     try {
       await fetch(`${BRIDGE_PREFIX}/probe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
@@ -802,63 +749,6 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           <span className={styles.fieldHint}> {t('enabledHint')}</span>
         </span>
       </label>
-
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>{t('sectionFree')}</span>
-        <label className={styles.radio}>
-          <input
-            type="checkbox"
-            checked={form.freeEnabled}
-            data-testid="field-freeEnabled"
-            onChange={(event) => { setSaved(false); setForm({ ...form, freeEnabled: event.target.checked }) }}
-          />
-          <span>
-            <span className={styles.fieldLabel}>{t('freeEnabled')}</span>
-            <span className={styles.fieldHint}> {t('freeEnabledHint')}</span>
-          </span>
-        </label>
-        <div className={styles.fieldRow}>
-          <TextField
-            label={t('freeTargetSize')}
-            hint={t('freeTargetSizeHint')}
-            value={form.targetSize}
-            testId="field-targetSize"
-            type="number"
-            min={1}
-            max={100}
-            step={1}
-            onChange={(value) => { setSaved(false); setForm({ ...form, targetSize: value }) }}
-          />
-          <TextField
-            label={t('freeBlockedCountries')}
-            hint={t('freeBlockedCountriesHint')}
-            value={form.blockedCountries}
-            testId="field-blockedCountries"
-            onChange={(value) => { setSaved(false); setForm({ ...form, blockedCountries: value }) }}
-          />
-        </div>
-        <button
-          type="button"
-          className={styles.ghostButton}
-          data-testid="refill-now"
-          disabled={actionBusy || !form.enabled || refilling}
-          onClick={() => { void bridgeAction({ scope: 'refill' }) }}
-        >
-          {refilling ? t('refillRunning') : t('refillNow')}
-        </button>
-        {refilling && status?.refill?.progress !== undefined && (
-          <span className={styles.status} data-testid="refill-progress">
-            {refillProgressLine(status.refill.progress, t)}
-          </span>
-        )}
-        {!refilling && status?.refill?.progress.stage === 'idle' && (status.refill.progress.admitted > 0 || status.refill.progress.admissions > 0) && (
-          <span className={styles.status}>
-            {t('refillSummary')
-              .replace('{admitted}', String(status.refill.progress.admitted))
-              .replace('{fetched}', String(status.refill.progress.candidates))}
-          </span>
-        )}
-      </div>
 
       <div className={styles.section}>
         <span className={styles.sectionTitle}>{t('sectionManual')}</span>
