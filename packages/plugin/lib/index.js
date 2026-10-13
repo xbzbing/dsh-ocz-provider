@@ -1590,7 +1590,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-BUjCm0B0.js");
+	const { startIpPool } = await import("./ip-pool-CsPNjHas.js");
 	return startIpPool(config, logger);
 };
 /**

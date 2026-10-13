@@ -41,67 +41,67 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"fieldHint": "QmduLW_fieldHint",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"rowRemove": "QmduLW_rowRemove",
-	"statsInflight": "QmduLW_statsInflight",
-	"tableGrid": "QmduLW_tableGrid",
-	"overviewBar": "QmduLW_overviewBar",
-	"table": "QmduLW_table",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"compliance": "QmduLW_compliance",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"radio": "QmduLW_radio",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"footerCompact": "QmduLW_footerCompact",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"statsRowLocal": "QmduLW_statsRowLocal",
-	"statsSummary": "QmduLW_statsSummary",
-	"badge": "QmduLW_badge",
-	"rowLabel": "QmduLW_rowLabel",
-	"footerUnit": "QmduLW_footerUnit",
-	"statsChip": "QmduLW_statsChip",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"fieldRow": "QmduLW_fieldRow",
-	"input": "QmduLW_input",
-	"saveStatus": "QmduLW_saveStatus",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"textarea": "QmduLW_textarea",
 	"select": "QmduLW_select",
-	"mono": "QmduLW_mono",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"footerEntry": "QmduLW_footerEntry",
-	"footerIcon": "QmduLW_footerIcon",
-	"rowAdd": "QmduLW_rowAdd",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"footerText": "QmduLW_footerText",
-	"statsDot": "QmduLW_statsDot",
-	"row": "QmduLW_row",
-	"stateCooling": "QmduLW_stateCooling",
-	"body": "QmduLW_body",
-	"rowList": "QmduLW_rowList",
-	"statsContent": "QmduLW_statsContent",
-	"statsWrap": "QmduLW_statsWrap",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"footerSub": "QmduLW_footerSub",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"status": "QmduLW_status",
-	"rowInput": "QmduLW_rowInput",
-	"section": "QmduLW_section",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"field": "QmduLW_field",
-	"stateOk": "QmduLW_stateOk",
-	"ghostButton": "QmduLW_ghostButton",
-	"stateDead": "QmduLW_stateDead",
-	"statsTable": "QmduLW_statsTable",
-	"badgePinned": "QmduLW_badgePinned",
 	"badgeEmergency": "QmduLW_badgeEmergency",
+	"overviewBar": "QmduLW_overviewBar",
+	"badge": "QmduLW_badge",
+	"fieldRow": "QmduLW_fieldRow",
+	"rowList": "QmduLW_rowList",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"mono": "QmduLW_mono",
+	"stateCooling": "QmduLW_stateCooling",
+	"statsModal": "QmduLW_statsModal",
+	"badgePinned": "QmduLW_badgePinned",
+	"rowAdd": "QmduLW_rowAdd",
+	"statsInflight": "QmduLW_statsInflight",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"stateDead": "QmduLW_stateDead",
+	"saveStatusError": "QmduLW_saveStatusError",
+	"statsRowLocal": "QmduLW_statsRowLocal",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"footerIcon": "QmduLW_footerIcon",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"rowInput": "QmduLW_rowInput",
+	"footerSub": "QmduLW_footerSub",
+	"body": "QmduLW_body",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"statsSummary": "QmduLW_statsSummary",
+	"statsWrap": "QmduLW_statsWrap",
+	"rowRemove": "QmduLW_rowRemove",
+	"footerCompact": "QmduLW_footerCompact",
+	"footerText": "QmduLW_footerText",
 	"footerMain": "QmduLW_footerMain",
-	"statsModal": "QmduLW_statsModal"
+	"footerUnit": "QmduLW_footerUnit",
+	"statsDot": "QmduLW_statsDot",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"rowLabel": "QmduLW_rowLabel",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"footerEntry": "QmduLW_footerEntry",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"field": "QmduLW_field",
+	"status": "QmduLW_status",
+	"compliance": "QmduLW_compliance",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"row": "QmduLW_row",
+	"saveStatus": "QmduLW_saveStatus",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"statsChip": "QmduLW_statsChip",
+	"input": "QmduLW_input",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"ghostButton": "QmduLW_ghostButton",
+	"stateOk": "QmduLW_stateOk",
+	"textarea": "QmduLW_textarea",
+	"tableGrid": "QmduLW_tableGrid",
+	"table": "QmduLW_table",
+	"fieldHint": "QmduLW_fieldHint",
+	"statsTable": "QmduLW_statsTable",
+	"section": "QmduLW_section",
+	"radio": "QmduLW_radio",
+	"statsContent": "QmduLW_statsContent"
 };
 
 //#endregion
@@ -1254,7 +1254,6 @@ function ExitStatsEntry({ wide, t }) {
 		const interval = setInterval(() => void refresh(), open ? 2e3 : 1e4);
 		return () => clearInterval(interval);
 	}, [open, refresh]);
-	const rows = (0, react.useMemo)(() => [...status?.exits ?? []].sort((left, right) => right.requests - left.requests || left.latencyMs - right.latencyMs), [status]);
 	const totals = (0, react.useMemo)(() => {
 		const localRequests = status?.local?.requests ?? 0;
 		const localTokens = status?.local?.tokens.totalTokens ?? 0;
@@ -1266,6 +1265,15 @@ function ExitStatsEntry({ wide, t }) {
 	}, [status]);
 	const usable = status?.availableTotal ?? 0;
 	const total = status?.total ?? 0;
+	/**
+	* The pool being switched off means no traffic goes through an exit at all,
+	* so the exit table is not a view of anything in use — rendering it anyway
+	* is how "0/13 available" read as a broken pool instead of "you turned it
+	* off" (live 2026-10-13). Off lists the local row alone, exactly what the
+	* operator asked for.
+	*/
+	const poolOff = status !== null && status.enabled === false;
+	const rows = (0, react.useMemo)(() => poolOff ? [] : [...status?.exits ?? []].sort((left, right) => right.requests - left.requests || left.latencyMs - right.latencyMs), [status, poolOff]);
 	return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 		type: "button",
 		className: wide ? ip_pool_module_css_default.footerEntry : `${ip_pool_module_css_default.footerEntry} ${ip_pool_module_css_default.footerEntryCompact}`,
@@ -1280,7 +1288,7 @@ function ExitStatsEntry({ wide, t }) {
 			className: ip_pool_module_css_default.footerText,
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: ip_pool_module_css_default.footerMain,
-				children: status === null ? t("footerDisabled") : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [usable, /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+				children: status === null || poolOff ? t("footerDisabled") : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [usable, /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 					className: ip_pool_module_css_default.footerUnit,
 					children: [
 						" / ",
@@ -1311,105 +1319,112 @@ function ExitStatsEntry({ wide, t }) {
 		description: t("statsDescription"),
 		className: ip_pool_module_css_default.statsModal,
 		contentClassName: ip_pool_module_css_default.statsContent,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-			className: ip_pool_module_css_default.statsSummary,
-			children: [
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ip_pool_module_css_default.statsChip,
-					children: t("footerUsable", {
-						usable,
-						total
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+				className: ip_pool_module_css_default.statsSummary,
+				children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: poolOff ? t("footerDisabled") : t("footerUsable", {
+							usable,
+							total
+						})
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: t("statsSummaryRequests", { count: totals.requests.toLocaleString() })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: t("statsSummaryTokens", { count: compact(totals.tokens) })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: t("statsSummaryInflight", { count: totals.inFlight })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: t("statsSummaryLocal", { count: (status?.local?.requests ?? 0).toLocaleString() })
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						className: ip_pool_module_css_default.statsChip,
+						children: t("statsSummaryDirect", { count: status?.direct.requests ?? 0 })
 					})
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ip_pool_module_css_default.statsChip,
-					children: t("statsSummaryRequests", { count: totals.requests.toLocaleString() })
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ip_pool_module_css_default.statsChip,
-					children: t("statsSummaryTokens", { count: compact(totals.tokens) })
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ip_pool_module_css_default.statsChip,
-					children: t("statsSummaryInflight", { count: totals.inFlight })
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ip_pool_module_css_default.statsChip,
-					children: t("statsSummaryLocal", { count: (status?.local?.requests ?? 0).toLocaleString() })
-				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-					className: ip_pool_module_css_default.statsChip,
-					children: t("statsSummaryDirect", { count: status?.direct.requests ?? 0 })
-				})
-			]
-		}), rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-			className: ip_pool_module_css_default.status,
-			children: failed && status === null ? t("statsError") : t("statsEmpty")
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-			className: ip_pool_module_css_default.statsWrap,
-			children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
-				className: ip_pool_module_css_default.statsTable,
-				children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLocation") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColRequests") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColTokens") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLatency") }),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") })
-				] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [rows.map((exit) => {
-					const usableRow = isUsable(exit);
-					const dotClass = usableRow ? ip_pool_module_css_default.statsDotOk : exit.state === "dead" ? ip_pool_module_css_default.statsDotBad : ip_pool_module_css_default.statsDotWarn;
-					const stateLabel = usableRow ? t("statsStateUsable") : exit.cooling ? t("stateCooling") : exit.state === "dead" ? t("stateDead") : t("statsStateUnverified");
-					return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
-						className: usableRow ? void 0 : ip_pool_module_css_default.statsRowMuted,
+				]
+			}),
+			poolOff && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: ip_pool_module_css_default.status,
+				children: t("statsPoolOff")
+			}),
+			!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: ip_pool_module_css_default.status,
+				children: failed && status === null ? t("statsError") : t("statsEmpty")
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ip_pool_module_css_default.statsWrap,
+				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
+					className: ip_pool_module_css_default.statsTable,
+					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLocation") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColRequests") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColTokens") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLatency") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") })
+					] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [rows.map((exit) => {
+						const usableRow = isUsable(exit);
+						const dotClass = usableRow ? ip_pool_module_css_default.statsDotOk : exit.state === "dead" ? ip_pool_module_css_default.statsDotBad : ip_pool_module_css_default.statsDotWarn;
+						const stateLabel = usableRow ? t("statsStateUsable") : exit.cooling ? t("stateCooling") : exit.state === "dead" ? t("stateDead") : t("statsStateUnverified");
+						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+							className: usableRow ? void 0 : ip_pool_module_css_default.statsRowMuted,
+							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+									className: ip_pool_module_css_default.mono,
+									children: [
+										exit.exitIP !== "" ? exit.exitIP : t("statsNever"),
+										exit.pinned ? ` · ${t("exitPinnedMark")}` : "",
+										exit.exitIP === "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+											className: ip_pool_module_css_default.statsEndpoint,
+											children: exit.id
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.exitLocation || "—" }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: `${ip_pool_module_css_default.statsDot} ${dotClass}`,
+									"aria-hidden": "true"
+								}), stateLabel] }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.requests.toLocaleString() }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.totalTokens) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t("statsNever") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ip_pool_module_css_default.statsInflight,
+									children: t("statsInflight", { count: exit.inFlight })
+								}), timeLabel(exit.lastUsedAt, t("statsNever"))] })
+							]
+						}, exit.id);
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+						className: ip_pool_module_css_default.statsRowLocal,
+						"data-local-egress": true,
 						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 								className: ip_pool_module_css_default.mono,
-								children: [
-									exit.exitIP !== "" ? exit.exitIP : t("statsNever"),
-									exit.pinned ? ` · ${t("exitPinnedMark")}` : "",
-									exit.exitIP === "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-										className: ip_pool_module_css_default.statsEndpoint,
-										children: exit.id
-									})
-								]
+								children: t("statsLocalIp")
 							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.exitLocation || "—" }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsLocalLocation") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: `${ip_pool_module_css_default.statsDot} ${dotClass}`,
+								className: `${ip_pool_module_css_default.statsDot} ${ip_pool_module_css_default.statsDotLocal}`,
 								"aria-hidden": "true"
-							}), stateLabel] }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.requests.toLocaleString() }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.totalTokens) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t("statsNever") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: ip_pool_module_css_default.statsInflight,
-								children: t("statsInflight", { count: exit.inFlight })
-							}), timeLabel(exit.lastUsedAt, t("statsNever"))] })
+							}), t("statsLocalState")] }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(status?.local?.tokens.totalTokens ?? 0) }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) })
 						]
-					}, exit.id);
-				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
-					className: ip_pool_module_css_default.statsRowLocal,
-					"data-local-egress": true,
-					children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-							className: ip_pool_module_css_default.mono,
-							children: t("statsLocalIp")
-						}),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsLocalLocation") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: `${ip_pool_module_css_default.statsDot} ${ip_pool_module_css_default.statsDotLocal}`,
-							"aria-hidden": "true"
-						}), t("statsLocalState")] }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(status?.local?.tokens.totalTokens ?? 0) }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) })
-					]
-				})] })]
+					})] })]
+				})
 			})
-		})]
+		]
 	})] });
 }
 
@@ -1539,6 +1554,7 @@ const zh = {
 	statsInflight: "在途×{count}",
 	statsNever: "—",
 	statsEmpty: "暂无出口数据：IP 池未启用或尚未准入出口。",
+	statsPoolOff: "IP 池已关闭：没有流量经过出口，下面只统计本机（直连）流量。",
 	statsError: "统计获取失败",
 	save: "保存",
 	saving: "保存中…",
@@ -1672,6 +1688,7 @@ const en = {
 	statsInflight: "{count} in flight",
 	statsNever: "—",
 	statsEmpty: "No exit data yet: the pool is off or has admitted no exits.",
+	statsPoolOff: "IP pool is off: no traffic goes through an exit, so only local (direct) egress is counted below.",
 	statsError: "Stats fetch failed",
 	save: "Save",
 	saving: "Saving…",

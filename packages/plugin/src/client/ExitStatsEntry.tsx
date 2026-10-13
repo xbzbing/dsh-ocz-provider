@@ -82,11 +82,6 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     return () => clearInterval(interval)
   }, [open, refresh])
 
-  // Sorted by request count — the modal's headline ordering contract.
-  const rows = useMemo(
-    () => [...(status?.exits ?? [])].sort((left, right) => right.requests - left.requests || left.latencyMs - right.latencyMs),
-    [status],
-  )
   const totals = useMemo(() => {
     const localRequests = status?.local?.requests ?? 0
     const localTokens = status?.local?.tokens.totalTokens ?? 0
@@ -98,6 +93,22 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
 
   const usable = status?.availableTotal ?? 0
   const total = status?.total ?? 0
+  /**
+   * The pool being switched off means no traffic goes through an exit at all,
+   * so the exit table is not a view of anything in use — rendering it anyway
+   * is how "0/13 available" read as a broken pool instead of "you turned it
+   * off" (live 2026-10-13). Off lists the local row alone, exactly what the
+   * operator asked for.
+   */
+  const poolOff = status !== null && status.enabled === false
+
+  // Sorted by request count — the modal's headline ordering contract.
+  const rows = useMemo(
+    () => poolOff
+      ? []
+      : [...(status?.exits ?? [])].sort((left, right) => right.requests - left.requests || left.latencyMs - right.latencyMs),
+    [status, poolOff],
+  )
 
   return (
     <>
@@ -112,7 +123,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         {wide ? (
           <span className={styles.footerText}>
             <span className={styles.footerMain}>
-              {status === null
+              {status === null || poolOff
                 ? t('footerDisabled')
                 : <>{usable}<span className={styles.footerUnit}> / {total} {t('footerLabel')}</span></>}
             </span>
@@ -144,14 +155,15 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         contentClassName={styles.statsContent}
       >
         <div className={styles.statsSummary}>
-          <span className={styles.statsChip}>{t('footerUsable', { usable, total })}</span>
+          <span className={styles.statsChip}>{poolOff ? t('footerDisabled') : t('footerUsable', { usable, total })}</span>
           <span className={styles.statsChip}>{t('statsSummaryRequests', { count: totals.requests.toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryTokens', { count: compact(totals.tokens) })}</span>
           <span className={styles.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
           <span className={styles.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
         </div>
-        {rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
+        {poolOff && <p className={styles.status}>{t('statsPoolOff')}</p>}
+        {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
           <p className={styles.status}>{failed && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (
           <div className={styles.statsWrap}>
