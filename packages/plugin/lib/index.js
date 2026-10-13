@@ -1,6 +1,6 @@
 import { d as deriveRequestIDs, f as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, r as ZEN_BASE_URL } from "./catalog-Bne5EZa-.js";
 import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CLaBfusR.js";
-import { a as attributeUsage, i as DIRECT_EXIT_ID, o as emptyTotals, r as routingContext, s as usageTracker } from "./dispatcher-CSK7Qvyj.js";
+import { a as DIRECT_EXIT_ID, c as emptyTotals, i as routingContext, l as usageTracker, o as LOCAL_EXIT_ID, s as attributeUsage } from "./dispatcher-C7TaiMG4.js";
 import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1344,7 +1344,35 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 			requests: runtime ? runtime.pool.directRequests : 0,
 			tokens: runtime ? usageTracker.totals(DIRECT_EXIT_ID) : emptyTotals()
 		},
+		local: localView(),
 		at: now
+	};
+}
+/**
+* Merge the two local-egress buckets into the modal's 本机 row.
+*
+* `direct` = pool-host traffic that should have used an exit but could not;
+* `local` = hosts outside the proxy set (and every request while routing is
+* off). Both left this machine, so the row sums them, while the request
+* count prefers the pool's dispatch counter when it has one: that counter
+* sees the request even when no usage event follows (an aborted turn), which
+* a token-only bucket would silently drop.
+*/
+function localView() {
+	const direct = usageTracker.totals(DIRECT_EXIT_ID);
+	const local = usageTracker.totals(LOCAL_EXIT_ID);
+	const tokens = {
+		requests: direct.requests + local.requests,
+		inputTokens: direct.inputTokens + local.inputTokens,
+		outputTokens: direct.outputTokens + local.outputTokens,
+		cacheReadTokens: direct.cacheReadTokens + local.cacheReadTokens,
+		cacheWriteTokens: direct.cacheWriteTokens + local.cacheWriteTokens,
+		totalTokens: direct.totalTokens + local.totalTokens
+	};
+	return {
+		requests: tokens.requests,
+		tokens,
+		lastUsedAt: Math.max(usageTracker.lastUsedAt(DIRECT_EXIT_ID), usageTracker.lastUsedAt(LOCAL_EXIT_ID))
 	};
 }
 /** Whether a socket address is a literal loopback peer. */
@@ -1554,7 +1582,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-DTYlJGCg.js");
+	const { startIpPool } = await import("./ip-pool-Bk6zPXpo.js");
 	return startIpPool(config, logger);
 };
 /**
@@ -1622,7 +1650,7 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 		if (!bctx.webServer) return;
 		const handlers = makeBridgeHandlers(() => controller.runtime, () => ({
 			pinnedStrict: controller.settings().pinnedStrict,
-			proxyHosts: controller.runtime?.installer && controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"],
+			proxyHosts: controller.runtime?.installer?.proxyHosts !== void 0 ? [...controller.runtime.installer.proxyHosts] : controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"],
 			freeEnabled: controller.settings().free.enabled
 		}), { listLiveModels: deps.listLiveModels });
 		const disposers = [];

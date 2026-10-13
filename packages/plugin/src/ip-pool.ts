@@ -148,6 +148,9 @@ export interface IpPoolRuntime {
     readonly enabled: boolean
     /** R1 coexistence: why the routing layer deferred (null when active). */
     readonly deferredReason: string | null
+    /** The host list actually in force (router's own default applied).
+     *  Optional so a test seam can stand in without the running router. */
+    readonly proxyHosts?: readonly string[]
     /** Live re-apply of the proxied-host list; optional so a test seam can
      *  stand in without implementing the running router's forwarding. */
     setProxyHosts?(hosts?: string[]): void

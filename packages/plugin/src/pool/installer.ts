@@ -14,7 +14,7 @@
 
 import type { Dispatcher } from 'undici'
 
-import { PoolRoutingDispatcher, type RoutingDispatcherSurface, type UndiciSeam } from './dispatcher.ts'
+import { PoolRoutingDispatcher, resolveProxyHosts, type RoutingDispatcherSurface, type UndiciSeam } from './dispatcher.ts'
 import type { ExitPool } from './pool.ts'
 
 /** The setter accepts the full Dispatcher; our router exposes the subset
@@ -56,6 +56,16 @@ export class RoutingInstaller {
   /** The deferral reason exposed to the status bridge / settings card. */
   get deferredReason(): DeferredReason {
     return this.#deferredReason
+  }
+
+  /**
+   * The host list actually in force. Reads the running router when one is
+   * installed (its own default already applied), otherwise resolves the
+   * configured value — so the settings card can never display a default the
+   * router is not using, the exact mismatch that hid the empty-list bug.
+   */
+  get proxyHosts(): readonly string[] {
+    return this.#current?.proxyHosts ?? resolveProxyHosts(this.#deps.proxyHosts)
   }
 
   /** Live re-apply of the proxied-host list (forwards to the running router). */

@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 
 import { IpPoolConfigSchema, resolveIpPoolSettings, resolveProbeModels, toIpPoolConfig, IP_POOL_NAMESPACE } from '../src/ip-pool-settings/namespace.ts'
 import { buildStatusView, isTrustedBridgeRequest, makeBridgeHandlers, makeBridgeRoutes, IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
-import { DIRECT_EXIT_ID, usageTracker } from '../src/pool/usage.ts'
+import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, usageTracker } from '../src/pool/usage.ts'
 
 // -- namespace ---------------------------------------------------------------
 
@@ -181,13 +181,14 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal(view.direct.requests, 7)
 })
 
-test('status view: per-exit tokens and the direct bucket ride the bridge', () => {
+test('status view: per-exit tokens, direct and 本机 ride the bridge', () => {
   // Tokens are attributed by the adapter into the process-lifetime tracker
   // (pool/usage.ts); the bridge only projects them. Reset keeps the
   // singleton clean for the rest of the suite.
   usageTracker.record('http://10.0.0.1:3128', { inputTokens: 100, outputTokens: 50, cacheReadTokens: 40 })
   usageTracker.record('http://10.0.0.1:3128', { inputTokens: 20, outputTokens: 10 })
   usageTracker.record(DIRECT_EXIT_ID, { inputTokens: 7, outputTokens: 3 })
+  usageTracker.record(LOCAL_EXIT_ID, { inputTokens: 5, outputTokens: 1 })
   try {
     const view = buildStatusView(fakeRuntime() as never, false, [])
     const manual = view.exits.find((e) => e.id === 'http://10.0.0.1:3128')
@@ -197,6 +198,15 @@ test('status view: per-exit tokens and the direct bucket ride the bridge', () =>
     assert.deepEqual(view.direct.tokens, {
       requests: 1, inputTokens: 7, outputTokens: 3, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 10,
     })
+    // 本机 merges the two local-egress buckets: pool-host fallbacks plus
+    // hosts outside the proxy set. This is the row that catches a pool
+    // which looks healthy while every request leaves from this machine.
+    assert.deepEqual(view.local, {
+      requests: 2,
+      tokens: { requests: 2, inputTokens: 12, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 16 },
+      lastUsedAt: view.local.lastUsedAt,
+    })
+    assert.ok(view.local.lastUsedAt > 0, 'the 本机 row carries its own last-used stamp')
     // A disabled stub reports zeros everywhere — no stale lifetime numbers.
     const stub = buildStatusView(null, false, [])
     assert.deepEqual(stub.direct, { requests: 0, tokens: { requests: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0 } })

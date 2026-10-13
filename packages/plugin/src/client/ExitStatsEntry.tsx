@@ -88,9 +88,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     [status],
   )
   const totals = useMemo(() => {
-    const requests = (status?.exits ?? []).reduce((sum, exit) => sum + exit.requests, 0) + (status?.direct.requests ?? 0)
-    const tokens = (status?.exits ?? []).reduce((sum, exit) => sum + exit.tokens.totalTokens, 0)
-      + (status?.direct.tokens.totalTokens ?? 0)
+    const localRequests = status?.local?.requests ?? 0
+    const localTokens = status?.local?.tokens.totalTokens ?? 0
+    const requests = (status?.exits ?? []).reduce((sum, exit) => sum + exit.requests, 0) + localRequests
+    const tokens = (status?.exits ?? []).reduce((sum, exit) => sum + exit.tokens.totalTokens, 0) + localTokens
     const inFlight = (status?.exits ?? []).reduce((sum, exit) => sum + exit.inFlight, 0)
     return { requests, tokens, inFlight }
   }, [status])
@@ -137,9 +138,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           <span className={styles.statsChip}>{t('statsSummaryRequests', { count: totals.requests.toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryTokens', { count: compact(totals.tokens) })}</span>
           <span className={styles.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
+          <span className={styles.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
         </div>
-        {rows.length === 0 ? (
+        {rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
           <p className={styles.status}>{failed && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (
           <div className={styles.statsWrap}>
@@ -188,6 +190,18 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                     </tr>
                   )
                 })}
+                <tr className={styles.statsRowLocal} data-local-egress>
+                  <td className={styles.mono}>{t('statsLocalIp')}</td>
+                  <td>{t('statsLocalLocation')}</td>
+                  <td>
+                    <span className={`${styles.statsDot} ${styles.statsDotLocal}`} aria-hidden="true" />
+                    {t('statsLocalState')}
+                  </td>
+                  <td>{(status?.local?.requests ?? 0).toLocaleString()}</td>
+                  <td>{compact(status?.local?.tokens.totalTokens ?? 0)}</td>
+                  <td>{t('statsNever')}</td>
+                  <td>{timeLabel(status?.local?.lastUsedAt ?? 0, t('statsNever'))}</td>
+                </tr>
               </tbody>
             </table>
           </div>

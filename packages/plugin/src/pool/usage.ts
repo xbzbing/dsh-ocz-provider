@@ -12,14 +12,26 @@
  * Requests that matched a pool host but fell back to a direct connection
  * (empty pool, missing agent) attribute to {@link DIRECT_EXIT_ID} so the
  * modal can show "直连兜底" honestly instead of dropping those tokens.
- * Requests that never entered the dispatcher (pool off, other hosts) have no
- * exit stamp at all and are NOT counted — the same boundary the passive
- * health counters already respect.
+ * Requests to hosts outside the pool attribute to {@link LOCAL_EXIT_ID}:
+ * that is the 本机 side of the ledger, and it is the number that exposes a
+ * routing layer that should be steering traffic but is not. Requests that
+ * never entered the dispatcher (pool off entirely) have no exit stamp and
+ * are still not counted — the same boundary the passive health counters
+ * already respect.
  */
 import type { HarnessChunk } from '../adapter/events.ts'
 
 /** Pseudo exit id for pool-host traffic that fell back to a direct connection. */
 export const DIRECT_EXIT_ID = 'direct'
+
+/**
+ * Pseudo exit id for traffic this process sent out from the local machine
+ * instead of through a pool exit (hosts outside the pool, or every request
+ * while routing is off). Separate from {@link DIRECT_EXIT_ID}, which is the
+ * narrower diagnostic "should have used the pool but could not" bucket; the
+ * status bridge merges both into the modal's 本机 row.
+ */
+export const LOCAL_EXIT_ID = 'local'
 
 /** The `usage` shape one recorded response contributes. */
 export interface TokenUsage {
@@ -52,6 +64,8 @@ export const emptyTotals = zeroTotals
 /** Mutable accumulator map keyed by exit id. One instance per process. */
 export class UsageTracker {
   #byExit = new Map<string, TokenTotals>()
+  /** Last record time per bucket (epoch ms) — the modal's 最后使用 column. */
+  #lastAt = new Map<string, number>()
 
   /** Attribute one response's usage to one exit id. */
   record(exitId: string, usage: TokenUsage): void {
@@ -65,11 +79,17 @@ export class UsageTracker {
     bucket.cacheWriteTokens += usage.cacheWriteTokens ?? 0
     bucket.totalTokens += input + output
     this.#byExit.set(exitId, bucket)
+    this.#lastAt.set(exitId, Date.now())
   }
 
   /** A copy of one bucket (zeros when nothing was recorded). */
   totals(exitId: string): TokenTotals {
     return { ...(this.#byExit.get(exitId) ?? zeroTotals()) }
+  }
+
+  /** Epoch ms of the last recorded response for one bucket (0 = never). */
+  lastUsedAt(exitId: string): number {
+    return this.#lastAt.get(exitId) ?? 0
   }
 
   /** Every exit id with recorded usage (diagnostics). */
@@ -80,6 +100,7 @@ export class UsageTracker {
   /** Test seam / future reset action. */
   reset(): void {
     this.#byExit.clear()
+    this.#lastAt.clear()
   }
 }
 
@@ -92,8 +113,12 @@ export const usageTracker = new UsageTracker()
  * output so each attempt's tokens land on the exit that actually carried
  * that attempt (a rotate restart therefore splits correctly across exits).
  *
- * A context without an `exitId` means the request never entered the pool
- * dispatcher — those tokens are out of scope and pass through untouched.
+ * A context with no stamp means nothing routed this request through a pool
+ * exit — the pool is off, the host is outside the proxy set, or routing was
+ * never installed. That is exactly the 本机 ledger, so the usage lands in
+ * {@link LOCAL_EXIT_ID} rather than being dropped: the modal can then show
+ * that model traffic is leaving from this machine even while the pool looks
+ * healthy (the failure mode this bucket was added for, live 2026-10-13).
  */
 export async function* attributeUsage(
   store: { exitId?: string },
@@ -101,8 +126,8 @@ export async function* attributeUsage(
   tracker: UsageTracker = usageTracker,
 ): AsyncGenerator<HarnessChunk> {
   for await (const chunk of source) {
-    if (chunk.type === 'usage' && store.exitId !== undefined) {
-      tracker.record(store.exitId, chunk.usage)
+    if (chunk.type === 'usage') {
+      tracker.record(store.exitId ?? LOCAL_EXIT_ID, chunk.usage)
     }
     yield chunk
   }

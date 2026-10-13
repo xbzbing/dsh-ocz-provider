@@ -125,6 +125,10 @@ export interface PoolStatusView {
   subscription: { urlCount: number; pendingConversion: number; convertedAdmitted: number; plaintextAdmitted: number; lastFetch: number; lastError: string } | null
   /** Pool-host requests that fell back to direct, with their tokens. */
   direct: { requests: number; tokens: TokenTotalsView }
+  /** Model traffic that egressed from this machine (non-pool hosts plus the
+   *  direct fallbacks): the modal's 本机 row. Optional so a client bundle can
+   *  talk to a host snapshot from before this field existed. */
+  local?: { requests: number; tokens: TokenTotalsView; lastUsedAt: number }
   at: number
 }
 

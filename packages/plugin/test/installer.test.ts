@@ -101,6 +101,30 @@ test('install() swaps the global dispatcher and marks itself enabled', () => {
   )
 })
 
+test('proxyHosts reports the list actually in force, empty config included (live regression)', () => {
+  // The settings schema defaults proxyHosts to [], and the router used to
+  // treat that as "proxy nothing" while /status displayed opencode.ai from
+  // its own display fallback. The card now reads this getter, so it can only
+  // ever show the hosts the router is really using.
+  const installer = new RoutingInstaller({
+    pool: makePoolStub(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    undici: makeUndiciStub() as any,
+    proxyHosts: [],
+    logger: { info: () => {}, warn: () => {} },
+  })
+  assert.deepEqual(installer.proxyHosts, ['opencode.ai'], 'empty config reports the default it resolves to')
+
+  installer.install()
+  assert.deepEqual(installer.proxyHosts, ['opencode.ai'], 'and the running router agrees')
+
+  installer.setProxyHosts(['api.example.com'])
+  assert.deepEqual(installer.proxyHosts, ['api.example.com'], 'a live re-apply is reported immediately')
+
+  installer.setProxyHosts([])
+  assert.deepEqual(installer.proxyHosts, ['opencode.ai'], 'clearing the field falls back to the default')
+})
+
 test('disable() restores the dispatcher that was active before install (regression)', () => {
   const undici = makeUndiciStub()
   const before = undici.peek()

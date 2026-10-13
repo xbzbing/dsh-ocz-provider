@@ -439,6 +439,20 @@
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
+/* The 本机 row closes the table: it is not an exit, so a heavier top border
+   separates it from the sorted exit list while the muted ink keeps it from
+   competing with the exits' own numbers. */
+.statsRowLocal td {
+  border-top: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-bottom: none;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  font-weight: 500;
+}
+
+.statsDotLocal {
+  background: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
 .statsDot {
   display: inline-block;
   width: 7px;
