@@ -19,7 +19,7 @@ import { join } from 'node:path'
 
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
 import type { UndiciSeam } from './pool/dispatcher.ts'
-import type { AdmissionDeps } from './pool/admission.ts'
+import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
 import { Prober } from './pool/prober.ts'
 import { RefillScheduler } from './pool/refill.ts'
@@ -55,6 +55,27 @@ export function parseManualProxy(
   if (scheme !== undefined && scheme !== 'http' && scheme !== 'socks5' && scheme !== 'https' && scheme !== 'socks4' && scheme !== 'socks5h') return null
   const protocol = scheme === 'socks5' || scheme === 'socks4' || scheme === 'socks5h' ? 'socks5' : 'http'
   return { id: trimmed, protocol }
+}
+
+/**
+ * Which health mark one probe verdict earns. Extracted (and exported) so the
+ * mapping itself is testable without a network: a verified pass marks the
+ * exit ok, a 429 marks it limited, and the trusted-source fallback — which
+ * returns `admitted: true` without having reached the exit at all — must NOT
+ * claim health. Live 2026-10-13: markOk() on the fallback revived five dead
+ * subscription exits every probe round (state ok, grade S, exitIP unknown),
+ * so the picker ranked them first and fed them real traffic that died at the
+ * transport layer.
+ */
+export function applyProbeVerdict(
+  pool: ExitPool,
+  id: string,
+  verdict: AdmissionResult,
+  model: string,
+): void {
+  if (verdict.limited) pool.markLimited(id)
+  else if (verdict.unverified) pool.markUnverified(id)
+  else pool.markOk(id, model)
 }
 
 /** One manual/pinned row: unknown facts until the prober measures them. */
@@ -367,8 +388,7 @@ export async function startIpPool(
       if (verdict.admitted && verdict.node) {
         // Refresh the node's facts (admission re-measured them).
         pool.add({ ...entry, ...verdict.node, pinned: entry.pinned })
-        if (verdict.limited) pool.markLimited(entry.id)
-        else pool.markOk(entry.id, model)
+        applyProbeVerdict(pool, entry.id, verdict, model)
       } else {
         pool.markDeadStrike(entry.id)
         break

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ANYTLS_SUBSCRIPTION } from './fixtures/anytls.ts'
 
-import { buildOutbound, generateConfig, nodeKeyOf, SingBoxSupervisor } from '../src/pool/singbox.ts'
+import { buildOutbound, generateConfig, nodeKeyOf, SingBoxSupervisor, isDialableServer } from '../src/pool/singbox.ts'
 import { parseSubscription, type ParsedNode } from '../src/pool/subscription.ts'
 import { ExitPool } from '../src/pool/pool.ts'
 import { Prober } from '../src/pool/prober.ts'
@@ -221,6 +221,133 @@ test('subscription refresh without supervisor: encrypted nodes park as pending',
   assert.equal(state.pendingConversion.length, 38)
   assert.equal(state.convertedAdmitted, 0)
   assert.equal(pool.list().length, 0)
+})
+
+/**
+ * Live 2026-10-13: a subscription node with `server: 10.255.255.255` was
+ * converted into a local SOCKS5 exit anyway — it took a port, joined the
+ * pool through the trusted fallback and showed up in the exit table as an
+ * unreachable "127.0.0.1:30005" row for the life of the process.
+ */
+test('isDialableServer: placeholder literals are never nodes', () => {
+  for (const server of [
+    '10.255.255.255', '10.0.0.1', '127.0.0.1', '0.0.0.0', '169.254.1.1',
+    '172.16.0.9', '192.168.1.5', '100.64.0.1', '224.0.0.1', '198.18.0.1',
+    '::1', '::', 'fd00::1', 'fe80::1', 'ff02::1', '::ffff:10.0.0.1',
+    'localhost', 'sub.localhost', '', '   ',
+  ]) {
+    assert.equal(isDialableServer(server), false, `${server} must be rejected`)
+  }
+  for (const server of ['166.0.16.46', 'b7b3cd58.edge.0443.me.uk', '1.1.1.1', '2001:db8::1', '[2001:db8::1]']) {
+    assert.equal(isDialableServer(server), true, `${server} must be kept`)
+  }
+  assert.equal(isDialableServer('[fd00::1]'), false, 'bracketed IPv6 literals still parse')
+})
+
+test('subscription refresh: a node whose server cannot be dialled is skipped, never parked', async () => {
+  const body = [
+    'proxies:',
+    '  - name: placeholder',
+    '    type: trojan',
+    '    server: 10.255.255.255',
+    '    port: 443',
+    '    password: x',
+    '    skip-cert-verify: true',
+    '  - name: real',
+    '    type: trojan',
+    '    server: 166.0.16.46',
+    '    port: 443',
+    '    password: x',
+    '    skip-cert-verify: true',
+  ].join('\n')
+  const warnings: string[] = []
+  const pool = new ExitPool()
+  const prober = new Prober({ pool })
+  const converted: ParsedNode[][] = []
+  const supervisor = {
+    async reload(nodes: ParsedNode[]) {
+      converted.push(nodes)
+      return nodes.map((node, index) => ({ address: `127.0.0.1:${33000 + index}`, protocol: 'socks5' as const, node }))
+    },
+    async stop() {},
+    get running() {
+      return true
+    },
+  }
+  const seam = {
+    ProxyAgent: class {
+      constructor(opts: { uri: string }) {
+        this.uri = opts.uri
+      }
+      uri: string
+      close() { return Promise.resolve() }
+      destroy() { return Promise.resolve() }
+    },
+    request: (async (url: string) => {
+      if (url.includes('ip-api')) {
+        return { statusCode: 200, body: { text: async () => JSON.stringify({ status: 'success', query: '8.8.8.8', countryCode: 'US', city: 'c', country: 'c' }) } }
+      }
+      return { statusCode: 200, body: { text: async () => '{"ok":true}' } }
+    }) as never,
+  }
+  const fetcher = new SubscriptionFetcher(
+    { pool, prober, undici: seam as never, supervisor, fetchImpl: (async () => new Response(body)) as unknown as typeof fetch },
+    { logger: { info: () => {}, warn: (message: string) => warnings.push(message) } },
+  )
+  fetcher.setUrls(['https://sub.example.com/token'])
+  const state = await fetcher.refresh()
+
+  assert.deepEqual(converted.map((nodes) => nodes.map((node) => node.server)), [['166.0.16.46']], 'sing-box never sees the placeholder')
+  assert.equal(state.pendingConversion.length, 0, 'and it is not left parked as pending')
+  assert.deepEqual(pool.list().map((entry) => entry.id), ['127.0.0.1:33000'])
+  assert.ok(warnings.some((line) => line.includes('10.255.255.255')), 'the skip is logged, not silent')
+})
+
+/**
+ * The end-to-end shape of the 2026-10-13 outage: every converted node whose
+ * smoke fails comes back `admitted: true` from the trusted fallback. Before
+ * the fix the fetcher called markOk() on all of them, so dead exits entered
+ * the pool as healthy, grade-S candidates.
+ */
+test('subscription refresh: converted nodes that fail the smoke stay unverified', async () => {
+  const fixture = ANYTLS_SUBSCRIPTION
+  const pool = new ExitPool()
+  const prober = new Prober({ pool })
+  const supervisor = {
+    async reload(nodes: ParsedNode[]) {
+      return nodes.map((node, index) => ({ address: `127.0.0.1:${34000 + index}`, protocol: 'socks5' as const, node }))
+    },
+    async stop() {},
+    get running() {
+      return true
+    },
+  }
+  const seam = {
+    ProxyAgent: class {
+      constructor(opts: { uri: string }) {
+        this.uri = opts.uri
+      }
+      uri: string
+      close() { return Promise.resolve() }
+      destroy() { return Promise.resolve() }
+    },
+    request: (async () => {
+      throw new Error('connect ETIMEDOUT')
+    }) as never,
+  }
+  const fetcher = new SubscriptionFetcher(
+    { pool, prober, undici: seam as never, supervisor, fetchImpl: (async () => new Response(fixture)) as unknown as typeof fetch },
+    { logger: { info: () => {}, warn: () => {} } },
+  )
+  fetcher.setUrls(['https://sub.example.com/token'])
+  const state = await fetcher.refresh()
+
+  assert.equal(state.convertedAdmitted, 38, 'the nodes are still kept (paid line, docs 4.5)')
+  assert.equal(pool.list().length, 38)
+  const health = pool.list().map((entry) => entry.health.state)
+  assert.ok(health.every((state) => state !== 'ok'), `nothing may claim health: ${health.join(',')}`)
+  assert.ok(pool.list().every((entry) => entry.exitIP === ''))
+  assert.ok(pool.list().every((entry) => entry.quality === 'C'), 'and none of them claims a measured grade')
 })
 
 test('supervisor: reload([]) stops cleanly; missing binary surfaces a clear error', async () => {

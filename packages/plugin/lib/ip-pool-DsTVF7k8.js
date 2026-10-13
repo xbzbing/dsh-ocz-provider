@@ -2,7 +2,7 @@ import "./catalog-Bne5EZa-.js";
 import "./messages-CLaBfusR.js";
 import "./dispatcher-C7TaiMG4.js";
 import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-BChYoPSt.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-BSdUlJbC.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -696,6 +696,48 @@ var RefillScheduler = class {
 
 //#endregion
 //#region src/pool/singbox.ts
+/**
+* Can this node's server address ever be dialled from THIS machine?
+*
+* A public subscription handing out a private / loopback / link-local /
+* multicast literal is carrying a placeholder, not a node. Live 2026-10-13: a
+* trojan node with `server: 10.255.255.255` was converted anyway, got a local
+* SOCKS5 port, was admitted through the trusted fallback and sat in the exit
+* table as a `127.0.0.1:30005` row — a rotation slot that could only ever
+* fail. Dropping it at conversion is the only place the pool never sees it.
+*
+* Hostnames always pass: resolving them is sing-box's job, and a hostname may
+* legitimately point at something reachable only through another hop.
+*/
+function isDialableServer(server) {
+	const host = server.trim().toLowerCase().replace(/^\[|\]$/g, "");
+	if (host === "") return false;
+	if (host === "localhost" || host.endsWith(".localhost")) return false;
+	const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+	if (v4) return !isUnroutableIPv4(Number(v4[1]), Number(v4[2]));
+	const mapped = /^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+	if (mapped) return !isUnroutableIPv4(Number(mapped[1]), Number(mapped[2]));
+	if (host.includes(":")) return !isUnroutableIPv6(host);
+	return true;
+}
+/** RFC1918 plus the literals that never route (0/8, 127/8, link-local, CGNAT, benchmark, multicast). */
+function isUnroutableIPv4(a, b) {
+	if (!Number.isFinite(a) || !Number.isFinite(b)) return true;
+	if (a === 0 || a === 10 || a === 127 || a >= 224) return true;
+	if (a === 100 && b >= 64 && b <= 127) return true;
+	if (a === 169 && b === 254) return true;
+	if (a === 172 && b >= 16 && b <= 31) return true;
+	if (a === 192 && b === 168) return true;
+	if (a === 198 && (b === 18 || b === 19)) return true;
+	return false;
+}
+function isUnroutableIPv6(host) {
+	if (host === "::" || host === "::1") return true;
+	if (/^f[cd][0-9a-f]{2}:/.test(host)) return true;
+	if (/^fe[89ab][0-9a-f]:/.test(host)) return true;
+	if (/^ff[0-9a-f]{2}:/.test(host)) return true;
+	return false;
+}
 const getStr = (raw, key) => {
 	const value = raw[key];
 	return typeof value === "string" ? value : value === void 0 || value === null ? "" : String(value);
@@ -963,7 +1005,13 @@ var SingBoxSupervisor = class {
 		return bin;
 	}
 	/** Full reload: regenerate the config for the node list and (re)start. */
-	async reload(nodes) {
+	async reload(input) {
+		const unroutable = input.filter((node) => !isDialableServer(node.server));
+		if (unroutable.length > 0) {
+			const sample = unroutable.slice(0, 5).map((node) => `${node.type} ${node.server}:${node.port}`).join(", ");
+			this.#options.logger?.warn(`opencode2dsh: sing-box conversion skipped ${unroutable.length} node(s) whose server address cannot be dialled from this machine (${sample}${unroutable.length > 5 ? ", …" : ""})`);
+		}
+		const nodes = input.filter((node) => isDialableServer(node.server));
 		if (nodes.length === 0) {
 			await this.stop();
 			this.#nodes = [];
@@ -1202,19 +1250,30 @@ var SubscriptionFetcher = class {
 		this.#running = true;
 		try {
 			const pending = [];
+			const unroutable = [];
 			const plaintext = [];
 			let lastError = "";
 			for (const url of this.#urls) try {
 				const report = parseSubscription(await this.#fetch(url));
-				for (const node of report.nodes) if (node.type === "http" || node.type === "socks5") plaintext.push({
-					address: `${node.server}:${node.port}`,
-					protocol: node.type
-				});
-				else pending.push(node);
+				for (const node of report.nodes) {
+					if (!isDialableServer(node.server)) {
+						unroutable.push(node);
+						continue;
+					}
+					if (node.type === "http" || node.type === "socks5") plaintext.push({
+						address: `${node.server}:${node.port}`,
+						protocol: node.type
+					});
+					else pending.push(node);
+				}
 				this.#logger?.info(`opencode2dsh: subscription parsed ${report.nodes.length} node(s) (${report.detected}) from ${this.#redact(url)}`);
 			} catch (err) {
 				lastError = err instanceof Error ? err.message : String(err);
 				this.#logger?.warn(`opencode2dsh: subscription fetch failed for ${this.#redact(url)}: ${lastError}`);
+			}
+			if (unroutable.length > 0) {
+				const sample = unroutable.slice(0, 5).map((node) => `${node.type} ${node.server}:${node.port}`).join(", ");
+				this.#logger?.warn(`opencode2dsh: subscription carried ${unroutable.length} node(s) with an address that cannot be dialled from this machine; skipped (${sample}${unroutable.length > 5 ? ", …" : ""})`);
 			}
 			this.#state = {
 				pendingConversion: pending,
@@ -1236,7 +1295,8 @@ var SubscriptionFetcher = class {
 						});
 						if (verdict.admitted && verdict.node) {
 							if (this.#deps.pool.add(verdict.node)) {
-								this.#deps.pool.markOk(verdict.node.id);
+								if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id);
+								else this.#deps.pool.markOk(verdict.node.id);
 								this.#state.convertedAdmitted += 1;
 								const served = exit.node;
 								this.#state.pendingConversion = this.#state.pendingConversion.filter((node) => node !== served);
@@ -1262,7 +1322,8 @@ var SubscriptionFetcher = class {
 					});
 					if (verdict.admitted && verdict.node) {
 						if (this.#deps.pool.add(verdict.node)) {
-							this.#deps.pool.markOk(verdict.node.id);
+							if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id);
+							else this.#deps.pool.markOk(verdict.node.id);
 							this.#state.plaintextAdmitted += 1;
 						}
 					}
@@ -1326,6 +1387,21 @@ function parseManualProxy(entry) {
 		id: trimmed,
 		protocol: scheme === "socks5" || scheme === "socks4" || scheme === "socks5h" ? "socks5" : "http"
 	};
+}
+/**
+* Which health mark one probe verdict earns. Extracted (and exported) so the
+* mapping itself is testable without a network: a verified pass marks the
+* exit ok, a 429 marks it limited, and the trusted-source fallback — which
+* returns `admitted: true` without having reached the exit at all — must NOT
+* claim health. Live 2026-10-13: markOk() on the fallback revived five dead
+* subscription exits every probe round (state ok, grade S, exitIP unknown),
+* so the picker ranked them first and fed them real traffic that died at the
+* transport layer.
+*/
+function applyProbeVerdict(pool, id, verdict, model) {
+	if (verdict.limited) pool.markLimited(id);
+	else if (verdict.unverified) pool.markUnverified(id);
+	else pool.markOk(id, model);
 }
 /** One manual/pinned row: unknown facts until the prober measures them. */
 function manualNode(id, protocol) {
@@ -1516,7 +1592,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-B67egkek.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CVpsGC2k.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
@@ -1542,8 +1618,7 @@ async function startIpPool(config, logger, deps = {}) {
 					...verdict.node,
 					pinned: entry.pinned
 				});
-				if (verdict.limited) pool.markLimited(entry.id);
-				else pool.markOk(entry.id, model);
+				applyProbeVerdict(pool, entry.id, verdict, model);
 			} else {
 				pool.markDeadStrike(entry.id);
 				break;
@@ -1656,4 +1731,4 @@ async function startIpPool(config, logger, deps = {}) {
 }
 
 //#endregion
-export { buildPoolFromConfig, parseManualProxy, startIpPool, syncManualExits };
+export { applyProbeVerdict, buildPoolFromConfig, parseManualProxy, startIpPool, syncManualExits };

@@ -44,6 +44,51 @@ export interface ConvertedExit {
   node: ParsedNode
 }
 
+/**
+ * Can this node's server address ever be dialled from THIS machine?
+ *
+ * A public subscription handing out a private / loopback / link-local /
+ * multicast literal is carrying a placeholder, not a node. Live 2026-10-13: a
+ * trojan node with `server: 10.255.255.255` was converted anyway, got a local
+ * SOCKS5 port, was admitted through the trusted fallback and sat in the exit
+ * table as a `127.0.0.1:30005` row — a rotation slot that could only ever
+ * fail. Dropping it at conversion is the only place the pool never sees it.
+ *
+ * Hostnames always pass: resolving them is sing-box's job, and a hostname may
+ * legitimately point at something reachable only through another hop.
+ */
+export function isDialableServer(server: string): boolean {
+  const host = server.trim().toLowerCase().replace(/^\[|\]$/g, '')
+  if (host === '') return false
+  if (host === 'localhost' || host.endsWith('.localhost')) return false
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (v4) return !isUnroutableIPv4(Number(v4[1]), Number(v4[2]))
+  const mapped = /^::ffff:(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (mapped) return !isUnroutableIPv4(Number(mapped[1]), Number(mapped[2]))
+  if (host.includes(':')) return !isUnroutableIPv6(host)
+  return true
+}
+
+/** RFC1918 plus the literals that never route (0/8, 127/8, link-local, CGNAT, benchmark, multicast). */
+function isUnroutableIPv4(a: number, b: number): boolean {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return true
+  if (a === 0 || a === 10 || a === 127 || a >= 224) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  if (a === 169 && b === 254) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 198 && (b === 18 || b === 19)) return true
+  return false
+}
+
+function isUnroutableIPv6(host: string): boolean {
+  if (host === '::' || host === '::1') return true
+  if (/^f[cd][0-9a-f]{2}:/.test(host)) return true // fc00::/7 unique-local
+  if (/^fe[89ab][0-9a-f]:/.test(host)) return true // fe80::/10 link-local
+  if (/^ff[0-9a-f]{2}:/.test(host)) return true // ff00::/8 multicast
+  return false
+}
+
 // -- outbound mapping (GoProxy buildOutbound, verbatim semantics) ----------
 
 const getStr = (raw: Record<string, unknown>, key: string): string => {
@@ -335,7 +380,18 @@ export class SingBoxSupervisor {
   }
 
   /** Full reload: regenerate the config for the node list and (re)start. */
-  async reload(nodes: ParsedNode[]): Promise<ConvertedExit[]> {
+  async reload(input: ParsedNode[]): Promise<ConvertedExit[]> {
+    const unroutable = input.filter((node) => !isDialableServer(node.server))
+    if (unroutable.length > 0) {
+      const sample = unroutable
+        .slice(0, 5)
+        .map((node) => `${node.type} ${node.server}:${node.port}`)
+        .join(', ')
+      this.#options.logger?.warn(
+        `opencode2dsh: sing-box conversion skipped ${unroutable.length} node(s) whose server address cannot be dialled from this machine (${sample}${unroutable.length > 5 ? ', …' : ''})`,
+      )
+    }
+    const nodes = input.filter((node) => isDialableServer(node.server))
     // no tunnel nodes -> stop and clean (GoProxy Reload empty case)
     if (nodes.length === 0) {
       await this.stop()

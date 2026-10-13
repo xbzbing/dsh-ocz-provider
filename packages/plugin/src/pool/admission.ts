@@ -21,7 +21,7 @@ import type { Dispatcher } from 'undici'
 import { ZEN_BASE_URL } from '../adapter/catalog.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/messages.ts'
 import { canonicalSessionID, disguiseHeaders, opencodeUserAgent, randomID, stableID } from '../adapter/ids.ts'
-import { gradeOf, type ExitNode, type ExitPool } from './pool.ts'
+import { gradeOf, UNVERIFIED_QUALITY, type ExitNode, type ExitPool } from './pool.ts'
 import { exitProxyUri } from './dispatcher.ts'
 
 export interface AdmissionDeps {
@@ -176,6 +176,22 @@ export interface AdmissionResult {
    * periodic probe retries when the cooldown expires.
    */
   limited?: boolean
+  /**
+   * Trusted-source fallback: admission did NOT verify this candidate (the
+   * probe never got a response through the exit), but the node is kept
+   * because the source is paid and the address is the routing key
+   * (docs §4.5: never evict a subscription line over one probe failure).
+   *
+   * Callers MUST NOT read this as "healthy". Live 2026-10-13: five dead
+   * subscription exits (one trojan pointed at 10.255.255.255, two behind an
+   * unreachable 166.0.16.46, one hysteria2 port refused, one anytls edge
+   * whose TLS never completed) were re-admitted by this fallback and then
+   * markOk()'d on every probe round — state `ok`, grade `S` (gradeOf(0)),
+   * `exitIP` unknown — so the picker ranked them FIRST and fed them real
+   * requests that died at the transport layer. Keep the node, demote the
+   * claim: `markUnverified()` instead.
+   */
+  unverified?: boolean
 }
 
 export async function admitCandidate(
@@ -331,19 +347,28 @@ export async function admitTrusted(
   if (result.admitted) return result
   // Trusted candidates: keep the node (the address is the routing key
   // fallback, 3.1), warn, and let periodic probing revisit.
-  deps.logger?.warn(`opencode2dsh: trusted exit ${candidate.address} failed admission (${result.reason}); admitted with ${options.previous?.exitIP ? 'previous' : 'unknown'} exit facts`)
+  deps.logger?.warn(`opencode2dsh: trusted exit ${candidate.address} failed admission (${result.reason}); kept UNVERIFIED with ${options.previous?.exitIP ? 'previous' : 'unknown'} exit facts (not routing until a probe verifies it)`)
   const previous = options.previous
+  // Keep only what was actually MEASURED. A previous entry with no exitIP
+  // carries no measurement (it is itself a former fallback), so preserving its
+  // grade would keep a phantom 'S' alive across rounds — exactly how the dead
+  // nodes stayed top-tier on 2026-10-13.
+  const kept = previous !== undefined && previous.exitIP !== '' ? previous : undefined
   return {
     admitted: true,
+    unverified: true,
+    reason: result.reason ?? 'unverified',
     node: {
       id: candidate.address,
       protocol: candidate.protocol,
       source: candidate.source,
       pinned: options.pinned ?? false,
-      exitIP: previous?.exitIP ?? '',
-      exitLocation: previous?.exitLocation ?? '',
-      latencyMs: previous?.latencyMs ?? 0,
-      quality: previous?.quality ?? gradeOf(previous?.latencyMs ?? 0),
+      exitIP: kept?.exitIP ?? '',
+      exitLocation: kept?.exitLocation ?? '',
+      latencyMs: kept?.latencyMs ?? 0,
+      // A never-measured exit gets the WORST grade, not the best: gradeOf(0)
+      // is 'S', which ranked dead nodes above live ones until 2026-10-13.
+      quality: kept === undefined ? UNVERIFIED_QUALITY : kept.quality ?? gradeOf(kept.latencyMs),
       addedAt: Date.now(),
     },
   }

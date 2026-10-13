@@ -168,6 +168,46 @@ test('admission: trusted sources are admitted with warnings even on failure', as
   assert.ok(warnings.some((line) => line.includes('leased:1')))
 })
 
+/**
+ * Live 2026-10-13: five unreachable subscription exits were re-admitted by
+ * this fallback on every probe round and then markOk()'d by the caller —
+ * state `ok`, grade `S` (gradeOf(0) is 'S'), exitIP unknown — so the picker
+ * ranked them FIRST and fed them real requests that died in transport.
+ */
+test('admission: the trusted fallback reports `unverified` and never grades an unmeasured exit S', async () => {
+  const transport = fakeTransport({ '*': new Error('connect ECONNREFUSED') })
+  const silent = { ...deps(transport), logger: { warn: () => {} } }
+
+  const fresh = await admitTrusted(silent, { address: '127.0.0.1:30005', protocol: 'socks5', source: 'subscription' })
+  assert.ok(fresh.admitted, 'trusted nodes are kept for revisiting (docs 4.5)')
+  assert.equal(fresh.unverified, true, 'kept, but not verified')
+  assert.equal(fresh.node?.exitIP, '')
+  assert.equal(fresh.node?.latencyMs, 0)
+  assert.equal(fresh.node?.quality, 'C', 'an unmeasured exit gets the worst grade, not gradeOf(0)=S')
+  assert.ok((fresh.reason ?? '').length > 0, 'the failure that caused the fallback is kept for diagnostics')
+
+  // A previous entry carrying no exitIP holds no measurement — it is itself a
+  // former fallback, so its grade must not be smuggled forward.
+  const again = await admitTrusted(
+    silent,
+    { address: '127.0.0.1:30005', protocol: 'socks5', source: 'subscription' },
+    { previous: { exitIP: '', exitLocation: '', latencyMs: 0, quality: 'S' } },
+  )
+  assert.equal(again.node?.quality, 'C')
+
+  // A real measurement survives the fallback untouched.
+  const measured = await admitTrusted(
+    silent,
+    { address: '127.0.0.1:30021', protocol: 'socks5', source: 'subscription' },
+    { previous: { exitIP: '141.164.58.245', exitLocation: 'KR Seoul', latencyMs: 455, quality: 'S' } },
+  )
+  assert.equal(measured.unverified, true)
+  assert.equal(measured.node?.exitIP, '141.164.58.245')
+  assert.equal(measured.node?.exitLocation, 'KR Seoul')
+  assert.equal(measured.node?.latencyMs, 455)
+  assert.equal(measured.node?.quality, 'S')
+})
+
 test('admission: scheme-carrying manual addresses build a valid agent URI (issue #44)', async () => {
   // manual entries keep the scheme the UI asks for (http://host:port), and
   // prefixing again yields http://http://host:port — InvalidArgumentError in

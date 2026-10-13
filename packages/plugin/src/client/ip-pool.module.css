@@ -453,6 +453,14 @@
   background: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
+/* The local SOCKS5 endpoint of an exit that was never verified: a debugging
+   handle, never an exit IP, so it stays muted and out of the way. */
+.statsEndpoint {
+  margin-left: 6px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  font-size: 0.86em;
+}
+
 .statsDot {
   display: inline-block;
   width: 7px;

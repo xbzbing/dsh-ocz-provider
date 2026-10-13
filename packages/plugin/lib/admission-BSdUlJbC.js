@@ -10,6 +10,14 @@ function gradeOf(latencyMs) {
 	if (latencyMs <= 2e3) return "B";
 	return "C";
 }
+/**
+* Grade for an exit that was never measured. gradeOf(0) returns 'S' (a 0ms
+* admission), so the trusted-admission fallback — which carries `latencyMs: 0`
+* because the probe produced no facts — used to hand the BEST grade to the
+* WORST exits, and the picker sorts by grade. An unmeasured exit ranks last
+* until a probe actually measures it.
+*/
+const UNVERIFIED_QUALITY = "C";
 const banKey = (exitId, model) => `${exitId}\u0000${model}`;
 var ExitPool = class {
 	#nodes = /* @__PURE__ */ new Map();
@@ -113,6 +121,23 @@ var ExitPool = class {
 		const health = this.#health.get(id);
 		if (!health) return;
 		health.state = "dead";
+		health.inflight = false;
+	}
+	/**
+	* A probe could not verify this exit (trusted-source admission fallback):
+	* keep the node — a subscription line is paid and `admission.admitTrusted`
+	* promises to revisit it — but drop its `ok` claim, so it leaves the
+	* verified tier that `pick()` ranks first.
+	*
+	* 'unknown' is still *usable* (`#isAvailable` only hides 'dead'), which is
+	* deliberate: a probe-side failure (Zen rejecting the smoke request, an
+	* echo endpoint hiccup) must not empty a healthy pool. It only means an
+	* exit that was never measured no longer outranks one that was.
+	*/
+	markUnverified(id) {
+		const health = this.#health.get(id);
+		if (!health) return;
+		health.state = "unknown";
 		health.inflight = false;
 	}
 	#clearPinnedIf(id) {
@@ -703,19 +728,22 @@ async function admitCandidate(deps, candidate, options = {}) {
 async function admitTrusted(deps, candidate, options = {}) {
 	const result = await admitCandidate(deps, candidate, { pinned: options.pinned });
 	if (result.admitted) return result;
-	deps.logger?.warn(`opencode2dsh: trusted exit ${candidate.address} failed admission (${result.reason}); admitted with ${options.previous?.exitIP ? "previous" : "unknown"} exit facts`);
+	deps.logger?.warn(`opencode2dsh: trusted exit ${candidate.address} failed admission (${result.reason}); kept UNVERIFIED with ${options.previous?.exitIP ? "previous" : "unknown"} exit facts (not routing until a probe verifies it)`);
 	const previous = options.previous;
+	const kept = previous !== void 0 && previous.exitIP !== "" ? previous : void 0;
 	return {
 		admitted: true,
+		unverified: true,
+		reason: result.reason ?? "unverified",
 		node: {
 			id: candidate.address,
 			protocol: candidate.protocol,
 			source: candidate.source,
 			pinned: options.pinned ?? false,
-			exitIP: previous?.exitIP ?? "",
-			exitLocation: previous?.exitLocation ?? "",
-			latencyMs: previous?.latencyMs ?? 0,
-			quality: previous?.quality ?? gradeOf(previous?.latencyMs ?? 0),
+			exitIP: kept?.exitIP ?? "",
+			exitLocation: kept?.exitLocation ?? "",
+			latencyMs: kept?.latencyMs ?? 0,
+			quality: kept === void 0 ? UNVERIFIED_QUALITY : kept.quality ?? gradeOf(kept.latencyMs),
 			addedAt: Date.now()
 		}
 	};

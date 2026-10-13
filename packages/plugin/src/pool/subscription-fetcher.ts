@@ -22,7 +22,7 @@ import { ExitPool, type ExitNode } from './pool.ts'
 import { Prober, type ProbeTask } from './prober.ts'
 import { admitCandidate, admitTrusted, type AdmissionDeps } from './admission.ts'
 import { parseSubscription, type ParsedNode, DEFAULT_SUBSCRIPTION_USER_AGENT } from './subscription.ts'
-import { SingBoxSupervisor, type ConvertedExit } from './singbox.ts'
+import { SingBoxSupervisor, isDialableServer, type ConvertedExit } from './singbox.ts'
 
 /**
  * The fetch UA the settings layer and the runtime both default to; re-exported
@@ -201,6 +201,7 @@ export class SubscriptionFetcher {
     this.#running = true
     try {
       const pending: ParsedNode[] = []
+      const unroutable: ParsedNode[] = []
       const plaintext: Array<{ address: string; protocol: 'http' | 'socks5' }> = []
       let lastError = ''
       for (const url of this.#urls) {
@@ -208,6 +209,14 @@ export class SubscriptionFetcher {
           const body = await this.#fetch(url)
           const report = parseSubscription(body)
           for (const node of report.nodes) {
+            // Placeholder addresses (private/loopback/CGNAT literals) are
+            // dropped here rather than parked: they would otherwise be handed
+            // to sing-box as a real node, get a port, and hold a rotation slot
+            // that can only ever fail (live 2026-10-13: server 10.255.255.255).
+            if (!isDialableServer(node.server)) {
+              unroutable.push(node)
+              continue
+            }
             if (node.type === 'http' || node.type === 'socks5') {
               plaintext.push({
                 address: `${node.server}:${node.port}`,
@@ -222,6 +231,15 @@ export class SubscriptionFetcher {
           lastError = err instanceof Error ? err.message : String(err)
           this.#logger?.warn(`opencode2dsh: subscription fetch failed for ${this.#redact(url)}: ${lastError}`)
         }
+      }
+      if (unroutable.length > 0) {
+        const sample = unroutable
+          .slice(0, 5)
+          .map((node) => `${node.type} ${node.server}:${node.port}`)
+          .join(', ')
+        this.#logger?.warn(
+          `opencode2dsh: subscription carried ${unroutable.length} node(s) with an address that cannot be dialled from this machine; skipped (${sample}${unroutable.length > 5 ? ', …' : ''})`,
+        )
       }
       this.#state = {
         pendingConversion: pending,
@@ -248,7 +266,10 @@ export class SubscriptionFetcher {
                 })
                 if (verdict.admitted && verdict.node) {
                   if (this.#deps.pool.add(verdict.node)) {
-                    this.#deps.pool.markOk(verdict.node.id)
+                    // Unverified: in the pool (paid line, retried), never
+                    // claimed healthy.
+                    if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id)
+                    else this.#deps.pool.markOk(verdict.node.id)
                     this.#state.convertedAdmitted += 1
                     const served = exit.node
                     this.#state.pendingConversion = this.#state.pendingConversion.filter(
@@ -281,7 +302,8 @@ export class SubscriptionFetcher {
             })
             if (verdict.admitted && verdict.node) {
               if (this.#deps.pool.add(verdict.node)) {
-                this.#deps.pool.markOk(verdict.node.id)
+                if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id)
+                else this.#deps.pool.markOk(verdict.node.id)
                 this.#state.plaintextAdmitted += 1
               }
             }

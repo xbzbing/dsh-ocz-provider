@@ -12,7 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
-import { buildPoolFromConfig, startIpPool, syncManualExits } from '../src/ip-pool.ts'
+import { buildPoolFromConfig, startIpPool, syncManualExits, applyProbeVerdict } from '../src/ip-pool.ts'
 
 const quiet = { info: () => {}, warn: () => {} }
 
@@ -152,4 +152,33 @@ test('assembly: manual rows and the pin apply live through reconfigure', async (
   assert.deepEqual(ids(runtime.pool), [], 'the removed row leaves the live table')
   assert.equal(runtime.pool.pinnedId, '', 'and the pin is released — the exact edit that used to need a restart')
   await runtime.dispose()
+})
+
+/**
+ * The probe wiring itself, without a network. Live 2026-10-13: the trusted
+ * fallback returns `admitted: true` (the line is kept, docs 4.5) and the
+ * caller read that as "healthy", so a dead exit was revived on every probe
+ * round and fed real traffic. Only a verdict that actually verified the exit
+ * may mark it ok.
+ */
+test('applyProbeVerdict: unverified never marks an exit ok, and cannot revive a dead one', () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'sub:1' }))
+
+  pool.markOk('sub:1')
+  applyProbeVerdict(pool, 'sub:1', { admitted: true, unverified: true, reason: 'zen models HTTP 502' }, 'big-pickle')
+  assert.equal(pool.list()[0]!.health.state, 'unknown', 'kept unverified, not ok')
+
+  pool.markOk('sub:1')
+  applyProbeVerdict(pool, 'sub:1', { admitted: true, limited: true, reason: 'zen smoke HTTP 429' }, 'big-pickle')
+  assert.equal(pool.list()[0]!.health.state, 'ok', 'a 429 exit is alive — the tunnel answered')
+  assert.ok(pool.list()[0]!.health.cooldownUntil > Date.now(), 'and it cools')
+
+  pool.markOk('sub:1')
+  applyProbeVerdict(pool, 'sub:1', { admitted: true, node: undefined }, 'big-pickle')
+  assert.equal(pool.list()[0]!.health.state, 'ok', 'a plain verified pass is still ok')
+
+  pool.markDeadStrike('sub:1')
+  applyProbeVerdict(pool, 'sub:1', { admitted: true, unverified: true }, 'big-pickle')
+  assert.notEqual(pool.list()[0]!.health.state, 'ok', 'the fallback can never claim a dead exit is healthy')
 })
