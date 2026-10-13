@@ -1,8 +1,8 @@
 import "./catalog-BraBPliY.js";
 import "./messages-CLaBfusR.js";
 import "./dispatcher-ko3LVHp4.js";
-import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as gradeOf, t as admitCandidate } from "./admission-CSKlOYiC.js";
+import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-DnInSsBU.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -695,6 +695,229 @@ var RefillScheduler = class {
 };
 
 //#endregion
+//#region src/pool/onboard.ts
+function message(err) {
+	return err instanceof Error ? err.message : String(err);
+}
+var Onboarder = class {
+	#deps;
+	/** Candidate per address from the last run (drives replace()). */
+	#candidates = /* @__PURE__ */ new Map();
+	/** Slots currently selected (online), the live `keep` set for a rebuild. */
+	#selected = /* @__PURE__ */ new Set();
+	/** Screened but not selected, fastest first. */
+	#reserve = [];
+	constructor(deps) {
+		this.#deps = deps;
+	}
+	/** Reserves still waiting (diagnostics). */
+	get reserveSize() {
+		return this.#reserve.length;
+	}
+	/**
+	* One onboarding round over a freshly converted candidate list.
+	*
+	* Called from the subscription refresh, after the full conversion produced
+	* every candidate's own local port.
+	*/
+	async run(exits) {
+		const { pool, prober, admission, logger } = this.#deps;
+		this.#candidates = /* @__PURE__ */ new Map();
+		this.#selected = /* @__PURE__ */ new Set();
+		this.#reserve = [];
+		const result = {
+			candidates: exits.length,
+			screened: 0,
+			online: 0,
+			admitted: 0,
+			promoted: 0,
+			demoted: 0,
+			refused: 0,
+			reserve: 0
+		};
+		if (exits.length === 0) return result;
+		const screenDeps = {
+			undici: admission.undici,
+			ipEchoUrl: admission.ipEchoUrl,
+			blockedCountries: admission.blockedCountries,
+			logger: admission.logger
+		};
+		const tasks = exits.map((exit) => ({
+			exitId: exit.address,
+			kind: "onboard-screen",
+			run: async () => {
+				const verdict = await coarseScreen(screenDeps, {
+					address: exit.address,
+					protocol: exit.protocol
+				});
+				this.#candidates.set(exit.address, {
+					slot: exit.slot,
+					address: exit.address,
+					protocol: exit.protocol,
+					node: exit.node,
+					facts: "exitIP" in verdict ? verdict : null,
+					screenRejection: "rejected" in verdict ? verdict.rejected : ""
+				});
+			}
+		}));
+		await prober.enqueueAll(tasks);
+		const measured = [...this.#candidates.values()].filter((candidate) => candidate.facts !== null).sort((left, right) => left.facts.latencyMs - right.facts.latencyMs || left.address.localeCompare(right.address));
+		result.screened = measured.length;
+		if (measured.length < exits.length) {
+			const sample = [...this.#candidates.values()].filter((candidate) => candidate.facts === null).slice(0, 3).map((candidate) => `${candidate.address} (${candidate.screenRejection})`).join(", ");
+			logger?.info(`opencode2dsh: onboarding screened ${measured.length}/${exits.length} candidate(s); ${exits.length - measured.length} did not answer the speed pass${sample === "" ? "" : ` (${sample}…)`}`);
+		}
+		/**
+		* Nothing answered the speed pass at all — a blocked echo endpoint (the
+		* documented dedicated-line case) or a transient outage, not 44 dead nodes.
+		* Draining a paid subscription to zero over a MEASUREMENT failure is the
+		* failure class this pool has been bitten by before, so fall back to
+		* unranked candidates in subscription order: the connectivity test still
+		* gets its say, and anything it refuses is parked at the tail rather than
+		* dropped (docs §4.5).
+		*/
+		let ranked = measured;
+		if (ranked.length === 0 && exits.length > 0) {
+			logger?.warn("opencode2dsh: onboarding speed pass measured nothing; keeping candidates unranked in subscription order (they stay at the tail unless the connectivity test verifies them)");
+			ranked = [...this.#candidates.values()].sort((left, right) => left.slot - right.slot);
+		}
+		const wanted = pool.poolSize;
+		const online = ranked.filter((candidate) => pool.has(candidate.address));
+		const fresh = ranked.filter((candidate) => !pool.has(candidate.address));
+		const room = Math.max(0, wanted - online.length);
+		const selected = fresh.slice(0, room);
+		this.#reserve = fresh.slice(room);
+		this.#selected = new Set([...online, ...selected].map((candidate) => candidate.slot));
+		result.online = online.length;
+		result.reserve = this.#reserve.length;
+		if (this.#selected.size < exits.length) try {
+			await this.#deps.select([...this.#selected]);
+		} catch (err) {
+			logger?.warn(`opencode2dsh: sing-box rebuild for the pool selection failed (${message(err)}); keeping the full conversion running`);
+		}
+		for (const candidate of selected) await this.#admitOrReplace(candidate, result);
+		result.reserve = this.#reserve.length;
+		return result;
+	}
+	/**
+	* A pool exit was refused after onboarding (a periodic probe verdict, or a
+	* passive 401/403 the runtime observed): swap in the next reserve, or demote
+	* it to the tail when there is none. Returns true when a replacement landed.
+	*/
+	async replace(address) {
+		const candidate = this.#candidates.get(address);
+		if (candidate === void 0) {
+			this.#deps.pool.demoteToTail(address);
+			return false;
+		}
+		const result = {
+			candidates: 0,
+			screened: 0,
+			online: 0,
+			admitted: 0,
+			promoted: 0,
+			demoted: 0,
+			refused: 0,
+			reserve: this.#reserve.length
+		};
+		await this.#promoteAfterRefusal(candidate, result);
+		return result.admitted > 0;
+	}
+	/** Smoke one selected candidate; a refusal goes to the replacement path. */
+	async #admitOrReplace(candidate, result) {
+		const verdict = await this.#smoke(candidate);
+		if (verdict.unverified !== true) {
+			this.#admit(candidate, verdict);
+			result.admitted += 1;
+			return;
+		}
+		result.refused += 1;
+		await this.#promoteAfterRefusal(candidate, result);
+	}
+	/**
+	* Walk the reserve until one passes the connectivity test. Every refused
+	* candidate on the way is dropped from the pool; when the reserve runs out,
+	* the last refused one is kept and moved to the tail (the pool holds its
+	* size, it just stops spending traffic on that exit first).
+	*/
+	async #promoteAfterRefusal(refused, result) {
+		let current = refused;
+		for (;;) {
+			const next = this.#reserve.shift();
+			if (next === void 0) {
+				this.#keepDemoted(current);
+				result.demoted += 1;
+				this.#deps.logger?.warn(`opencode2dsh: exit ${current.address} refused by the upstream lane and no reserve is left; kept at the pool tail`);
+				return;
+			}
+			try {
+				await this.#deps.select([...this.#selected, next.slot]);
+			} catch (err) {
+				this.#reserve.unshift(next);
+				this.#keepDemoted(current);
+				result.demoted += 1;
+				this.#deps.logger?.warn(`opencode2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${current.address} stays at the tail`);
+				return;
+			}
+			this.#selected.delete(current.slot);
+			this.#selected.add(next.slot);
+			this.#deps.pool.remove(current.address);
+			result.promoted += 1;
+			const verdict = await this.#smoke(next);
+			if (verdict.unverified !== true) {
+				this.#admit(next, verdict);
+				result.admitted += 1;
+				return;
+			}
+			result.refused += 1;
+			current = next;
+		}
+	}
+	/** The OpenCode connectivity test: models list + 1-token smoke, reusing the
+	*  speed pass's facts so steps 1-2 are not paid for twice. */
+	#smoke(candidate) {
+		return admitTrusted(this.#deps.admission, {
+			address: candidate.address,
+			protocol: candidate.protocol,
+			source: "subscription"
+		}, { echoFacts: candidate.facts ?? void 0 });
+	}
+	/** Admit (or refresh) one candidate with its verdict. */
+	#admit(candidate, verdict) {
+		const { pool } = this.#deps;
+		if (!pool.has(candidate.address) && pool.isFull()) pool.evictWorst();
+		if (verdict.node !== void 0) pool.add({
+			...verdict.node,
+			source: "subscription",
+			pinned: false
+		});
+		if (verdict.limited === true) pool.markLimited(candidate.address);
+		else if (verdict.unverified === true) pool.markUnverified(candidate.address);
+		else pool.markOk(candidate.address);
+	}
+	/** Keep a refused exit as the last resort: in the pool, but at the tail. */
+	#keepDemoted(candidate) {
+		const { pool } = this.#deps;
+		if (!pool.has(candidate.address)) {
+			const facts = candidate.facts;
+			pool.add({
+				id: candidate.address,
+				protocol: "socks5",
+				source: "subscription",
+				pinned: false,
+				exitIP: facts?.exitIP ?? "",
+				exitLocation: facts?.exitLocation ?? "",
+				latencyMs: facts?.latencyMs ?? 0,
+				quality: facts === null ? UNVERIFIED_QUALITY : gradeOf(facts.latencyMs),
+				addedAt: Date.now()
+			});
+		}
+		pool.markUnverified(candidate.address);
+		pool.demoteToTail(candidate.address);
+	}
+};
+
+//#endregion
 //#region src/pool/singbox.ts
 /**
 * Can this node's server address ever be dialled from THIS machine?
@@ -899,33 +1122,43 @@ function buildOutbound(node, tag) {
 	}
 	return out;
 }
-/** nodeKey (GoProxy): type:server:port. */
-function nodeKeyOf(node) {
-	return `${node.type}:${node.server}:${node.port}`;
-}
-/** The full sing-box config for a node list (GoProxy generateConfig). */
-function generateConfig(nodes, basePort = 3e4) {
-	const portMap = /* @__PURE__ */ new Map();
+/**
+* The full sing-box config for a node list (GoProxy generateConfig).
+*
+* `keep` restricts the emitted inbounds to those candidate indexes (the
+* onboarding's selection). Ports are assigned from the node's position in the
+* CANDIDATE list, never from its position in the emitted subset — so shrinking
+* the config to the fastest N, or promoting a reserve later, leaves every node
+* that stays selected on the same local port. That stability is what lets the
+* pool keep its exit ids (and their health, counters and session stickiness)
+* across a rebuild; a positional subset would renumber every survivor and
+* silently repoint the pool at different nodes.
+*/
+function generateConfig(nodes, basePort = 3e4, keep) {
+	const ports = [];
 	const inbounds = [];
 	const outbounds = [];
 	const rules = [];
-	let port = basePort;
+	const keepSet = keep === void 0 ? null : new Set(keep);
 	nodes.forEach((node, index) => {
-		port += 1;
+		if (keepSet !== null && !keepSet.has(index)) {
+			ports.push(0);
+			return;
+		}
 		const tag = `node-${index}`;
-		portMap.set(nodeKeyOf(node), port);
+		const outbound = buildOutbound(node, `out-${tag}`);
+		if (outbound === null) {
+			ports.push(0);
+			return;
+		}
+		const port = basePort + 1 + index;
+		ports.push(port);
 		inbounds.push({
 			type: "socks",
 			tag: `in-${tag}`,
 			listen: "127.0.0.1",
 			listen_port: port
 		});
-		const outbound = buildOutbound(node, `out-${tag}`);
-		if (outbound === null) {
-			portMap.delete(nodeKeyOf(node));
-			inbounds.pop();
-			return;
-		}
 		outbounds.push(outbound);
 		rules.push({
 			inbound: [`in-${tag}`],
@@ -946,7 +1179,7 @@ function generateConfig(nodes, basePort = 3e4) {
 				final: "direct"
 			}
 		},
-		portMap
+		ports
 	};
 }
 const STOP_GRACE_MS = 5e3;
@@ -971,7 +1204,8 @@ var SingBoxSupervisor = class {
 	#running = false;
 	#configPath;
 	#dataDir;
-	#portMap = /* @__PURE__ */ new Map();
+	/** Port per node of the last reload(), index-aligned (`0` = no inbound). */
+	#ports = [];
 	#nodes = [];
 	constructor(options) {
 		this.#options = options;
@@ -986,8 +1220,10 @@ var SingBoxSupervisor = class {
 	get running() {
 		return this.#running;
 	}
-	get portMap() {
-		return new Map(this.#portMap);
+	/** The ports the last reload() handed out, index-aligned with its node list
+	*  (`0` = that node produced no inbound). Diagnostics only. */
+	get ports() {
+		return [...this.#ports];
 	}
 	/** The binary location: absolute path as-is; bare name must exist on PATH
 	*  (verified through `sing-box version` — LookPath equivalent). */
@@ -1004,22 +1240,29 @@ var SingBoxSupervisor = class {
 		})) throw new Error(`sing-box not found on PATH ("${bin}"); install it or set singbox.path`);
 		return bin;
 	}
-	/** Full reload: regenerate the config for the node list and (re)start. */
-	async reload(input) {
+	/**
+	* Full reload: regenerate the config for the node list and (re)start.
+	*
+	* `keep` (candidate indexes) emits only those nodes' inbounds — the
+	* onboarding's "keep the fastest N" and its later reserve promotions — while
+	* every kept node stays on its own stable port. Absent = every node.
+	*/
+	async reload(input, keep) {
 		const unroutable = input.filter((node) => !isDialableServer(node.server));
 		if (unroutable.length > 0) {
 			const sample = unroutable.slice(0, 5).map((node) => `${node.type} ${node.server}:${node.port}`).join(", ");
 			this.#options.logger?.warn(`opencode2dsh: sing-box conversion skipped ${unroutable.length} node(s) whose server address cannot be dialled from this machine (${sample}${unroutable.length > 5 ? ", …" : ""})`);
 		}
 		const nodes = input.filter((node) => isDialableServer(node.server));
-		if (nodes.length === 0) {
+		const emit = keep === void 0 ? nodes.length : keep.length;
+		if (nodes.length === 0 || emit === 0) {
 			await this.stop();
 			this.#nodes = [];
-			this.#portMap = /* @__PURE__ */ new Map();
+			this.#ports = [];
 			return [];
 		}
 		const binary = await this.#resolveBinary();
-		const { config, portMap } = generateConfig(nodes, this.#options.basePort ?? 3e4);
+		const { config, ports } = generateConfig(nodes, this.#options.basePort ?? 3e4, keep);
 		await mkdir(this.#dataDir, { recursive: true });
 		const tmp = `${this.#configPath}.tmp`;
 		await writeFile(tmp, JSON.stringify(config, null, 2), "utf8");
@@ -1051,7 +1294,7 @@ var SingBoxSupervisor = class {
 		const child = this.#child;
 		this.#running = true;
 		this.#nodes = nodes;
-		this.#portMap = portMap;
+		this.#ports = ports;
 		child.stderr?.on("data", (chunk) => {
 			const text = chunk.toString("utf8").trim();
 			if (text.length > 0) this.#options.logger?.info(`[sing-box] ${text}`);
@@ -1063,27 +1306,28 @@ var SingBoxSupervisor = class {
 			if (this.#child === child) this.#running = false;
 		});
 		const deadline = Date.now() + (this.#options.readyTimeoutMs ?? 1e4);
-		const ports = [...portMap.values()];
+		const listening = ports.filter((port) => port > 0);
 		let ready = false;
 		while (Date.now() < deadline && !ready) {
 			if (!this.#running) throw new Error("sing-box exited immediately after start (see logs)");
 			await new Promise((resolve) => setTimeout(resolve, 500));
-			for (const port of ports) if (await canConnect(port)) {
+			for (const port of listening) if (await canConnect(port)) {
 				ready = true;
 				break;
 			}
 		}
 		if (!ready) this.#options.logger?.warn("opencode2dsh: sing-box ports not ready in time; some converted nodes may be unreachable");
 		const exits = [];
-		for (const node of nodes) {
-			const port = portMap.get(nodeKeyOf(node));
-			if (port === void 0) continue;
+		nodes.forEach((node, index) => {
+			const port = ports[index] ?? 0;
+			if (port <= 0) return;
 			exits.push({
 				address: `127.0.0.1:${port}`,
 				protocol: "socks5",
-				node
+				node,
+				slot: index
 			});
-		}
+		});
 		return exits;
 	}
 	/** Graceful stop: interrupt -> grace -> kill (taskkill /T on Windows). */
@@ -1149,6 +1393,9 @@ var SubscriptionFetcher = class {
 	#userAgent;
 	/** Live conversion core; see setSupervisor(). */
 	#supervisor;
+	/** Last onboarding round's controller — holds the speed facts and the
+	*  reserve, so a later refusal can be replaced (see replaceExit()). */
+	#onboarder = null;
 	#logger;
 	constructor(deps, options = {}) {
 		this.#deps = deps;
@@ -1230,6 +1477,24 @@ var SubscriptionFetcher = class {
 	async refreshNow() {
 		return this.refresh();
 	}
+	/**
+	* An exit in the pool was refused by the upstream lane after onboarding (a
+	* periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
+	* the next-fastest reserve; with the reserve exhausted the exit is kept and
+	* moved to the pool tail, so the pool holds its size.
+	*
+	* Returns true when a replacement was admitted. False also covers "no
+	* onboarder yet" (no subscription round has run in this process).
+	*/
+	async replaceExit(exitId) {
+		if (this.#onboarder === null) return false;
+		try {
+			return await this.#onboarder.replace(exitId);
+		} catch (err) {
+			this.#logger?.warn(`opencode2dsh: replacing refused exit ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`);
+			return false;
+		}
+	}
 	start() {
 		if (this.#timer !== null || this.#stopped) return;
 		this.refresh();
@@ -1282,34 +1547,27 @@ var SubscriptionFetcher = class {
 				lastError,
 				plaintextAdmitted: 0
 			};
-			if (pending.length > 0 && this.#supervisor) try {
-				const exits = await this.#supervisor.reload(pending);
-				const tasks$1 = exits.filter((exit) => !this.#deps.pool.has(exit.address)).map((exit) => ({
-					exitId: exit.address,
-					kind: "subscription-smoke",
-					run: async () => {
-						const verdict = await admitTrusted(this.#deps, {
-							address: exit.address,
-							protocol: exit.protocol,
-							source: "subscription"
-						});
-						if (verdict.admitted && verdict.node) {
-							if (this.#deps.pool.add(verdict.node)) {
-								if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id);
-								else this.#deps.pool.markOk(verdict.node.id);
-								this.#state.convertedAdmitted += 1;
-								const served = exit.node;
-								this.#state.pendingConversion = this.#state.pendingConversion.filter((node) => node !== served);
-							}
-						}
-					}
-				}));
-				if (tasks$1.length > 0) await this.#deps.prober.enqueueAll(tasks$1);
-				this.#logger?.info(`opencode2dsh: sing-box converted ${exits.length} encrypted node(s); ${this.#state.convertedAdmitted} admitted`);
-			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
-				this.#state.lastError = message;
-				this.#logger?.warn(`opencode2dsh: sing-box conversion failed: ${message}`);
+			if (pending.length > 0 && this.#supervisor) {
+				const supervisor = this.#supervisor;
+				try {
+					const exits = await supervisor.reload(pending);
+					const onboarder = new Onboarder({
+						pool: this.#deps.pool,
+						prober: this.#deps.prober,
+						admission: this.#deps,
+						select: (slots) => supervisor.reload(pending, slots),
+						logger: this.#logger
+					});
+					this.#onboarder = onboarder;
+					const outcome = await onboarder.run(exits);
+					this.#state.convertedAdmitted = outcome.admitted;
+					this.#state.pendingConversion = [];
+					this.#logger?.info(`opencode2dsh: sing-box converted ${exits.length} encrypted node(s); onboarding kept ${outcome.online + outcome.admitted} of ${outcome.screened} screened (${outcome.admitted} admitted, ${outcome.promoted} promoted, ${outcome.demoted} demoted, ${outcome.reserve} reserve)`);
+				} catch (err) {
+					const text = err instanceof Error ? err.message : String(err);
+					this.#state.lastError = text;
+					this.#logger?.warn(`opencode2dsh: sing-box conversion failed: ${text}`);
+				}
 			}
 			const tasks = plaintext.filter((candidate) => !this.#deps.pool.has(candidate.address)).map((candidate) => ({
 				exitId: candidate.address,
@@ -1554,6 +1812,7 @@ async function startIpPool(config, logger, deps = {}) {
 		const current = config.ipPool ?? {};
 		syncManualExits(pool, current);
 		pool.setTargetSize(current.free?.targetSize ?? 20);
+		pool.setPoolSize(current.poolSize ?? 20);
 		admissionDeps.blockedCountries = current.free?.blockedCountries;
 		admissionDeps.smokeModel = probeModels[0];
 		prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3);
@@ -1607,7 +1866,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-aRwJ1vxy.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CNfRiv5B.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
@@ -1634,6 +1893,7 @@ async function startIpPool(config, logger, deps = {}) {
 					pinned: entry.pinned
 				});
 				applyProbeVerdict(pool, entry.id, verdict, model);
+				if (verdict.unverified === true && entry.source === "subscription") subscriptions?.replaceExit(entry.id).catch(() => {});
 			} else {
 				pool.markDeadStrike(entry.id);
 				break;

@@ -99,7 +99,7 @@ design.md §9.2 曾把「多出口」定为灰色能力并默认关闭（当时�
 
 解析产物统一为 `ParsedNode { name, type, server, port, raw }`（GoProxy 同构），分两路：`type ∈ {http, socks5}` → 直接进出口表走准入探测；其余 → 待转换清单（§1.2.2）。订阅刷新（默认 30min + 手动）只重拉 URL 重跑解析，断路器同免费源。机场订阅动辄几十节点，准入探测照 §4.5 全链走（机场节点质量参差，冒烟一步不能省）。
 
-拉取请求的 **User-Agent 是设置项**（`subscription.userAgent`，默认 `clash-verge/v2.0`）：机场普遍按 UA 做白名单，不在名单里的 UA 拿回来的是错误页而不是订阅体（实测某机场对 `clash-verge/1.6.0` 返回 502 Bad Gateway，对 `clash-verge/v2.0` 正常）。UA 还可能决定**返回哪种格式**——Clash 形状的 UA 给 `proxies:` YAML，v2ray 形状的给 base64 链接，后者会让所有节点都需要 sing-box 转换。所以换 UA 后要顺带确认解析出的 `detected` 格式与节点数。
+拉取请求的 **User-Agent 是设置项**（`subscription.userAgent`，默认 `clash-verge/v2.4.2`）：机场普遍按 UA 做白名单，不在名单里的 UA 拿回来的是错误页而不是订阅体（实测同一机场对 `clash-verge/1.6.0` 返回 502 Bad Gateway；`clash-verge/v2.0` 长期正常，2026-10-13 起被抬高的下限挡成 `403 PLEASE UPGRADE CLIENT`）。**这个默认值会随时间过期**，设置页改掉即可（立即生效）。UA 还可能决定**返回哪种格式**——Clash 形状的 UA 给 `proxies:` YAML，v2ray 形状的给 base64 链接，后者会让所有节点都需要 sing-box 转换。所以换 UA 后要顺带确认解析出的 `detected` 格式与节点数。
 
 #### 1.2.2 订阅拨号层：明文直拨，加密节点需要外部核心
 
@@ -453,6 +453,7 @@ POST {zen}/v1/chat/completions
 | --- | --- | --- |
 | probeModels | `[S3 首个]`（当前 `['big-pickle']`） | 探活模型集合；可加主用模型，同出口内多模型仍串行 |
 | maxConcurrentProbes | **3** | 细筛/探活全局并发上限（碰 Zen 的请求，§4.1） |
+| poolSize | **20** | **整池容量**（任何来源合计同时在线数，§4.7）。它同时是本地监听数的上限：上线时先全量转换测速，取最快的前 N 个后重建配置只保留它们 |
 | admissionFanout | **300** | 粗筛暴力并发（只打野生候选+IP 服务，不碰 Zen，§4.5；GoProxy ValidateConcurrency 同值） |
 | probeTimeoutMs | 8000 | 单探测超时 |
 | maxResponseMs | 3000 | 准入延迟门槛（critical 态放宽 6000） |
@@ -463,13 +464,36 @@ POST {zen}/v1/chat/completions
 | modelBanConfirmations | 2 | suspect → banned 确认次数（防瞬时抖动误杀） |
 | maxRotateAttempts | 3 | 单请求换出口上限（§3.4） |
 | poolTargetSize | 20 | 免费池目标容量（§3.5） |
+| poolSize | 20 | **整池容量**（订阅+手填+免费合计，§4.7）：同时在线出口数上限，也是本地监听数上限。免费重填的准入额度同时受它与 targetSize 约束；pinned/手填是用户显式配置，永不因容量被淘汰 |
 | blockedCountries | `['CN']` | 准入地理黑名单（国家代码） |
 | freeSourceEnabled | true | 免费源抓取总开关（关掉 = 只用 manual/subscription 来源） |
 | subscriptionRefreshMs | 30min | 订阅刷新间隔（拉 URL 重跑解析，断路器同免费源） |
-| subscription.userAgent | `clash-verge/v2.0` | 订阅拉取的 User-Agent。机场普遍按 UA 做白名单：不在名单里会返回错误页，实测某机场对 `clash-verge/1.6.0` 直接 502 Bad Gateway、对 `clash-verge/v2.0` 正常；部分机场还按 UA 决定**返回格式**（Clash 形状给 `proxies:` YAML，v2ray 形状给 base64 链接）。空值回落默认值。 |
+| subscription.userAgent | `clash-verge/v2.4.2` | 订阅拉取的 User-Agent。机场普遍按 UA 做白名单：不在名单里会返回错误页。**这个值会过期**（它是客户端版本号，panel 会抬高下限）：实测同一机场 `clash-verge/1.6.0` → 502、`clash-verge/v2.0` 长期 200，2026-10-13 起 `v2.0` → `403 PLEASE UPGRADE CLIENT`，而 `clash-verge/v2.4.2` / `mihomo/1.19.8` / `clash.meta/1.19.8` 均 200。默认留在 Clash-Verge 家族：**家族决定返回格式**，换家族会静默改变其它机场拿到的体形状。部分机场按 UA 决定返回格式（Clash 形状给 `proxies:` YAML，v2ray 形状给 base64 链接）。空值回落默认值，设置页可改（立即生效，不用重启）。 |
 | pinnedStrict | false | 绝对固定模式（§3.6）：true 时 pinned 失败透传、不换出口不直连 |
 
 全部进 settings namespace，设置页可调（maxConcurrentProbes 也开放：有些用户宁可慢也不并发）。
+
+### 4.7 池子上线（bounded onboarding，2026-10-13）
+
+**目标**：池子有明确容量（`poolSize`，默认 20），且**本地连接数有界**——容量就是本地监听数的上限。
+
+**为什么必须先全量转换再收缩**：加密节点只有经 sing-box 才能拨通，而本机实测的机场（`*.edge.0443.me.uk`）把多个不同节点挂在**同一个 edge 主机:端口**上，靠 TLS SNI（anytls `server_name`）区分——裸 TCP 握手对它们完全一样，**只有走隧道内的请求才能测速排名**。所以上线是两相：
+
+1. **测速（粗筛）**：全量转换后，对每个候选走它自己的本地端口做粗筛（延迟 + 出口 IP + 地理，§4.5 步骤 1+2），按延迟升序排名。走 Prober（同出口串行 + `maxConcurrentProbes` 全局上限）——订阅节点是付费资源，永不参与暴力并发。
+2. **选前 N**：取最快的前 `poolSize` 个。
+3. **收缩**：用选中槽位重建 sing-box 配置（**只保留这 N 个 inbound**）。端口是**槽位稳定**的（端口由节点在候选列表中的位置决定，而非在发出子集中的位置），所以收缩或后续补人时，留下来的出口端口不变——池里的出口 id、健康、被动计数、会话粘性都不会被重指到别的节点上。
+4. **OpenCode 连接测试**：对选中的出口按速度顺序跑 models 列表 + 1-token smoke（§4.5 步骤 3+4，复用第 1 步的测速结果，不重复付费）。
+
+**被拒怎么办**（"被 OpenCode 拒绝"）：
+
+- 判定：smoke/准入失败（含 401/403、RegionError、传输失败）。**429 不算被拒**——那是配额已用尽，出口本身是活的，按 `markLimited` 冷却重试。
+- 有候补：从候补队列（按速度排名）补下一个进来（重建配置，槽位稳定），被拒的移出池子。
+- 没有候补：**保留但降到池尾**（`demoteToTail`）——`pick()` 把它排在最后（其它都不可用时仍可用），`markOk()` 在后续探活验证通过时清除降级，表格状态显示「已降级」。池子维持 `poolSize` 个，不因一次拒绝掉到 0。
+- 运行期同样生效：周期探活对订阅出口返回 refused/unverified 时，回落到 `SubscriptionFetcher.replaceExit()` 走同一套换人/降级逻辑。
+
+**安全网**：若测速**一个都没测出来**（echo 端点被专线屏蔽、瞬时网络故障），不按「44 个全死」处理——候选按订阅顺序保持未排名，池子仍占满容量并把它们放在池尾，避免测量失败把付费线路清空。
+
+**容量口径**：`poolSize` 是**整池**上限（订阅+手填+免费合计）。免费重填的准入额度 = `min(targetSize - 可用免费数, poolSize - 池内总数)`；上线需要槽位时淘汰最差的可淘汰出口（`evictWorst`：按质量等级→延迟→最旧），**pinned 与手填行是用户显式配置，永不淘汰**。
 
 ## 5. 设置页（DSH 设置 → 插件 → opencode2dsh 详情）
 
@@ -506,7 +530,7 @@ Config = Schema.object({
   subscription: Schema.object({                   // 机场/自建订阅（§1.2 来源 3）
     urls: Schema.array(Schema.string()).default([]),   // 订阅 URL（回显脱敏）
     refreshMs: Schema.number().default(30 * 60 * 1000),
-    userAgent: Schema.string().default('clash-verge/v2.0'),  // 拉取 UA（机场白名单，§4.6；空值回落默认）
+    userAgent: Schema.string().default('clash-verge/v2.4.2'),  // 拉取 UA（机场白名单，§4.6；空值回落默认）
   }),
   singbox: Schema.object({                        // 加密节点转换核心（§1.2.2）
     path: Schema.string().default('sing-box'),    // sing-box 二进制路径（PATH 或绝对路径）
@@ -529,6 +553,7 @@ Config = Schema.object({
 | 固定主力出口 | 直填地址框（placeholder：`http://127.0.0.1:7897`（Clash 混合端口）/ `http://专线:端口`，即填即 pin 为 manual 来源节点）+ 当前 pinned 展示（地址/出口 IP/状态）+ strict 单选（「主力+备胎（429/断线自动切换，恢复回归）」/「绝对固定（失败也不换出口、不直连）」）+ 解除固定按钮 |
 | 探活模型 | 多选：当前免费目录（catalog.list()）+ S3 清单，默认选 S3 首个；说明文案「探测结论按出口计，建议加主用模型；同一出口内多模型串行探测」 |
 | 并发上限 | maxConcurrentProbes 数字框（1-8，默认 3）+ 说明「不同出口并发，同一出口串行」 |
+| 池子容量 | poolSize 数字框（1-100，默认 20）+ 说明「同时在线的出口数：上线先测速取最快的前 N 个，并把 sing-box 本地监听收缩到它们，其余留作候补」（§4.7） |
 | 出口列表 | 每行：地址、来源、位置、延迟、质量级、出口 IP、状态徽章（ok/冷却中/dead/pinned）、单出口「探测」与「固定为主力」按钮；顶部「批量探活」按钮（两级调度跑，显示队列进度 x/y） |
 | 模型封禁列表 | 折叠区：被 banned 的 (出口, 模型) 对及原因（403 region-blocked 等），供用户理解为什么某出口不服务某模型 |
 | 探活参数 | §4.6 表格的可调项 |

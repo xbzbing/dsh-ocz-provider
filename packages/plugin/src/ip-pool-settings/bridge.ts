@@ -47,6 +47,9 @@ export interface ExitRowView {
   lastUsedAt: number
   /** Requests currently in flight through this exit. */
   inFlight: number
+  /** Rejected by the upstream lane with no reserve to promote: kept as the
+   *  last resort, ranked last by pick() and listed last here. */
+  demoted: boolean
   /** Token totals attributed to this exit by the adapter (process lifetime). */
   tokens: TokenTotals
 }
@@ -101,6 +104,8 @@ export interface PoolStatusView {
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
   targetSize: number
+  /** Whole-pool capacity in force (settings `poolSize`, default 20). */
+  poolSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
   /** Path prefixes on those hosts the pool carries (default `/zen/v1`); this
@@ -176,6 +181,7 @@ export function buildStatusView(
         requests: passive.ok + passive.limited + passive.refused + passive.dead + passive.transport,
         lastUsedAt: activity.lastUsedAt,
         inFlight: activity.inFlight,
+        demoted: runtime.pool.demoted(entry.id),
         tokens: usageTracker.totals(entry.id),
       }
     })
@@ -201,6 +207,7 @@ export function buildStatusView(
     availableFree: snapshot.availableFree,
     availableTotal,
     targetSize: runtime ? runtime.pool.targetSize : 20,
+    poolSize: runtime ? runtime.pool.poolSize : 20,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict }
       : null,

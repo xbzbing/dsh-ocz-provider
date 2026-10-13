@@ -434,3 +434,79 @@ test('pin/unpin keep the row flag in step with the pinned slot', () => {
   p.unpin()
   assert.ok(p.list().every((entry) => !entry.pinned))
 })
+
+// -- whole-pool capacity + tail demotion (live request 2026-10-13) -------------
+
+test('poolSize bounds the admission quota across every source, not just free', () => {
+  const p = pool({ poolSize: 3 })
+  assert.equal(p.isFull(), false)
+  assert.equal(p.admissionQuota(), 3, 'free room and pool room agree on an empty pool')
+  p.add(node({ id: 'sub:1', source: 'subscription', exitIP: '3.3.3.1' }))
+  p.add(node({ id: 'sub:2', source: 'subscription', exitIP: '3.3.3.2' }))
+  // The free target alone would still ask for 20 more; the pool capacity caps it.
+  assert.equal(p.admissionQuota(), 1)
+  p.add(node({ id: 'sub:3', source: 'subscription', exitIP: '3.3.3.3' }))
+  assert.equal(p.isFull(), true)
+  assert.equal(p.admissionQuota(), 0)
+})
+
+test('evictWorst drops the slowest unpinned exit and never the pinned one', () => {
+  const p = pool({ poolSize: 2 })
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 100, quality: 'S' }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2', latencyMs: 900, quality: 'A' }))
+  p.pin('a:1')
+  assert.equal(p.isFull(), true)
+  // The pinned row is the best one here, but the guarantee is stronger: it is
+  // never the eviction candidate even when it is the worst.
+  assert.equal(p.evictWorst(), true)
+  assert.ok(p.has('a:1'), 'the pinned exit survives')
+  assert.ok(!p.has('b:2'), 'the slowest unpinned exit made room')
+
+  const onlyPinned = pool({ poolSize: 1 })
+  onlyPinned.add(node({ id: 'p:1', exitIP: '4.4.4.4' }))
+  onlyPinned.pin('p:1')
+  assert.equal(onlyPinned.evictWorst(), false, 'nothing is left to evict')
+  assert.ok(onlyPinned.has('p:1'))
+})
+
+test('demoteToTail moves a refused exit to the end of the pool order', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  p.add(node({ id: 'c:3', exitIP: '3.3.3.3' }))
+  assert.deepEqual(p.list().map((entry) => entry.id), ['a:1', 'b:2', 'c:3'])
+
+  assert.equal(p.demoteToTail('a:1'), true)
+  assert.deepEqual(p.list().map((entry) => entry.id), ['b:2', 'c:3', 'a:1'], 'the pool order carries the demotion')
+  assert.equal(p.demoted('a:1'), true)
+  assert.equal(p.demoted('b:2'), false)
+  assert.equal(p.demoteToTail('nope:1'), false)
+})
+
+test('a demoted exit is the last resort for pick(), and health clears the demotion', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 100 }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2', latencyMs: 900 }))
+  p.markOk('a:1')
+  p.markOk('b:2')
+  // Demote the FASTEST one: ranking by latency alone would still pick it.
+  p.demoteToTail('a:1')
+  for (let index = 0; index < 20; index += 1) {
+    assert.equal(p.pick(`session-${index}`, 'm'), 'b:2', 'a demoted exit never outranks a live one')
+  }
+
+  p.markOk('a:1', 'm')
+  assert.equal(p.demoted('a:1'), false, 'a verified probe clears the demotion')
+  const picks = new Set(Array.from({ length: 40 }, (_, index) => p.pick(`s-${index}`, 'm')))
+  assert.ok(picks.has('a:1'), 'and it competes again once healthy')
+})
+
+test('remove() forgets the demotion with the node', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.demoteToTail('a:1')
+  p.remove('a:1')
+  assert.equal(p.demoted('a:1'), false)
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  assert.equal(p.demoted('a:1'), false, 'a re-admitted exit starts at the head again')
+})

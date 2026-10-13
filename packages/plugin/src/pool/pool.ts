@@ -67,6 +67,19 @@ export type PoolState = 'healthy' | 'warning' | 'critical' | 'emergency'
 export interface PoolOptions {
   /** Free-pool target capacity (docs/ip-pool.md 3.5). Free-source nodes only. */
   targetSize?: number
+  /**
+   * Whole-pool capacity: how many exits the pool keeps online at once, any
+   * source (settings `poolSize`, default 20). This is the number that bounds
+   * local connections too, because the onboarding shrinks the sing-box config
+   * to the selected exits.
+   *
+   * Enforced by the ADMISSION paths (`admissionQuota()` for free,
+   * `isFull()`/`evictWorst()` for the onboarding), not by `add()`: `add()` stays
+   * a pure upsert so a hand-configured manual row or the user's pinned line is
+   * never silently dropped — those are explicit config, and the onboarding
+   * evicts a slower unpinned row to make room instead.
+   */
+  poolSize?: number
   /** First 429 cooldown. */
   limitedCooldownBaseMs?: number
   /** Exponential backoff ceiling. */
@@ -112,7 +125,15 @@ export class ExitPool {
   #directRequests = 0
   /** Fired once per newly added node — see onAdmitted(). */
   #admittedCallbacks: Array<() => void> = []
+  /**
+   * Exits rejected by the upstream lane (a failed OpenCode smoke, or a 401/403
+   * verdict) with no reserve left to promote: they stay in the pool as the last
+   * resort but are ranked last by `pick()` and listed last by `list()` — the
+   * pool keeps its size instead of draining to zero (live request 2026-10-13).
+   */
+  readonly #demoted = new Set<string>()
   #targetSize: number
+  #poolSize: number
   #cooldownBase: number
   #cooldownMax: number
   #banConfirmations: number
@@ -121,11 +142,74 @@ export class ExitPool {
 
   constructor(options: PoolOptions = {}) {
     this.#targetSize = options.targetSize ?? 20
+    this.#poolSize = options.poolSize ?? 20
     this.#cooldownBase = options.limitedCooldownBaseMs ?? 60_000
     this.#cooldownMax = options.limitedCooldownMaxMs ?? 30 * 60_000
     this.#banConfirmations = options.modelBanConfirmations ?? 2
     this.#deadEvictions = options.deadEvictions ?? 2
     this.#now = options.now ?? Date.now
+  }
+
+  /** Live re-apply of the whole-pool capacity (settings page, §5.1). */
+  setPoolSize(value: number): void {
+    this.#poolSize = Math.max(1, value)
+  }
+
+  /** The effective whole-pool capacity (diagnostics / status bridge). */
+  get poolSize(): number {
+    return this.#poolSize
+  }
+
+  /** Is the pool at capacity? Callers admit only after this returns false. */
+  isFull(): boolean {
+    return this.#nodes.size >= this.#poolSize
+  }
+
+  /** Is this exit demoted to the tail (rejected, no reserve to promote)? */
+  demoted(id: string): boolean {
+    return this.#demoted.has(id)
+  }
+
+  /**
+   * Move an exit to the tail of the pool's own order: keep it (it may still
+   * serve another model, or recover) but let `pick()` rank it last and the exit
+   * table list it last. `add()`'s Map insertion order IS the pool order, so a
+   * delete + re-insert is the whole move — every side table (health, bans,
+   * passive counters, activity) is keyed by id and survives untouched.
+   */
+  demoteToTail(id: string): boolean {
+    const node = this.#nodes.get(id)
+    if (node === undefined) return false
+    this.#nodes.delete(id)
+    this.#nodes.set(id, node)
+    this.#demoted.add(id)
+    return true
+  }
+
+  /**
+   * Evict the worst exit to make room for a better candidate (whole pool, any
+   * source, pinned never). Worst = lowest quality grade, then slowest, then
+   * oldest — the same ordering `evictWorstFree()` uses, minus the source filter.
+   */
+  evictWorst(): boolean {
+    const gradeRank: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3 }
+    let worst: ExitNode | null = null
+    for (const node of this.#nodes.values()) {
+      if (node.pinned) continue
+      if (worst === null) {
+        worst = node
+        continue
+      }
+      const byGrade = gradeRank[node.quality] - gradeRank[worst.quality]
+      const byLatency = node.latencyMs - worst.latencyMs
+      const worse = byGrade > 0
+        || (byGrade === 0 && byLatency > 0)
+        || (byGrade === 0 && byLatency === 0 && node.addedAt < worst.addedAt)
+      if (worse) worst = node
+    }
+    if (worst === null) return false
+    this.remove(worst.id)
+    return true
   }
 
   /** Live re-apply of the free-pool target capacity (settings page, §5.1). */
@@ -210,6 +294,7 @@ export class ExitPool {
     this.#health.delete(id)
     this.#passive.delete(id)
     this.#activity.delete(id)
+    this.#demoted.delete(id)
     for (const key of this.#bans.keys()) {
       if (key.startsWith(`${id}\u0000`)) this.#bans.delete(key)
     }
@@ -295,6 +380,9 @@ export class ExitPool {
       health.deadStrikes = 0
       health.deadAt = 0
     }
+    // A verified-healthy exit is no longer demoted: the refusal that pushed it
+    // to the tail was not permanent, and a later probe proved it.
+    this.#demoted.delete(id)
     if (model !== undefined) {
       this.#bans.set(banKey(id, model), { state: 'ok', bannedAt: 0, consecutiveFailures: 0 })
     }
@@ -525,6 +613,12 @@ export class ExitPool {
     usable.sort((left, right) => {
       const a = health(left)
       const b = health(right)
+      // A demoted exit (upstream rejected it, no reserve to promote) is the
+      // LAST resort: it still serves when nothing else is usable, but it never
+      // outranks a live exit — that is what "keep the pool at its size instead
+      // of draining" has to mean to be worth anything.
+      const byDemoted = (this.#demoted.has(left) ? 1 : 0) - (this.#demoted.has(right) ? 1 : 0)
+      if (byDemoted !== 0) return byDemoted
       const stateRank = (h: ExitHealth) => (h.state === 'ok' ? 0 : 1)
       const byState = stateRank(a) - stateRank(b)
       if (byState !== 0) return byState
@@ -591,9 +685,13 @@ export class ExitPool {
     return 'healthy'
   }
 
-  /** Admission quota for a refill round: how many free nodes to accept. */
+  /** Admission quota for a refill round: how many free nodes to accept.
+   *  Bounded by BOTH the free target and the whole-pool capacity, so a free
+   *  refill can never push the pool past `poolSize` (settings §5.1). */
   admissionQuota(): number {
-    return Math.max(0, this.#targetSize - this.availableFreeCount())
+    const freeRoom = Math.max(0, this.#targetSize - this.availableFreeCount())
+    const poolRoom = Math.max(0, this.#poolSize - this.#nodes.size)
+    return Math.min(freeRoom, poolRoom)
   }
 
   /** Replace the worst free node (C grade / oldest) to make room (3.5). */

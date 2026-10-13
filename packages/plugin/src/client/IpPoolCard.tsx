@@ -84,6 +84,8 @@ export interface IpPoolSettingsValue {
   enabled: boolean
   probeModels: string[]
   maxConcurrentProbes: number
+  /** Whole-pool capacity: exits kept online at once (default 20). */
+  poolSize: number
   manual: string[]
   subscription: { urls: string[]; refreshMs: number; userAgent: string }
   /** Previous composition spelling, migrated on a subscription edit. */
@@ -108,6 +110,8 @@ export interface PoolStatusView {
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
   targetSize: number
+  /** Whole-pool capacity in force (settings `poolSize`, default 20). */
+  poolSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
   exits: Array<{
@@ -130,6 +134,9 @@ export interface PoolStatusView {
     /** Epoch ms of the most recent dispatch (0 = never). */
     lastUsedAt: number
     inFlight: number
+    /** Rejected by the upstream lane with no reserve left: kept as the last
+     *  resort and listed last. Optional so an older host snapshot still parses. */
+    demoted?: boolean
     tokens: TokenTotalsView
   }>
   prober: { queued: number; inFlight: number; enqueued: number; completed: number }
@@ -171,12 +178,13 @@ const DEFAULTS: IpPoolSettingsValue = {
   enabled: false,
   probeModels: [],
   maxConcurrentProbes: 3,
+  poolSize: 20,
   manual: [],
   // Mirrors the Host schema default (docs §5.1, DEFAULT_SUBSCRIPTION_USER_AGENT
   // in src/pool/subscription.ts). Spelled as a literal here on purpose: the
   // browser bundle must not import a Host module (it would drag the YAML
   // parser in), which is why every default on this line is already a literal.
-  subscription: { urls: [], refreshMs: 30 * 60_000, userAgent: 'clash-verge/v2.0' },
+  subscription: { urls: [], refreshMs: 30 * 60_000, userAgent: 'clash-verge/v2.4.2' },
   singbox: { path: 'sing-box' },
   pinnedExitId: '',
   pinnedStrict: false,
@@ -202,6 +210,7 @@ interface FormState {
   pinnedStrict: boolean
   probeModels: string[]
   maxConcurrentProbes: string
+  poolSize: string
 }
 
 function emptyForm(): FormState {
@@ -216,6 +225,7 @@ function emptyForm(): FormState {
     pinnedStrict: DEFAULTS.pinnedStrict,
     probeModels: [],
     maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
+    poolSize: String(DEFAULTS.poolSize),
   }
 }
 
@@ -231,6 +241,7 @@ function formFromValue(value: IpPoolSettingsValue): FormState {
     pinnedStrict: value.pinnedStrict,
     probeModels: [...value.probeModels],
     maxConcurrentProbes: String(value.maxConcurrentProbes),
+    poolSize: String(value.poolSize ?? DEFAULTS.poolSize),
   }
 }
 
@@ -280,6 +291,7 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
   push('pinnedStrict', form.pinnedStrict, value.pinnedStrict, base.pinnedStrict)
   push('probeModels', form.probeModels, value.probeModels, base.probeModels)
   push('maxConcurrentProbes', Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes)
+  push('poolSize', Number(form.poolSize), value.poolSize, base.poolSize)
   return writes
 }
 
@@ -477,7 +489,8 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
         .replace('{available}', String(status.availableTotal))
         .replace('{total}', String(status.total))
         .replace('{freeAvailable}', String(status.availableFree))
-        .replace('{capacity}', String(status.targetSize))}</span>
+        .replace('{capacity}', String(status.targetSize))
+        .replace('{poolSize}', String(status.poolSize ?? status.targetSize))}</span>
       <span>
         {t('poolSources')
           .replace('{free}', String(status.bySource.free))
@@ -500,6 +513,9 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
   if (status === null) return null
   const stateCell = (exit: PoolStatusView['exits'][number]): ReactNode => {
     if (exit.state === 'dead') return <span className={styles.stateDead}>{t('stateDead')}</span>
+    // A demoted exit is kept but ranked last (upstream refused it and no
+    // reserve was left): saying so beats reading it as a healthy row.
+    if (exit.demoted === true) return <span className={styles.stateCooling}>{t('stateDemoted')}</span>
     if (exit.cooling) return <span className={styles.stateCooling}>{t('stateCooling')}</span>
     if (exit.state === 'ok') return <span className={styles.stateOk}>{t('stateOk')}</span>
     return <span className={styles.stateUnknown}>{t('stateUnknown')}</span>
@@ -513,6 +529,7 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
         <table className={styles.tableGrid}>
           <thead>
             <tr>
+              <th className={styles.statsIndex}>{t('exitIndex')}</th>
               <th>{t('exitAddress')}</th>
               <th>{t('exitSource')}</th>
               <th>{t('exitLocation')}</th>
@@ -525,8 +542,9 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
             </tr>
           </thead>
           <tbody>
-            {status.exits.map((exit) => (
+            {status.exits.map((exit, index) => (
               <tr key={exit.id}>
+                <td className={styles.statsIndex}>{index + 1}</td>
                 <td className={styles.mono}>{exit.id}{exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}</td>
                 <td>{exit.source}</td>
                 <td>{exit.exitLocation || '—'}</td>
@@ -548,7 +566,7 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
               </tr>
             ))}
             {status.exits.length === 0 && (
-              <tr><td colSpan={9} className={styles.status}>{t('statusUnavailable')}</td></tr>
+              <tr><td colSpan={10} className={styles.status}>{t('statusUnavailable')}</td></tr>
             )}
           </tbody>
         </table>
@@ -656,6 +674,8 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   const validate = (): string | null => {
     const conc = Number(form.maxConcurrentProbes)
     if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return t('invalidRange')
+    const poolSize = Number(form.poolSize)
+    if (!/^\d+$/.test(form.poolSize.trim()) || poolSize < 1 || poolSize > 100) return t('invalidRange')
     const refresh = Number(form.refreshMs)
     if (!/^\d+$/.test(form.refreshMs.trim()) || refresh < 60_000) return t('invalidRange')
     for (const entry of form.manual) {
@@ -904,6 +924,17 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           max={8}
           step={1}
           onChange={(value) => { setSaved(false); setForm({ ...form, maxConcurrentProbes: value }) }}
+        />
+        <TextField
+          label={t('poolSize')}
+          hint={t('poolSizeHint')}
+          value={form.poolSize}
+          testId="field-poolSize"
+          type="number"
+          min={1}
+          max={100}
+          step={1}
+          onChange={(value) => { setSaved(false); setForm({ ...form, poolSize: value }) }}
         />
         <button
           type="button"

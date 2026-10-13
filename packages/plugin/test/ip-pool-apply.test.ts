@@ -194,7 +194,9 @@ test('every field the runtime reads survives the settings->config round trip', a
   await tick(30)
   const applied = starts[0]!.config.ipPool as Record<string, unknown>
   assert.equal(applied.maxConcurrentProbes, 7, 'probe concurrency must reach the runtime')
-  assert.deepEqual(applied.subscription, { refreshMs: 60_000, userAgent: 'clash-verge/v2.0' }, 'subscription interval + fetch UA must reach the runtime')
+  // The commit names no UA, so this is the schema DEFAULT reaching the runtime
+  // (the literal ages with the airport's floor; see DEFAULT_SUBSCRIPTION_USER_AGENT).
+  assert.deepEqual(applied.subscription, { refreshMs: 60_000, userAgent: 'clash-verge/v2.4.2' }, 'subscription interval + fetch UA must reach the runtime')
   assert.deepEqual(applied.subscriptions, ['https://x/y'])
 })
 

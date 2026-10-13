@@ -31,7 +31,7 @@ let react_jsx_runtime = require("react/jsx-runtime");
 react_jsx_runtime = __toESM(react_jsx_runtime);
 
 //#region \0dsh-css:/Users/ankh/workspace/private/opencode2dsh/packages/plugin/src/client/ip-pool.module.css.mjs
-const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:20%}.QmduLW_statsTable th:nth-child(2){width:11%}.QmduLW_statsTable th:nth-child(3){width:10%}.QmduLW_statsTable th:nth-child(4),.QmduLW_statsTable th:nth-child(5),.QmduLW_statsTable th:nth-child(6),.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8){width:8%}.QmduLW_statsTable th:nth-child(9){width:19%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsDotLocal{background:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
+const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:4%}.QmduLW_statsTable th:nth-child(2){width:18%}.QmduLW_statsTable th:nth-child(3){width:11%}.QmduLW_statsTable th:nth-child(4){width:9%}.QmduLW_statsTable th:nth-child(5),.QmduLW_statsTable th:nth-child(6),.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8),.QmduLW_statsTable th:nth-child(9){width:8%}.QmduLW_statsTable th:nth-child(10){width:18%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsIndex{color:var(--dsw-alias-label-tertiary,#6b7280);font-variant-numeric:tabular-nums}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsDotLocal{background:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
 const tagId = "@opencode2dsh/dsh-plugin/ip-pool.module.css";
 if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 	const tag = document.createElement("style");
@@ -41,70 +41,71 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"rowList": "QmduLW_rowList",
-	"ghostButton": "QmduLW_ghostButton",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"stateCooling": "QmduLW_stateCooling",
-	"radio": "QmduLW_radio",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"rowInput": "QmduLW_rowInput",
-	"saveStatus": "QmduLW_saveStatus",
 	"badgeCritical": "QmduLW_badgeCritical",
-	"stateOk": "QmduLW_stateOk",
-	"fieldRow": "QmduLW_fieldRow",
 	"collapseToggle": "QmduLW_collapseToggle",
-	"tableGrid": "QmduLW_tableGrid",
-	"row": "QmduLW_row",
-	"fieldHint": "QmduLW_fieldHint",
-	"status": "QmduLW_status",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"statsChip": "QmduLW_statsChip",
-	"rowAdd": "QmduLW_rowAdd",
-	"statsContent": "QmduLW_statsContent",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"statsDot": "QmduLW_statsDot",
-	"section": "QmduLW_section",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"badgePinned": "QmduLW_badgePinned",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"footerCompact": "QmduLW_footerCompact",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"statsTable": "QmduLW_statsTable",
-	"statsSortButton": "QmduLW_statsSortButton",
-	"rowLabel": "QmduLW_rowLabel",
-	"input": "QmduLW_input",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"statsInflight": "QmduLW_statsInflight",
-	"textarea": "QmduLW_textarea",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"stateDead": "QmduLW_stateDead",
-	"statsWrap": "QmduLW_statsWrap",
-	"overviewBar": "QmduLW_overviewBar",
-	"rowRemove": "QmduLW_rowRemove",
-	"table": "QmduLW_table",
-	"footerIcon": "QmduLW_footerIcon",
-	"field": "QmduLW_field",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"mono": "QmduLW_mono",
 	"statsSummary": "QmduLW_statsSummary",
-	"badge": "QmduLW_badge",
-	"footerMain": "QmduLW_footerMain",
-	"statsSortArrow": "QmduLW_statsSortArrow",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"compliance": "QmduLW_compliance",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"footerUnit": "QmduLW_footerUnit",
-	"footerEntry": "QmduLW_footerEntry",
-	"select": "QmduLW_select",
-	"statsRowLocal": "QmduLW_statsRowLocal",
-	"footerText": "QmduLW_footerText",
-	"statsModal": "QmduLW_statsModal",
 	"fieldLabel": "QmduLW_fieldLabel",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"footerSub": "QmduLW_footerSub",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"select": "QmduLW_select",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"input": "QmduLW_input",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"rowInput": "QmduLW_rowInput",
+	"stateDead": "QmduLW_stateDead",
+	"rowRemove": "QmduLW_rowRemove",
+	"statsSortButton": "QmduLW_statsSortButton",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"footerText": "QmduLW_footerText",
+	"footerIcon": "QmduLW_footerIcon",
+	"section": "QmduLW_section",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"fieldHint": "QmduLW_fieldHint",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"statsModal": "QmduLW_statsModal",
+	"status": "QmduLW_status",
+	"textarea": "QmduLW_textarea",
+	"saveStatusError": "QmduLW_saveStatusError",
+	"saveStatus": "QmduLW_saveStatus",
+	"compliance": "QmduLW_compliance",
+	"footerEntry": "QmduLW_footerEntry",
+	"statsContent": "QmduLW_statsContent",
+	"rowLabel": "QmduLW_rowLabel",
+	"rowAdd": "QmduLW_rowAdd",
+	"footerMain": "QmduLW_footerMain",
+	"statsDot": "QmduLW_statsDot",
 	"body": "QmduLW_body",
-	"footerSub": "QmduLW_footerSub"
+	"statsDotOk": "QmduLW_statsDotOk",
+	"radio": "QmduLW_radio",
+	"statsChip": "QmduLW_statsChip",
+	"stateCooling": "QmduLW_stateCooling",
+	"badge": "QmduLW_badge",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"rowList": "QmduLW_rowList",
+	"overviewBar": "QmduLW_overviewBar",
+	"table": "QmduLW_table",
+	"mono": "QmduLW_mono",
+	"footerUnit": "QmduLW_footerUnit",
+	"tableGrid": "QmduLW_tableGrid",
+	"badgePinned": "QmduLW_badgePinned",
+	"statsTable": "QmduLW_statsTable",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"statsInflight": "QmduLW_statsInflight",
+	"statsSortArrow": "QmduLW_statsSortArrow",
+	"statsWrap": "QmduLW_statsWrap",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"footerCompact": "QmduLW_footerCompact",
+	"fieldRow": "QmduLW_fieldRow",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"statsRowLocal": "QmduLW_statsRowLocal",
+	"row": "QmduLW_row",
+	"ghostButton": "QmduLW_ghostButton",
+	"field": "QmduLW_field",
+	"stateOk": "QmduLW_stateOk",
+	"statsIndex": "QmduLW_statsIndex"
 };
 
 //#endregion
@@ -163,11 +164,12 @@ const DEFAULTS = {
 	enabled: false,
 	probeModels: [],
 	maxConcurrentProbes: 3,
+	poolSize: 20,
 	manual: [],
 	subscription: {
 		urls: [],
 		refreshMs: 30 * 6e4,
-		userAgent: "clash-verge/v2.0"
+		userAgent: "clash-verge/v2.4.2"
 	},
 	singbox: { path: "sing-box" },
 	pinnedExitId: "",
@@ -191,7 +193,8 @@ function emptyForm() {
 		pinnedExitId: "",
 		pinnedStrict: DEFAULTS.pinnedStrict,
 		probeModels: [],
-		maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes)
+		maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
+		poolSize: String(DEFAULTS.poolSize)
 	};
 }
 function formFromValue(value) {
@@ -205,7 +208,8 @@ function formFromValue(value) {
 		pinnedExitId: value.pinnedExitId,
 		pinnedStrict: value.pinnedStrict,
 		probeModels: [...value.probeModels],
-		maxConcurrentProbes: String(value.maxConcurrentProbes)
+		maxConcurrentProbes: String(value.maxConcurrentProbes),
+		poolSize: String(value.poolSize ?? DEFAULTS.poolSize)
 	};
 }
 /** Field writes landing the form on the resolved value, in write order. */
@@ -257,6 +261,7 @@ function diffWrites(form, value, base) {
 	push("pinnedStrict", form.pinnedStrict, value.pinnedStrict, base.pinnedStrict);
 	push("probeModels", form.probeModels, value.probeModels, base.probeModels);
 	push("maxConcurrentProbes", Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes);
+	push("poolSize", Number(form.poolSize), value.poolSize, base.poolSize);
 	return writes;
 }
 /** Clearing the UA field restores the default instead of writing an empty
@@ -453,7 +458,7 @@ function OverviewBar(props) {
 				className: `${ip_pool_module_css_default.badge} ${ip_pool_module_css_default.badgeCritical}`,
 				children: t("deferredNotice").replace("{reason}", status.deferredReason)
 			}),
-			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("poolAvailable").replace("{available}", String(status.availableTotal)).replace("{total}", String(status.total)).replace("{freeAvailable}", String(status.availableFree)).replace("{capacity}", String(status.targetSize)) }),
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("poolAvailable").replace("{available}", String(status.availableTotal)).replace("{total}", String(status.total)).replace("{freeAvailable}", String(status.availableFree)).replace("{capacity}", String(status.targetSize)).replace("{poolSize}", String(status.poolSize ?? status.targetSize)) }),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("poolSources").replace("{free}", String(status.bySource.free)).replace("{manual}", String(status.bySource.manual)).replace("{subscription}", String(status.bySource.subscription)) }),
 			status.pinned !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 				className: `${ip_pool_module_css_default.badge} ${ip_pool_module_css_default.badgePinned}`,
@@ -471,6 +476,10 @@ function ExitTable(props) {
 		if (exit.state === "dead") return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 			className: ip_pool_module_css_default.stateDead,
 			children: t("stateDead")
+		});
+		if (exit.demoted === true) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+			className: ip_pool_module_css_default.stateCooling,
+			children: t("stateDemoted")
 		});
 		if (exit.cooling) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 			className: ip_pool_module_css_default.stateCooling,
@@ -495,6 +504,10 @@ function ExitTable(props) {
 		children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
 			className: ip_pool_module_css_default.tableGrid,
 			children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+					className: ip_pool_module_css_default.statsIndex,
+					children: t("exitIndex")
+				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitAddress") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitSource") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitLocation") }),
@@ -504,7 +517,11 @@ function ExitTable(props) {
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitState") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("exitPassive") }),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {})
-			] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [status.exits.map((exit) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+			] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [status.exits.map((exit, index) => /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+					className: ip_pool_module_css_default.statsIndex,
+					children: index + 1
+				}),
 				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
 					className: ip_pool_module_css_default.mono,
 					children: [exit.id, exit.pinned ? ` · ${t("exitPinnedMark")}` : ""]
@@ -536,7 +553,7 @@ function ExitTable(props) {
 					children: t("exitPin")
 				})] })
 			] }, exit.id)), status.exits.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-				colSpan: 9,
+				colSpan: 10,
 				className: ip_pool_module_css_default.status,
 				children: t("statusUnavailable")
 			}) })] })]
@@ -661,6 +678,8 @@ function CardBody(props) {
 	const validate = () => {
 		const conc = Number(form.maxConcurrentProbes);
 		if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return t("invalidRange");
+		const poolSize = Number(form.poolSize);
+		if (!/^\d+$/.test(form.poolSize.trim()) || poolSize < 1 || poolSize > 100) return t("invalidRange");
 		const refresh = Number(form.refreshMs);
 		if (!/^\d+$/.test(form.refreshMs.trim()) || refresh < 6e4) return t("invalidRange");
 		for (const entry of form.manual) if (!/^https?:\/\/[^\s:]+:\d{1,5}$|^socks5:\/\/[^\s:]+:\d{1,5}$|^socks5h?:\/\/\[[^\]]+\]:\d{1,5}$/.test(entry)) return t("invalidProxy");
@@ -1018,6 +1037,23 @@ function CardBody(props) {
 								});
 							}
 						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)(TextField, {
+							label: t("poolSize"),
+							hint: t("poolSizeHint"),
+							value: form.poolSize,
+							testId: "field-poolSize",
+							type: "number",
+							min: 1,
+							max: 100,
+							step: 1,
+							onChange: (value) => {
+								setSaved(false);
+								setForm({
+									...form,
+									poolSize: value
+								});
+							}
+						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 							type: "button",
 							className: ip_pool_module_css_default.ghostButton,
@@ -1222,7 +1258,10 @@ function ExitStatsEntry({ wide, t }) {
 	const rows = (0, react.useMemo)(() => {
 		if (poolOff) return [];
 		const unknown = Number.POSITIVE_INFINITY;
-		return [...status?.exits ?? []].sort((left, right) => {
+		return (status?.exits ?? []).map((exit, index) => ({
+			...exit,
+			slot: index + 1
+		})).sort((left, right) => {
 			if (sort.key === "latency") {
 				const a = left.latencyMs > 0 ? left.latencyMs : unknown;
 				const b = right.latencyMs > 0 ? right.latencyMs : unknown;
@@ -1354,6 +1393,10 @@ function ExitStatsEntry({ wide, t }) {
 				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
 					className: ip_pool_module_css_default.statsTable,
 					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", {
+							className: ip_pool_module_css_default.statsIndex,
+							children: t("statsColIndex")
+						}),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLocation") }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
@@ -1364,12 +1407,16 @@ function ExitStatsEntry({ wide, t }) {
 						sortableHeader("latency", t("statsColLatency")),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") })
 					] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [rows.map((exit) => {
-						const usableRow = isUsable(exit);
+						const usableRow = isUsable(exit) && exit.demoted !== true;
 						const dotClass = usableRow ? ip_pool_module_css_default.statsDotOk : exit.state === "dead" ? ip_pool_module_css_default.statsDotBad : ip_pool_module_css_default.statsDotWarn;
-						const stateLabel = usableRow ? t("statsStateUsable") : exit.cooling ? t("stateCooling") : exit.state === "dead" ? t("stateDead") : t("statsStateUnverified");
+						const stateLabel = exit.demoted === true ? t("stateDemoted") : usableRow ? t("statsStateUsable") : exit.cooling ? t("stateCooling") : exit.state === "dead" ? t("stateDead") : t("statsStateUnverified");
 						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
 							className: usableRow ? void 0 : ip_pool_module_css_default.statsRowMuted,
 							children: [
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+									className: ip_pool_module_css_default.statsIndex,
+									children: exit.slot
+								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
 									className: ip_pool_module_css_default.mono,
 									children: [
@@ -1404,6 +1451,10 @@ function ExitStatsEntry({ wide, t }) {
 						className: ip_pool_module_css_default.statsRowLocal,
 						"data-local-egress": true,
 						children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+								className: ip_pool_module_css_default.statsIndex,
+								children: "—"
+							}),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 								className: ip_pool_module_css_default.mono,
 								children: t("statsLocalIp")
@@ -1452,7 +1503,7 @@ const zh = {
 	poolStateEmergency: "枯竭",
 	stateBasisFree: "口径：免费源池",
 	stateBasisPool: "口径：全池（免费源已关闭）",
-	poolAvailable: "池可用 {available}/{total}（其中免费源 {freeAvailable}/{capacity}）",
+	poolAvailable: "池可用 {available}/{total}（容量 {poolSize}；其中免费源 {freeAvailable}/{capacity}）",
 	poolSources: "出口来源：免费 {free} · 手填 {manual} · 订阅 {subscription}",
 	pinnedBadge: "固定主力",
 	deferredNotice: "路由已退避：{reason}",
@@ -1485,11 +1536,14 @@ const zh = {
 	probeModelPick: "选择模型…",
 	probeModelUnverified: "未验证",
 	probeModelsDefault: "当前使用默认探活模型：big-pickle（S3 已验证清单首个）。",
+	poolSize: "池子容量（poolSize）",
+	poolSizeHint: "同时在线的出口数（1-100，默认 20）：上线时先测速，取最快的前 N 个，并把 sing-box 本地监听收缩到它们（池子之外的节点留作候补）。",
 	probeConcurrency: "并发上限（maxConcurrentProbes）",
 	probeConcurrencyHint: "不同出口并发探测的上限（1-8，默认 3）；同一出口永远串行。",
 	probeAll: "批量探活",
 	probeRunning: "探活中 {done}/{total}…",
 	sectionExits: "出口列表",
+	exitIndex: "#",
 	exitAddress: "地址",
 	exitSource: "来源",
 	exitLocation: "位置",
@@ -1502,6 +1556,7 @@ const zh = {
 	stateCooling: "冷却中",
 	stateDead: "dead",
 	stateUnknown: "未探活",
+	stateDemoted: "已降级",
 	exitProbe: "探测",
 	exitPin: "固定为主力",
 	exitPinnedMark: "主力",
@@ -1527,6 +1582,7 @@ const zh = {
 	statsSummaryLocal: "本机 {count}",
 	statsSummaryDirect: "直连兜底 {count} 次",
 	statsColIp: "出口 IP",
+	statsColIndex: "#",
 	statsColLocation: "位置",
 	statsColState: "状态",
 	statsColRequests: "请求数",
@@ -1572,7 +1628,7 @@ const en = {
 	poolStateEmergency: "depleted",
 	stateBasisFree: "basis: free-source pool",
 	stateBasisPool: "basis: whole pool (free source off)",
-	poolAvailable: "{available}/{total} usable (free sources {freeAvailable}/{capacity})",
+	poolAvailable: "{available}/{total} usable (capacity {poolSize}; free sources {freeAvailable}/{capacity})",
 	poolSources: "Sources: free {free} · manual {manual} · subscription {subscription}",
 	pinnedBadge: "pinned",
 	deferredNotice: "Routing deferred: {reason}",
@@ -1605,12 +1661,15 @@ const en = {
 	probeModelPick: "Pick a model…",
 	probeModelUnverified: "unverified",
 	probeModelsDefault: "Using the default probe model: big-pickle (first of the S3 verified list).",
+	poolSize: "Pool size (poolSize)",
+	poolSizeHint: "Exits kept online at once (1-100, default 20): the onboarding speed-tests candidates, keeps the fastest N and shrinks the sing-box listeners to them; the rest stay as reserve.",
 	probeConcurrency: "Concurrency cap (maxConcurrentProbes)",
 	probeConcurrencyHint: "Cross-exit probe cap (1-8, default 3); one exit is always serial.",
 	probeAll: "Probe all",
 	probeRunning: "Probing {done}/{total}…",
 	sectionExits: "Exits",
 	exitAddress: "Address",
+	exitIndex: "#",
 	exitSource: "Source",
 	exitLocation: "Location",
 	exitLatency: "Latency",
@@ -1622,6 +1681,7 @@ const en = {
 	stateCooling: "cooling",
 	stateDead: "dead",
 	stateUnknown: "unprobed",
+	stateDemoted: "demoted",
 	exitProbe: "Probe",
 	exitPin: "Pin",
 	exitPinnedMark: "primary",
@@ -1647,6 +1707,7 @@ const en = {
 	statsSummaryLocal: "{count} local",
 	statsSummaryDirect: "{count} direct fallbacks",
 	statsColIp: "Exit IP",
+	statsColIndex: "#",
 	statsColLocation: "Location",
 	statsColState: "State",
 	statsColRequests: "Requests",

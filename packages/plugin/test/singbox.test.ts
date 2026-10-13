@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ANYTLS_SUBSCRIPTION } from './fixtures/anytls.ts'
 
-import { buildOutbound, generateConfig, nodeKeyOf, SingBoxSupervisor, isDialableServer } from '../src/pool/singbox.ts'
+import { buildOutbound, generateConfig, SingBoxSupervisor, isDialableServer } from '../src/pool/singbox.ts'
 import { parseSubscription, type ParsedNode } from '../src/pool/subscription.ts'
 import { ExitPool } from '../src/pool/pool.ts'
 import { Prober } from '../src/pool/prober.ts'
@@ -114,7 +114,7 @@ test('buildOutbound: unknown types return null (skipped)', () => {
 
 test('generateConfig: per-node inbound/outbound/rule with ascending ports + direct default', () => {
   const nodes = [vmessNode(), vmessNode({ name: 'second', server: 'v2.example.com', raw: { type: 'vmess', uuid: 'u2' } })]
-  const { config, portMap } = generateConfig(nodes, 30_000)
+  const { config, ports } = generateConfig(nodes, 30_000)
   const cfg = config as {
     inbounds: Array<{ tag: string; listen: string; listen_port: number; type: string }>
     outbounds: Array<{ tag: string; type: string }>
@@ -127,9 +127,8 @@ test('generateConfig: per-node inbound/outbound/rule with ascending ports + dire
   assert.equal(cfg.route.final, 'direct')
   // rules wire each inbound to its outbound
   assert.deepEqual(cfg.route.rules[0], { inbound: ['in-node-0'], outbound: 'out-node-0' })
-  // portMap keys are GoProxy node keys
-  assert.deepEqual([...portMap.values()], [30_001, 30_002])
-  assert.equal(portMap.get(nodeKeyOf(nodes[0]!)), 30_001)
+  // ports are index-aligned with the input list
+  assert.deepEqual(ports, [30_001, 30_002])
 })
 
 test('generateConfig: unsupported nodes are skipped without burning a port', () => {
@@ -137,11 +136,103 @@ test('generateConfig: unsupported nodes are skipped without burning a port', () 
     { name: 'bad', type: 'wireguard', server: 'x', port: 1, raw: {} },
     vmessNode(),
   ] satisfies ParsedNode[]
-  const { config, portMap } = generateConfig(nodes, 30_000)
+  const { config, ports } = generateConfig(nodes, 30_000)
   const cfg = config as { inbounds: unknown[]; outbounds: unknown[] }
   assert.equal(cfg.inbounds.length, 1)
   assert.equal(cfg.outbounds.length, 2) // vmess + direct
-  assert.equal(portMap.size, 1)
+  // The port is the node's SLOT (input index + 1), so the unmappable node leaves
+  // a gap rather than shifting the next node's port: slots have to survive the
+  // onboarding's subset rebuilds, and a compacted numbering would repoint every
+  // surviving exit the moment a reserve is promoted.
+  assert.deepEqual(ports, [0, 30_002], 'the skipped node keeps its index slot and opens no listener')
+})
+
+/**
+ * Live 2026-10-13: the exit table showed 13 exits for a 44-node subscription.
+ * `generateConfig` keyed its port map by `type:server:port` — a GoProxy habit —
+ * which is not a node identity for an airport that fronts many distinct nodes
+ * on ONE edge host and separates them by the anytls TLS `server_name`. 44 nodes
+ * collapsed into 13 keys, the LAST port per key won, every earlier node
+ * resolved to that same port, and 31 generated inbounds were orphaned:
+ * listening, never handed to the pool. The synthetic fixture hid this for
+ * months because every node in it has a unique hostname.
+ */
+test('generateConfig: nodes sharing host:port but differing in TLS SNI each keep their own port (live regression)', () => {
+  const edge = 'b2efc912.edge.0443.me.uk'
+  const node = (sni: string): ParsedNode => ({
+    name: sni,
+    type: 'anytls',
+    server: edge,
+    port: 443,
+    raw: { type: 'anytls', password: 'shared-password', sni },
+  })
+  const nodes = [node('hk01.0443node.org.uk'), node('hk02.0443node.org.uk'), node('jp01.0443node.org.uk')]
+  const { config, ports } = generateConfig(nodes, 30_000)
+  const cfg = config as {
+    inbounds: Array<{ listen_port: number }>
+    outbounds: Array<{ tag: string; tls?: { server_name?: string } }>
+    route: { rules: Array<{ inbound: string[]; outbound: string }> }
+  }
+  assert.deepEqual(ports, [30_001, 30_002, 30_003], 'one port per node, never one per host:port key')
+  assert.equal(cfg.inbounds.length, 3)
+  assert.deepEqual(
+    cfg.outbounds.slice(0, 3).map((outbound) => outbound.tls?.server_name),
+    ['hk01.0443node.org.uk', 'hk02.0443node.org.uk', 'jp01.0443node.org.uk'],
+    'the SNI that distinguishes the nodes survives into their own outbounds',
+  )
+  assert.deepEqual(
+    cfg.route.rules.map((rule) => rule.outbound),
+    ['out-node-0', 'out-node-1', 'out-node-2'],
+    'each inbound routes to its own outbound',
+  )
+})
+
+test('generateConfig: a keep subset reuses each node\'s own stable port (onboarding shrink/promote)', () => {
+  // The onboarding converts every candidate to measure it, then rebuilds the
+  // config with only the fastest N — and later adds a reserve back. Ports must
+  // follow the node's SLOT, not its position in the emitted subset, or every
+  // survivor would be repointed at a different node on each rebuild (and the
+  // pool's exit ids, health and counters would all go stale).
+  const edge = 'shared.edge.example.test'
+  const node = (sni: string): ParsedNode => ({
+    name: sni,
+    type: 'anytls',
+    server: edge,
+    port: 443,
+    raw: { type: 'anytls', password: 'pw', sni },
+  })
+  const nodes = [node('a'), node('b'), node('c'), node('d')]
+  const full = generateConfig(nodes, 30_000)
+  assert.deepEqual(full.ports, [30_001, 30_002, 30_003, 30_004])
+
+  // Keep slots 1 and 3: they must land on their ORIGINAL ports.
+  const shrunk = generateConfig(nodes, 30_000, [1, 3])
+  assert.deepEqual(shrunk.ports, [0, 30_002, 0, 30_004])
+  const shrunkCfg = shrunk.config as { inbounds: Array<{ listen_port: number }> }
+  assert.deepEqual(shrunkCfg.inbounds.map((inbound) => inbound.listen_port), [30_002, 30_004])
+
+  // Promote slot 2 back in: the two survivors keep their ports.
+  const promoted = generateConfig(nodes, 30_000, [1, 2, 3])
+  assert.deepEqual(promoted.ports, [0, 30_002, 30_003, 30_004])
+})
+
+test('generateConfig: byte-identical nodes still get one port each — the pool owns exit-IP dedupe', () => {
+  // Conversion is not the dedupe layer: two entries that really are one exit
+  // must each be dialable so the pool can MEASURE them, and then `add()`
+  // refuses the second address carrying the same exit IP (docs §3.1, one IP =
+  // one anonymous quota bucket). Collapsing them here is what made the loss
+  // invisible: no probe, no measurement, no evidence in the exit table.
+  const node = (): ParsedNode => ({
+    name: 'same',
+    type: 'anytls',
+    server: 'edge.example.test',
+    port: 443,
+    raw: { type: 'anytls', password: 'pw', sni: 'same.example.test' },
+  })
+  const { config, ports } = generateConfig([node(), node()], 30_000)
+  const cfg = config as { inbounds: unknown[] }
+  assert.deepEqual(ports, [30_001, 30_002])
+  assert.equal(cfg.inbounds.length, 2)
 })
 
 // -- conversion pipeline (fetcher + supervisor seam) ---------------------------
@@ -155,14 +246,19 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
   const prober = new Prober({ pool })
   // A fake supervisor: converts every node to a local address without a
   // real binary (the SingBoxSupervisor's process paths are covered by the
-  // config-generation tests; the fetcher only needs the seam contract).
-  const converted: Array<{ address: string; protocol: 'socks5'; node: ParsedNode }> = []
+  // config-generation tests; the fetcher only needs the seam contract). It
+  // honours `keep` like the real one, so the onboarding's shrink is visible.
+  const shrinks: number[] = []
   const supervisor = {
-    async reload(nodes: ParsedNode[]) {
-      for (const [index, node] of nodes.entries()) {
-        converted.push({ address: `127.0.0.1:${31000 + index}`, protocol: 'socks5', node })
-      }
-      return converted
+    async reload(nodes: ParsedNode[], keep?: readonly number[]) {
+      const slots = keep ?? nodes.map((_, index) => index)
+      if (keep !== undefined) shrinks.push(slots.length)
+      return slots.map((index) => ({
+        address: `127.0.0.1:${31000 + index}`,
+        protocol: 'socks5' as const,
+        node: nodes[index]!,
+        slot: index,
+      }))
     },
     async stop() {},
     get running() {
@@ -184,6 +280,11 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
         // exit IP derived from the port so distinct local ports are
         // distinct quota buckets (the pool dedupes shared exit IPs, 3.1)
         const port = address.split(':')[1] ?? '0'
+        // No artificial latency here: the onboarding ranks by MEASURED latency,
+        // so with an instant echo the top-20 is decided by timer jitter. This
+        // test asserts the CAP and the SHRINK (the contract); the ranking
+        // itself is covered by test/onboard.test.ts, which spaces its
+        // candidates widely enough for the order to be deterministic.
         return {
           statusCode: 200,
           body: { text: async () => JSON.stringify({ status: 'success', query: `7.7.${Number(port) % 250}.${(Number(port) / 250) | 0}`, countryCode: 'US', city: 'c', country: 'c' }) },
@@ -198,14 +299,17 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
   )
   fetcher.setUrls(['https://sub.example.com/token'])
   const state = await fetcher.refresh()
-  // all 38 anytls nodes converted and admitted (trusted smoke always passes here)
-  assert.equal(state.convertedAdmitted, 38)
+  // 38 anytls nodes convert, but the onboarding keeps only the pool's capacity
+  // (20 by default) and shrinks the conversion to them — the whole point of
+  // "池子默认 20 个 / 避免建立太多本地连接" (live request 2026-10-13).
+  assert.equal(state.convertedAdmitted, 20)
   assert.equal(state.pendingConversion.length, 0)
-  assert.equal(pool.list().length, 38)
+  assert.equal(pool.list().length, 20, 'the pool holds its capacity, not all 38 candidates')
+  assert.deepEqual(shrinks, [20], 'the conversion is rebuilt with exactly the selected slots')
   assert.ok(pool.list().every((entry) => entry.source === 'subscription'))
-  // addresses are the local converted ports
-  assert.ok(pool.has('127.0.0.1:31000'))
-  assert.ok(pool.has('127.0.0.1:31037'))
+  // Every admitted address is one of the converted candidates (slot-stable
+  // ports), and the other 18 are reserve rather than listeners.
+  assert.ok(pool.list().every((entry) => /^127\.0\.0\.1:310\d\d$/.test(entry.id)))
 })
 
 test('subscription refresh without supervisor: encrypted nodes park as pending', async () => {
@@ -265,9 +369,10 @@ test('subscription refresh: a node whose server cannot be dialled is skipped, ne
   const prober = new Prober({ pool })
   const converted: ParsedNode[][] = []
   const supervisor = {
-    async reload(nodes: ParsedNode[]) {
+    async reload(nodes: ParsedNode[], keep?: readonly number[]) {
       converted.push(nodes)
-      return nodes.map((node, index) => ({ address: `127.0.0.1:${33000 + index}`, protocol: 'socks5' as const, node }))
+      const slots = keep ?? nodes.map((_, index) => index)
+      return slots.map((index) => ({ address: `127.0.0.1:${33000 + index}`, protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
     },
     async stop() {},
     get running() {
@@ -308,14 +413,21 @@ test('subscription refresh: a node whose server cannot be dialled is skipped, ne
  * smoke fails comes back `admitted: true` from the trusted fallback. Before
  * the fix the fetcher called markOk() on all of them, so dead exits entered
  * the pool as healthy, grade-S candidates.
+ *
+ * Under the onboarding pipeline (live request 2026-10-13) the same input ends
+ * differently by design: the speed pass measures nothing, so the candidates go
+ * unranked, the connectivity test refuses every one, and — with no reserve left
+ * to promote — each is KEPT but demoted to the tail. The pool holds its
+ * capacity instead of draining, and nothing claims health.
  */
-test('subscription refresh: converted nodes that fail the smoke stay unverified', async () => {
+test('subscription refresh: nodes that fail every measurement stay unverified at the tail', async () => {
   const fixture = ANYTLS_SUBSCRIPTION
   const pool = new ExitPool()
   const prober = new Prober({ pool })
   const supervisor = {
-    async reload(nodes: ParsedNode[]) {
-      return nodes.map((node, index) => ({ address: `127.0.0.1:${34000 + index}`, protocol: 'socks5' as const, node }))
+    async reload(nodes: ParsedNode[], keep?: readonly number[]) {
+      const slots = keep ?? nodes.map((_, index) => index)
+      return slots.map((index) => ({ address: `127.0.0.1:${34000 + index}`, protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
     },
     async stop() {},
     get running() {
@@ -342,12 +454,13 @@ test('subscription refresh: converted nodes that fail the smoke stay unverified'
   fetcher.setUrls(['https://sub.example.com/token'])
   const state = await fetcher.refresh()
 
-  assert.equal(state.convertedAdmitted, 38, 'the nodes are still kept (paid line, docs 4.5)')
-  assert.equal(pool.list().length, 38)
+  assert.equal(state.convertedAdmitted, 0, 'nothing passed the connectivity test')
+  assert.equal(pool.list().length, 20, 'the pool still holds its capacity (paid line, docs 4.5)')
   const health = pool.list().map((entry) => entry.health.state)
   assert.ok(health.every((state) => state !== 'ok'), `nothing may claim health: ${health.join(',')}`)
   assert.ok(pool.list().every((entry) => entry.exitIP === ''))
   assert.ok(pool.list().every((entry) => entry.quality === 'C'), 'and none of them claims a measured grade')
+  assert.ok(pool.list().every((entry) => pool.demoted(entry.id)), 'every one of them is parked at the tail')
 })
 
 test('supervisor: reload([]) stops cleanly; missing binary surfaces a clear error', async () => {

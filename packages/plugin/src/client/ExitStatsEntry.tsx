@@ -152,10 +152,18 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   // Sorted by the clicked column — request count descending is the home
   // position. An unprobed exit (latency 0) sinks to the bottom under every
   // latency direction: "unknown" is not "fastest".
+  //
+  // The pool slot is stamped BEFORE the sort: it is the exit's position in the
+  // pool's own order (the onboarding rank, fastest first), so `#` keeps
+  // identifying the same slot when the operator sorts by requests or latency.
+  // A number that renumbered itself on every sort click would answer a
+  // different question than the column is asked.
   const rows = useMemo(() => {
     if (poolOff) return []
     const unknown = Number.POSITIVE_INFINITY
-    return [...(status?.exits ?? [])].sort((left, right) => {
+    return (status?.exits ?? [])
+      .map((exit, index) => ({ ...exit, slot: index + 1 }))
+      .sort((left, right) => {
       if (sort.key === 'latency') {
         const a = left.latencyMs > 0 ? left.latencyMs : unknown
         const b = right.latencyMs > 0 ? right.latencyMs : unknown
@@ -261,6 +269,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             <table className={styles.statsTable}>
               <thead>
                 <tr>
+                  <th className={styles.statsIndex}>{t('statsColIndex')}</th>
                   <th>{t('statsColIp')}</th>
                   <th>{t('statsColLocation')}</th>
                   <th>{t('statsColState')}</th>
@@ -274,21 +283,24 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               </thead>
               <tbody>
                 {rows.map((exit) => {
-                  const usableRow = isUsable(exit)
+                  const usableRow = isUsable(exit) && exit.demoted !== true
                   const dotClass = usableRow
                     ? styles.statsDotOk
                     : exit.state === 'dead'
                       ? styles.statsDotBad
                       : styles.statsDotWarn
-                  const stateLabel = usableRow
-                    ? t('statsStateUsable')
-                    : exit.cooling
-                      ? t('stateCooling')
-                      : exit.state === 'dead'
-                        ? t('stateDead')
-                        : t('statsStateUnverified')
+                  const stateLabel = exit.demoted === true
+                    ? t('stateDemoted')
+                    : usableRow
+                      ? t('statsStateUsable')
+                      : exit.cooling
+                        ? t('stateCooling')
+                        : exit.state === 'dead'
+                          ? t('stateDead')
+                          : t('statsStateUnverified')
                   return (
                     <tr key={exit.id} className={usableRow ? undefined : styles.statsRowMuted}>
+                      <td className={styles.statsIndex}>{exit.slot}</td>
                       <td className={styles.mono}>
                         {/* An exit that was never verified has no exit IP. The
                             local SOCKS5 endpoint used to be printed here as if
@@ -324,6 +336,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   )
                 })}
                 <tr className={styles.statsRowLocal} data-local-egress>
+                  <td className={styles.statsIndex}>—</td>
                   <td className={styles.mono}>{t('statsLocalIp')}</td>
                   <td>{t('statsLocalLocation')}</td>
                   <td>

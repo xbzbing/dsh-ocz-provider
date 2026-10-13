@@ -24,6 +24,7 @@ test('schema fills every default from an empty section', () => {
   assert.equal(value.enabled, false)
   assert.deepEqual(value.probeModels, [])
   assert.equal(value.maxConcurrentProbes, 3)
+  assert.equal(value.poolSize, 20, 'whole-pool capacity defaults to 20')
   assert.equal((value.free as Record<string, unknown>).enabled, true)
   assert.equal((value.free as Record<string, unknown>).targetSize, 20)
   assert.deepEqual((value.free as Record<string, unknown>).blockedCountries, ['CN'])
@@ -31,7 +32,7 @@ test('schema fills every default from an empty section', () => {
   assert.deepEqual((value.subscription as Record<string, unknown>).urls, [])
   // The built-in fetch UA is the airport allow-listed spelling, not 1.6.0 —
   // a real airport answers 502 Bad Gateway for the latter (docs 4.6).
-  assert.equal((value.subscription as Record<string, unknown>).userAgent, 'clash-verge/v2.0')
+  assert.equal((value.subscription as Record<string, unknown>).userAgent, 'clash-verge/v2.4.2')
   assert.equal((value.singbox as Record<string, unknown>).path, 'sing-box')
   assert.equal(value.pinnedExitId, '')
   assert.equal(value.pinnedStrict, false)
@@ -101,6 +102,7 @@ test('toIpPoolConfig maps the settings value onto the plugin config shape', () =
     pinnedExitId: 'http://127.0.0.1:7897',
     pinnedStrict: true,
     maxConcurrentProbes: 7,
+    poolSize: 12,
     subscription: { urls: ['https://sub.example.com/token'], refreshMs: 123_456, userAgent: 'mihomo/1.19.0' },
   }) as never)
   assert.equal(mapped.enabled, true)
@@ -114,6 +116,8 @@ test('toIpPoolConfig maps the settings value onto the plugin config shape', () =
   // Prober construction + SubscriptionFetcher interval/UA), so dropping them
   // here would reset them to the default on every live commit.
   assert.equal(mapped.maxConcurrentProbes, 7)
+  // Dropping this on a live commit would silently reset the pool capacity.
+  assert.equal(mapped.poolSize, 12)
   assert.deepEqual(mapped.subscription, { refreshMs: 123_456, userAgent: 'mihomo/1.19.0' })
 })
 
@@ -124,6 +128,8 @@ function fakeRuntime(overrides: Record<string, unknown> = {}): unknown {
   const pool = {
     snapshot: () => ({ state: 'warning', total: 2, bySource: { free: 1, manual: 1, subscription: 0, goproxy: 0 }, availableFree: 1, pinned: 'http://10.0.0.1:3128' }),
     targetSize: 20,
+    poolSize: 20,
+    demoted: (id: string) => id === '1.2.3.4:8080',
     list: () => [
       {
         id: 'http://10.0.0.1:3128', source: 'manual', protocol: 'http', pinned: true,
@@ -183,8 +189,10 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal(view.pinned?.id, 'http://10.0.0.1:3128')
   assert.equal(view.pinned?.strict, true)
   assert.equal(view.exits.length, 2)
+  assert.equal(view.poolSize, 20, 'the whole-pool capacity rides the bridge (the card renders it)')
   const cooling = view.exits.find((e) => e.id === '1.2.3.4:8080')
   assert.equal(cooling?.cooling, true)
+  assert.equal(cooling?.demoted, true, 'a demoted exit is projected so the table can say so')
   assert.deepEqual(cooling?.bannedModels, [{ model: 'muse-spark-1.2-contributor-free', state: 'banned', bannedAt: 123 }])
   assert.deepEqual(cooling?.passive, { ok: 12, limited: 2, refused: 0, dead: 1, transport: 0 })
   assert.deepEqual(view.prober, { queued: 0, inFlight: 1, enqueued: 5, completed: 4 })

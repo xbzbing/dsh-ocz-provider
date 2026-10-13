@@ -86,6 +86,13 @@ export interface IpPoolConfig {
   subscription?: { refreshMs?: number; userAgent?: string }
   /** Cross-exit probe concurrency cap (docs 4.1; same-exit always serial). */
   maxConcurrentProbes?: number
+  /**
+   * Whole-pool capacity: how many exits stay online at once, any source
+   * (default 20). The onboarding speed-tests candidates, keeps the fastest
+   * `poolSize` and shrinks the sing-box config to them, so it also bounds the
+   * number of local SOCKS listeners.
+   */
+  poolSize?: number
   /** sing-box conversion core for encrypted nodes (docs 1.2.2, IP-4). */
   singbox?: {
     /** sing-box binary: PATH name or absolute path; unset parks encrypted

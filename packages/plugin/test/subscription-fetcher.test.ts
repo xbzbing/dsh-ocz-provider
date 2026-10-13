@@ -117,14 +117,17 @@ test('subscription nodes never enter the pool twice (idempotent refresh)', async
 
 // -- fetch User-Agent (airport allow-lists) -----------------------------------
 
-test('subscription pulls send the default User-Agent, not the 502-ing 1.6.0', async () => {
+test('subscription pulls send the default User-Agent, not a UA the airport gates out', async () => {
   const seen: Array<string | undefined> = []
   const { fetcher } = makeFetcher(uaRecorder(seen))
   fetcher.setUrls(['https://sub.example.com/token-abcdef-123456'])
   await fetcher.refresh()
   // One pull per URL; the admission smoke rides deps.undici, not fetchImpl.
-  assert.deepEqual(seen, ['clash-verge/v2.0'])
-  assert.equal(fetcher.userAgent, 'clash-verge/v2.0')
+  // The default is a client VERSION and panels raise their floor over time:
+  // measured on the live airport, `clash-verge/1.6.0` → 502 and, from
+  // 2026-10-13, `clash-verge/v2.0` → 403 PLEASE UPGRADE CLIENT.
+  assert.deepEqual(seen, ['clash-verge/v2.4.2'])
+  assert.equal(fetcher.userAgent, 'clash-verge/v2.4.2')
 })
 
 test('the fetch UA is configurable and live-updatable without a restart', async () => {
@@ -143,15 +146,15 @@ test('the fetch UA is configurable and live-updatable without a restart', async 
 test('a blank UA falls back to the default instead of sending none', async () => {
   const seen: Array<string | undefined> = []
   const { fetcher } = makeFetcher(uaRecorder(seen), undefined, { userAgent: '   ' })
-  assert.equal(fetcher.userAgent, 'clash-verge/v2.0')
+  assert.equal(fetcher.userAgent, 'clash-verge/v2.4.2')
 
-  fetcher.setUserAgent('clash-verge/v2.0')
+  fetcher.setUserAgent('clash-verge/v2.4.2')
   fetcher.setUserAgent('')
-  assert.equal(fetcher.userAgent, 'clash-verge/v2.0')
+  assert.equal(fetcher.userAgent, 'clash-verge/v2.4.2')
 
   fetcher.setUrls(['https://sub.example.com/x'])
   await fetcher.refresh()
-  assert.deepEqual(seen, ['clash-verge/v2.0'])
+  assert.deepEqual(seen, ['clash-verge/v2.4.2'])
 })
 
 // -- conversion core attached after construction -------------------------------
@@ -169,9 +172,10 @@ test('a supervisor attached after construction converts on the next refresh', as
 
   const reloaded: Array<unknown> = []
   fetcher.setSupervisor({
-    reload: async (nodes) => {
+    reload: async (nodes, keep) => {
       reloaded.push(nodes)
-      return nodes.map((node, index) => ({ address: `127.0.0.1:${30001 + index}`, protocol: 'socks5' as const, node }))
+      const slots = keep ?? nodes.map((_, index) => index)
+      return slots.map((index) => ({ address: `127.0.0.1:${30001 + index}`, protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
     },
     stop: async () => {},
     running: true,
