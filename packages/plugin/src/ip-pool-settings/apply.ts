@@ -151,6 +151,14 @@ export function applyIpPoolSettings(
           proxyHosts: controller.runtime?.installer?.proxyHosts !== undefined
             ? [...controller.runtime.installer.proxyHosts]
             : (controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ['opencode.ai']),
+          // The path scope, reported the same way (router's answer when one is
+          // running). Without it nothing could tell "the pool carries our
+          // /zen/v1 traffic" from "the pool carries whatever else lands on
+          // opencode.ai" — the difference that made the request counters climb
+          // while every opencode2dsh session was quiet (live 2026-10-13).
+          proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== undefined
+            ? [...controller.runtime.installer.proxyPathPrefixes]
+            : (controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : ['/zen/v1']),
           // The card's state badge follows the free-source machine only while
           // that source is on; with free disabled the same thresholds apply
           // to the whole pool (a subscription-only profile used to sit on

@@ -7,9 +7,12 @@ import * as realUndici from 'undici'
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
 import {
   PoolRoutingDispatcher,
+  dispatchRequestPath,
   exitProxyUri,
   isLoopback,
+  matchesPathPrefix,
   normalizeHost,
+  resolveProxyPathPrefixes,
   routingContext,
 } from '../src/pool/dispatcher.ts'
 import { RoutingInstaller } from '../src/pool/installer.ts'
@@ -103,8 +106,84 @@ test('dispatcher: non-pool hosts and loopback go direct; pool hosts route to pic
   assert.match(hops[1]!, /^proxy:/)
 })
 
-test('dispatcher: ALS context selects the exit by model (two-tier health routing)', () => {
-  const pool = new ExitPool({ modelBanConfirmations: 2 })
+/**
+ * Live 2026-10-13: one opencode.ai serves several lanes, and host-only
+ * routing dragged all of them through the exits — 77 `/zen/go/v1/chat/
+ * completions` calls in 6.3 minutes from the separate `opencode-go`
+ * provider were counted as pool requests (with no tokens, since only our
+ * adapter attributes usage) while every opencode2dsh session was quiet.
+ */
+test('dispatcher: the path scope keeps other lanes on the host out of the pool', () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 10 }))
+  pool.markOk('a:1')
+  const { seam, hops } = fakeSeam()
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
+  const dispatch = (path: string): void => {
+    routingContext.run({ model: 'm', session: `s:${path}` }, () => {
+      router.dispatch({ origin: 'https://opencode.ai', path } as never, {} as never)
+    })
+  }
+  /** Only the hops that reached an EXIT; 'direct' shows up for out-of-scope
+   *  requests too, and that is exactly what must not be mistaken for routing. */
+  const proxied = (): string[] => hops.filter((hop) => hop.startsWith('proxy:'))
+
+  // our own lane: through an exit
+  dispatch('/zen/v1/chat/completions')
+  assert.deepEqual(proxied(), ['proxy:http://a:1'], 'the plugin lane is proxied')
+
+  // the separate provider's paid lane on the same host: direct, and not one
+  // byte of pool state moves
+  dispatch('/zen/go/v1/chat/completions')
+  assert.equal(proxied().length, 1, 'the go lane must not touch an exit')
+  assert.equal(hops.at(-1), 'direct')
+  dispatch('/zen/go/v1/usage')
+  assert.equal(proxied().length, 1, 'nor the usage poll')
+
+  // query strings do not defeat the match, and a prefix never leaks into a
+  // longer sibling segment
+  dispatch('/zen/v1/responses?stream=1')
+  assert.equal(proxied().length, 2)
+  dispatch('/zen/v10/chat/completions')
+  assert.equal(proxied().length, 2, '/zen/v10 is not /zen/v1')
+
+  // Empty resolves to the default (never to "no path is in scope"); '/' opts
+  // the whole host back in, which is the documented knob for that.
+  router.setProxyPathPrefixes([])
+  assert.deepEqual(router.proxyPathPrefixes, ['/zen/v1'])
+  router.setProxyPathPrefixes(['/'])
+  dispatch('/zen/go/v1/chat/completions')
+  assert.equal(proxied().length, 3, "'/' puts the whole host back in scope")
+
+  // A caller that exposes no path stays IN scope: guessing "out" would
+  // silently disable routing, the failure class this layer has already been
+  // bitten by twice.
+  routingContext.run({ model: 'm', session: 'bare' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai' } as never, {} as never)
+  })
+  assert.equal(proxied().length, 4)
+})
+
+test('proxy path prefixes: empty means the default, entries normalize, matching is segment-aware', () => {
+  assert.deepEqual(resolveProxyPathPrefixes(undefined), ['/zen/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes([]), ['/zen/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes(['', '   ']), ['/zen/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes(['zen/v1/', '/zen/go/v1?x=1']), ['/zen/v1', '/zen/go/v1'])
+
+  assert.ok(matchesPathPrefix('/zen/v1', '/zen/v1'))
+  assert.ok(matchesPathPrefix('/zen/v1/chat/completions?a=1', '/zen/v1'))
+  assert.ok(!matchesPathPrefix('/zen/v10', '/zen/v1'))
+  assert.ok(!matchesPathPrefix('/zen/go/v1/chat/completions', '/zen/v1'))
+  assert.ok(matchesPathPrefix('/anything', '/'))
+
+  // both dispatch shapes undici hands over: fetch builds origin+path,
+  // a Request-shaped argument carries the whole URL
+  assert.equal(dispatchRequestPath({ path: '/a?b=1' } as never), '/a?b=1')
+  assert.equal(dispatchRequestPath({ url: 'https://h/zen/v1/m?q=1' } as never), '/zen/v1/m?q=1')
+  assert.equal(dispatchRequestPath({} as never), '')
+})
+
+test('dispatcher: ALS context selects the exit by model (two-tier health routing)', () => {  const pool = new ExitPool({ modelBanConfirmations: 2 })
   pool.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 10 }))
   pool.add(node({ id: 'b:2', exitIP: '2.2.2.2', latencyMs: 20 }))
   pool.markOk('a:1')
@@ -228,8 +307,10 @@ test('end-to-end: builtin fetch routes through a real local proxy via the instal
   try {
     // The pinned exit points at the same server, but through ProxyAgent the
     // request arrives with an absolute URI — the server can tell the two
-    // paths apart even though they land on one port.
-    const response = await fetch(`http://example.test:${port}/e2e`)
+    // paths apart even though they land on one port. The path is the plugin's
+    // own lane: the scope defaults to /zen/v1, so anything else on the host
+    // is deliberately left out of the pool.
+    const response = await fetch(`http://example.test:${port}/zen/v1/chat/completions`)
     assert.equal(response.status, 200)
     assert.ok(proxied >= 1, 'builtin fetch did not go through the proxy')
   } finally {

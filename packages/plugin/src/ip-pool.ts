@@ -175,6 +175,10 @@ export interface IpPoolRuntime {
     /** Live re-apply of the proxied-host list; optional so a test seam can
      *  stand in without implementing the running router's forwarding. */
     setProxyHosts?(hosts?: string[]): void
+    /** The path scope in force on those hosts (default `/zen/v1`). */
+    readonly proxyPathPrefixes?: readonly string[]
+    /** Live re-apply of the path scope; optional for the same reason. */
+    setProxyPathPrefixes?(prefixes?: string[]): void
   }
   /** Shared probe scheduler (admission + periodic probes + UI-triggered). */
   prober: Prober
@@ -236,6 +240,7 @@ export async function startIpPool(
     pool,
     undici,
     proxyHosts: ipPool.proxyHosts,
+    proxyPathPrefixes: ipPool.proxyPathPrefixes,
     logger,
   }
   const installer: IpPoolRuntime['installer'] = deps.makeInstaller !== undefined
@@ -301,6 +306,7 @@ export async function startIpPool(
     admissionDeps.smokeModel = probeModels[0]
     prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3)
     installer.setProxyHosts?.(current.proxyHosts)
+    installer.setProxyPathPrefixes?.(current.proxyPathPrefixes)
 
     // Free loop on/off + restart on target change (interval fixed 10min).
     const wantRefill = (current.free?.enabled ?? true) && current.enabled !== false

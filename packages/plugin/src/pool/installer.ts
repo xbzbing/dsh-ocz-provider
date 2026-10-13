@@ -14,7 +14,7 @@
 
 import type { Dispatcher } from 'undici'
 
-import { PoolRoutingDispatcher, resolveProxyHosts, type RoutingDispatcherSurface, type UndiciSeam } from './dispatcher.ts'
+import { PoolRoutingDispatcher, resolveProxyHosts, resolveProxyPathPrefixes, type RoutingDispatcherSurface, type UndiciSeam } from './dispatcher.ts'
 import type { ExitPool } from './pool.ts'
 
 /** The setter accepts the full Dispatcher; our router exposes the subset
@@ -26,6 +26,8 @@ export interface InstallerDeps {
   pool: ExitPool
   undici: UndiciSeam
   proxyHosts?: string[]
+  /** Path prefixes on the proxied hosts this plugin's own traffic uses. */
+  proxyPathPrefixes?: string[]
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
@@ -74,6 +76,17 @@ export class RoutingInstaller {
     this.#current?.setProxyHosts(hosts)
   }
 
+  /** The path scope actually in force (running router wins, exactly like hosts). */
+  get proxyPathPrefixes(): readonly string[] {
+    return this.#current?.proxyPathPrefixes ?? resolveProxyPathPrefixes(this.#deps.proxyPathPrefixes)
+  }
+
+  /** Live re-apply of the path scope (forwards to the running router). */
+  setProxyPathPrefixes(prefixes?: string[]): void {
+    this.#deps.proxyPathPrefixes = prefixes
+    this.#current?.setProxyPathPrefixes(prefixes)
+  }
+
   /**
    * Decide whether installing is safe (docs/ip-pool.md R1 coexistence policy).
    * The global dispatcher slot is single-owner: if another dispatcher-level
@@ -114,6 +127,7 @@ export class RoutingInstaller {
       pool: this.#deps.pool,
       undici: this.#deps.undici,
       proxyHosts: this.#deps.proxyHosts,
+      proxyPathPrefixes: this.#deps.proxyPathPrefixes,
       logger: this.#deps.logger,
     })
     // Read BEFORE swapping: undici's `setGlobalDispatcher` returns void (not

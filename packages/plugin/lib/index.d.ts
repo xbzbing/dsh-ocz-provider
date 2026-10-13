@@ -38,6 +38,7 @@ interface IpPoolSettings {
   pinnedExitId: string;
   pinnedStrict: boolean;
   proxyHosts: string[];
+  proxyPathPrefixes: string[];
   maxRotateAttempts: number;
 }
 //#endregion
@@ -103,6 +104,8 @@ interface IpPoolConfig {
   pinnedStrict?: boolean;
   /** Hosts whose traffic goes through the pool (default opencode.ai). */
   proxyHosts?: string[];
+  /** Path prefixes on those hosts the pool carries (default /zen/v1). */
+  proxyPathPrefixes?: string[];
   /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
   free?: {
     enabled?: boolean;
@@ -216,6 +219,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedExitId: Schema<string, string, "defined">;
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
+    proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -249,6 +253,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedExitId: Schema<string, string, "defined">;
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
+    proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
   }>>>, "volatile">;
 }>>, Schemastery.ObjectT<NoInfer<{
@@ -314,6 +319,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedExitId: Schema<string, string, "defined">;
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
+    proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -347,6 +353,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedExitId: Schema<string, string, "defined">;
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
+    proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
   }>>>, "volatile">;
 }>>, "plain">;

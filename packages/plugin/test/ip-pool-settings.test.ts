@@ -61,8 +61,23 @@ test('a schema-resolved value keeps its nested subscription urls (legacy [] must
   assert.deepEqual(toIpPoolConfig(settings).subscriptions, ['https://sub.example.com/token'])
 })
 
-test('the legacy flat spelling still carries urls when the nested list is empty', () => {
-  // Older compositions write the flat key only; it must keep working.
+test('proxyPathPrefixes survives the schema → resolve → config round trip', () => {
+  // Same round-trip discipline the rest of the section has: the routing scope
+  // is read by the runtime, so a live commit must not reset it to a default.
+  const configured = resolveIpPoolSettings(IpPoolConfigSchema({
+    proxyHosts: ['opencode.ai'],
+    proxyPathPrefixes: ['/zen/v1/', 'zen/go/v1'],
+  } as never) as never)
+  assert.deepEqual(configured.proxyPathPrefixes, ['/zen/v1/', 'zen/go/v1'], 'the raw entries survive resolution (normalization is the router\'s)')
+  assert.deepEqual(toIpPoolConfig(configured).proxyPathPrefixes, ['/zen/v1/', 'zen/go/v1'])
+
+  // An untouched field resolves to the empty list, which the router then
+  // treats as "the default" — never as "no path is in scope".
+  const untouched = resolveIpPoolSettings({})
+  assert.deepEqual(untouched.proxyPathPrefixes, [])
+})
+
+test('the legacy flat spelling still carries urls when the nested list is empty', () => {  // Older compositions write the flat key only; it must keep working.
   const settings = resolveIpPoolSettings({ subscriptions: ['https://legacy.example.com/sub'] })
   assert.deepEqual(settings.subscription.urls, ['https://legacy.example.com/sub'])
 
@@ -153,6 +168,11 @@ function fakeRuntime(overrides: Record<string, unknown> = {}): unknown {
 test('status view projects the four-state machine, exits, bans and prober progress', () => {
   const view = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
   assert.equal(view.enabled, true)
+  // The routing scope is part of the answer to "what is this pool carrying?",
+  // so /status must carry both halves of the rule (live 2026-10-13: host-only
+  // routing silently proxied another provider's /zen/go lane).
+  assert.deepEqual(view.proxyHosts, ['opencode.ai'])
+  assert.deepEqual(view.proxyPathPrefixes, ['/zen/v1'], 'the path scope defaults to this plugin lane')
   assert.equal(view.state, 'warning')
   assert.equal(view.total, 2)
   assert.equal(view.availableFree, 1)
