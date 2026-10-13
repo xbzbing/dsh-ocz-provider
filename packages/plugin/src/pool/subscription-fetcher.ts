@@ -15,12 +15,14 @@
  * default DEFAULT_SUBSCRIPTION_USER_AGENT): airports gate on it and a UA their
  * panel does not list can come back as an error page or a 502 rather than a
  * subscription body — one airport measured here answers 502 for
- * `clash-verge/1.6.0` and serves normally for `clash-verge/v2.0`.
+ * `clash-verge/1.6.0` and 403 `PLEASE UPGRADE CLIENT` for `clash-verge/v2.0`
+ * once its panel raised the floor (2026-10-13; v2.4.2 / mihomo 1.19.8 serve).
  */
 
 import { ExitPool, type ExitNode } from './pool.ts'
 import { Prober, type ProbeTask } from './prober.ts'
 import { admitCandidate, admitTrusted, type AdmissionDeps } from './admission.ts'
+import { Onboarder } from './onboard.ts'
 import { parseSubscription, type ParsedNode, DEFAULT_SUBSCRIPTION_USER_AGENT } from './subscription.ts'
 import { SingBoxSupervisor, isDialableServer, type ConvertedExit } from './singbox.ts'
 
@@ -43,7 +45,7 @@ export interface SubscriptionDeps extends AdmissionDeps {
   /** sing-box supervisor for encrypted-node conversion; when null the
    *  encrypted nodes simply park as pending (no binary configured). */
   supervisor?: {
-    reload(nodes: ParsedNode[]): Promise<ConvertedExit[]>
+    reload(nodes: ParsedNode[], keep?: readonly number[]): Promise<ConvertedExit[]>
     stop(): Promise<void>
     readonly running: boolean
   }
@@ -91,6 +93,9 @@ export class SubscriptionFetcher {
   #userAgent: string
   /** Live conversion core; see setSupervisor(). */
   #supervisor: SubscriptionDeps['supervisor']
+  /** Last onboarding round's controller — holds the speed facts and the
+   *  reserve, so a later refusal can be replaced (see replaceExit()). */
+  #onboarder: Onboarder | null = null
   #logger?: SubscriptionOptions['logger']
 
   constructor(deps: SubscriptionDeps, options: SubscriptionOptions = {}) {
@@ -179,6 +184,25 @@ export class SubscriptionFetcher {
     return this.refresh()
   }
 
+  /**
+   * An exit in the pool was refused by the upstream lane after onboarding (a
+   * periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
+   * the next-fastest reserve; with the reserve exhausted the exit is kept and
+   * moved to the pool tail, so the pool holds its size.
+   *
+   * Returns true when a replacement was admitted. False also covers "no
+   * onboarder yet" (no subscription round has run in this process).
+   */
+  async replaceExit(exitId: string): Promise<boolean> {
+    if (this.#onboarder === null) return false
+    try {
+      return await this.#onboarder.replace(exitId)
+    } catch (err) {
+      this.#logger?.warn(`opencode2dsh: replacing refused exit ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      return false
+    }
+  }
+
   start(): void {
     if (this.#timer !== null || this.#stopped) return
     void this.refresh()
@@ -248,43 +272,38 @@ export class SubscriptionFetcher {
         lastError,
         plaintextAdmitted: 0,
       }
-      // Encrypted nodes -> sing-box conversion -> local SOCKS5 exits (IP-4).
-      // Without a supervisor configured they stay parked as pending.
+      // Encrypted nodes -> sing-box conversion -> local SOCKS5 exits (IP-4),
+      // then the bounded onboarding pipeline (speed pass -> keep the fastest
+      // poolSize -> shrink the conversion to them -> OpenCode connectivity test
+      // -> replace refusals from the reserve). Without a supervisor configured
+      // they stay parked as pending.
       if (pending.length > 0 && this.#supervisor) {
+        const supervisor = this.#supervisor
         try {
-          const exits = await this.#supervisor.reload(pending)
-          const tasks: ProbeTask[] = exits
-            .filter((exit) => !this.#deps.pool.has(exit.address))
-            .map((exit): ProbeTask => ({
-              exitId: exit.address,
-              kind: 'subscription-smoke',
-              run: async () => {
-                const verdict = await admitTrusted(this.#deps, {
-                  address: exit.address,
-                  protocol: exit.protocol,
-                  source: 'subscription',
-                })
-                if (verdict.admitted && verdict.node) {
-                  if (this.#deps.pool.add(verdict.node)) {
-                    // Unverified: in the pool (paid line, retried), never
-                    // claimed healthy.
-                    if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id)
-                    else this.#deps.pool.markOk(verdict.node.id)
-                    this.#state.convertedAdmitted += 1
-                    const served = exit.node
-                    this.#state.pendingConversion = this.#state.pendingConversion.filter(
-                      (node) => node !== served,
-                    )
-                  }
-                }
-              },
-            }))
-          if (tasks.length > 0) await this.#deps.prober.enqueueAll(tasks)
-          this.#logger?.info(`opencode2dsh: sing-box converted ${exits.length} encrypted node(s); ${this.#state.convertedAdmitted} admitted`)
+          const exits = await supervisor.reload(pending)
+          // Keep the speed-pass facts per address so a later refusal can be
+          // replaced from the reserve (the onboarder holds that state).
+          const onboarder = new Onboarder({
+            pool: this.#deps.pool,
+            prober: this.#deps.prober,
+            admission: this.#deps,
+            select: (slots) => supervisor.reload(pending, slots),
+            logger: this.#logger,
+          })
+          this.#onboarder = onboarder
+          const outcome = await onboarder.run(exits)
+          this.#state.convertedAdmitted = outcome.admitted
+          // The conversion ran: nothing is parked any more, whether or not the
+          // connectivity test admitted each exit (the ones it refused are kept
+          // in the pool at the tail, so they are not "pending" either).
+          this.#state.pendingConversion = []
+          this.#logger?.info(
+            `opencode2dsh: sing-box converted ${exits.length} encrypted node(s); onboarding kept ${outcome.online + outcome.admitted} of ${outcome.screened} screened (${outcome.admitted} admitted, ${outcome.promoted} promoted, ${outcome.demoted} demoted, ${outcome.reserve} reserve)`,
+          )
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          this.#state.lastError = message
-          this.#logger?.warn(`opencode2dsh: sing-box conversion failed: ${message}`)
+          const text = err instanceof Error ? err.message : String(err)
+          this.#state.lastError = text
+          this.#logger?.warn(`opencode2dsh: sing-box conversion failed: ${text}`)
         }
       }
       // Plaintext nodes go through the trusted admission smoke (never the

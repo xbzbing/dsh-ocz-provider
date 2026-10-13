@@ -72,6 +72,13 @@ export const IpPoolConfigSchema = Schema.object({
   probeModels: Schema.array(Schema.string()).default([]),
   /** Cross-exit probe concurrency cap (1-8; same-exit is always serial, §4.1). */
   maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
+  /**
+   * Whole-pool capacity — how many exits stay online at once, any source
+   * (default 20). The onboarding speed-tests every candidate, keeps the
+   * fastest `poolSize` and shrinks the sing-box config to them, so this is
+   * also the number of local SOCKS listeners the pool opens.
+   */
+  poolSize: Schema.number().min(1).max(100).step(1).default(20),
   free: Schema.object({
     /** Free-source fetching master switch (docs §1.2 source 1). */
     enabled: Schema.boolean().default(true),
@@ -127,6 +134,7 @@ export interface IpPoolSettings {
   enabled: boolean
   probeModels: string[]
   maxConcurrentProbes: number
+  poolSize: number
   free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   manual: string[]
   subscription: { urls: string[]; refreshMs: number; userAgent: string }
@@ -169,6 +177,7 @@ export interface AnyIpPoolSection {
   singbox?: Partial<IpPoolSettings['singbox']>
   probeModels?: string[]
   maxConcurrentProbes?: number
+  poolSize?: number
   maxRotateAttempts?: number
 }
 
@@ -197,6 +206,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     enabled: raw.enabled ?? false,
     probeModels: raw.probeModels ?? [],
     maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
+    poolSize: raw.poolSize ?? 20,
     free: {
       enabled: raw.free?.enabled ?? true,
       targetSize: raw.free?.targetSize ?? 20,
@@ -235,6 +245,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   singbox: { path: string }
   probeModels: string[]
   maxConcurrentProbes: number
+  poolSize: number
   maxRotateAttempts: number
 } {
   return {
@@ -254,6 +265,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     singbox: { path: value.singbox.path },
     probeModels: resolveProbeModels(value.probeModels),
     maxConcurrentProbes: value.maxConcurrentProbes,
+    poolSize: value.poolSize,
     maxRotateAttempts: value.maxRotateAttempts,
   }
 }

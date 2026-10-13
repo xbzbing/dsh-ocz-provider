@@ -66,14 +66,22 @@ const SUPPORTED_TYPES = new Set([
 * a UA their panel does not recognise comes back as an error page (or a 502
 * from their edge) instead of a subscription body, and some panels pick the
 * RETURNED FORMAT from it (a Clash-shaped UA yields `proxies:` YAML, a
-* v2ray-shaped one yields base64 links). `clash-verge/1.6.0` was measured
-* 502-ing on a real airport whose allowlist accepts `clash-verge/v2.0`.
+* v2ray-shaped one yields base64 links).
+*
+* The value ages: it is a client version, and panels raise their floor over
+* time. Measured history on the live airport — `clash-verge/1.6.0` → 502,
+* `clash-verge/v2.0` → 200 for months, then (2026-10-13) `403 PLEASE UPGRADE
+* CLIENT` while `clash-verge/v2.4.2`, `mihomo/1.19.8` and `clash.meta/1.19.8`
+* all answered 200 with the Clash-shaped body. The default stays in the
+* Clash-Verge family on purpose: the family is what selects the returned
+* format, so switching families would silently change every other airport's
+* body shape. `ipPool.subscription.userAgent` overrides it without a release.
 *
 * Lives here (the subscription layer's dependency-light module) so the
 * settings schema default and the fetcher's runtime fallback share one
 * literal and cannot drift; the fetcher re-exports it for its own callers.
 */
-const DEFAULT_SUBSCRIPTION_USER_AGENT = "clash-verge/v2.0";
+const DEFAULT_SUBSCRIPTION_USER_AGENT = "clash-verge/v2.4.2";
 /** GoProxy looksLikeYAML: the structural markers of a Clash config. */
 function looksLikeYaml(content) {
 	if (/^proxies:\s*$/m.test(content) || /^Proxy:\s*$/m.test(content)) return true;

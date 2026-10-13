@@ -341,9 +341,15 @@ export async function admitCandidate(
 export async function admitTrusted(
   deps: AdmissionDeps,
   candidate: { address: string; protocol: 'http' | 'socks5'; source: 'manual' | 'subscription' | 'goproxy' },
-  options: { pinned?: boolean; previous?: { exitIP: string; exitLocation: string; latencyMs: number; quality?: ExitNode['quality'] } } = {},
+  options: {
+    pinned?: boolean
+    previous?: { exitIP: string; exitLocation: string; latencyMs: number; quality?: ExitNode['quality'] }
+    /** Facts the onboarding already measured in its speed pass: skips steps
+     *  1-2 so the connectivity test does not re-measure every candidate. */
+    echoFacts?: EchoFacts
+  } = {},
 ): Promise<AdmissionResult> {
-  const result = await admitCandidate(deps, candidate, { pinned: options.pinned })
+  const result = await admitCandidate(deps, candidate, { pinned: options.pinned, echoFacts: options.echoFacts })
   if (result.admitted) return result
   // Trusted candidates: keep the node (the address is the routing key
   // fallback, 3.1), warn, and let periodic probing revisit.

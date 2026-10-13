@@ -458,17 +458,19 @@
   font-size: 12px;
 }
 
-/* Column budget (sums to 100%): 9 columns since the token total split into
-   input/output/cache; IP and last-used still carry the longest runs. */
-.statsTable th:nth-child(1) { width: 20%; }
-.statsTable th:nth-child(2) { width: 11%; }
-.statsTable th:nth-child(3) { width: 10%; }
-.statsTable th:nth-child(4) { width: 8%; }
+/* Column budget (sums to 100%): 10 columns — `#` was prepended to the nine
+   that were already here (token totals split into input/output/cache), so IP
+   and last-used gave up a point each to keep the dense numeric columns intact. */
+.statsTable th:nth-child(1) { width: 4%; }
+.statsTable th:nth-child(2) { width: 18%; }
+.statsTable th:nth-child(3) { width: 11%; }
+.statsTable th:nth-child(4) { width: 9%; }
 .statsTable th:nth-child(5) { width: 8%; }
 .statsTable th:nth-child(6) { width: 8%; }
 .statsTable th:nth-child(7) { width: 8%; }
 .statsTable th:nth-child(8) { width: 8%; }
-.statsTable th:nth-child(9) { width: 19%; }
+.statsTable th:nth-child(9) { width: 8%; }
+.statsTable th:nth-child(10) { width: 18%; }
 
 .statsTable th {
   text-align: left;
@@ -520,6 +522,25 @@
 
 .statsRowMuted td {
   color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+/* Row hover: both exit tables are wide and numeric, so the hovered line is
+   tinted to keep the eye on one row while reading across nine or ten columns.
+   The header keeps its own surface (it is not a tbody row). */
+.statsTable tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.tableGrid tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+/* The pool slot: this exit's position in the pool's own order (the onboarding
+   rank, fastest first), stamped before the modal's display sort. Muted and
+   never sortable — it names the slot, it is not a row number. */
+.statsIndex {
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The 本机 row closes the table: it is not an exit, so a heavier top border

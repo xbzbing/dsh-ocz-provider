@@ -21,6 +21,7 @@ interface IpPoolSettings {
   enabled: boolean;
   probeModels: string[];
   maxConcurrentProbes: number;
+  poolSize: number;
   free: {
     enabled: boolean;
     targetSize: number;
@@ -124,6 +125,13 @@ interface IpPoolConfig {
   };
   /** Cross-exit probe concurrency cap (docs 4.1; same-exit always serial). */
   maxConcurrentProbes?: number;
+  /**
+   * Whole-pool capacity: how many exits stay online at once, any source
+   * (default 20). The onboarding speed-tests candidates, keeps the fastest
+   * `poolSize` and shrinks the sing-box config to them, so it also bounds the
+   * number of local SOCKS listeners.
+   */
+  poolSize?: number;
   /** sing-box conversion core for encrypted nodes (docs 1.2.2, IP-4). */
   singbox?: {
     /** sing-box binary: PATH name or absolute path; unset parks encrypted
@@ -191,6 +199,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
+    poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
       enabled: Schema<boolean, boolean, "defined">;
       targetSize: Schema<number, number, "defined">;
@@ -225,6 +234,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
+    poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
       enabled: Schema<boolean, boolean, "defined">;
       targetSize: Schema<number, number, "defined">;
@@ -291,6 +301,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
+    poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
       enabled: Schema<boolean, boolean, "defined">;
       targetSize: Schema<number, number, "defined">;
@@ -325,6 +336,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
+    poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
       enabled: Schema<boolean, boolean, "defined">;
       targetSize: Schema<number, number, "defined">;

@@ -1,7 +1,7 @@
 import { d as deriveRequestIDs, f as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, r as ZEN_BASE_URL } from "./catalog-BraBPliY.js";
 import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CLaBfusR.js";
 import { a as routingContext, c as attributeUsage, l as emptyTotals, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as usageTracker } from "./dispatcher-ko3LVHp4.js";
-import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-DwBzQlQT.js";
+import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { existsSync } from "node:fs";
@@ -1026,6 +1026,7 @@ const IpPoolConfigSchema = Schema.object({
 	enabled: Schema.boolean().default(false),
 	probeModels: Schema.array(Schema.string()).default([]),
 	maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
+	poolSize: Schema.number().min(1).max(100).step(1).default(20),
 	free: Schema.object({
 		enabled: Schema.boolean().default(true),
 		targetSize: Schema.number().min(1).max(100).step(1).default(20),
@@ -1066,6 +1067,7 @@ function resolveIpPoolSettings(value) {
 		enabled: raw.enabled ?? false,
 		probeModels: raw.probeModels ?? [],
 		maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
+		poolSize: raw.poolSize ?? 20,
 		free: {
 			enabled: raw.free?.enabled ?? true,
 			targetSize: raw.free?.targetSize ?? 20,
@@ -1111,6 +1113,7 @@ function toIpPoolConfig(value) {
 		singbox: { path: value.singbox.path },
 		probeModels: resolveProbeModels(value.probeModels),
 		maxConcurrentProbes: value.maxConcurrentProbes,
+		poolSize: value.poolSize,
 		maxRotateAttempts: value.maxRotateAttempts
 	};
 }
@@ -1298,6 +1301,7 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 			requests: passive.ok + passive.limited + passive.refused + passive.dead + passive.transport,
 			lastUsedAt: activity.lastUsedAt,
 			inFlight: activity.inFlight,
+			demoted: runtime.pool.demoted(entry.id),
 			tokens: usageTracker.totals(entry.id)
 		};
 	}) : [];
@@ -1320,6 +1324,7 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 		availableFree: snapshot.availableFree,
 		availableTotal,
 		targetSize: runtime ? runtime.pool.targetSize : 20,
+		poolSize: runtime ? runtime.pool.poolSize : 20,
 		pinned: snapshot.pinned !== "" ? {
 			id: snapshot.pinned,
 			strict: pinnedStrict
@@ -1591,7 +1596,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-Dxep4qWn.js");
+	const { startIpPool } = await import("./ip-pool-BvTiDOX0.js");
 	return startIpPool(config, logger);
 };
 /**

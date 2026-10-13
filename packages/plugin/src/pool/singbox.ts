@@ -42,6 +42,9 @@ export interface ConvertedExit {
   protocol: 'socks5'
   /** The source node this exit serves (diagnostics + dedupe key). */
   node: ParsedNode
+  /** The node's index in the candidate list — its stable port slot, and the
+   *  handle the onboarding passes back to reload() when it shrinks or promotes. */
+  slot: number
 }
 
 /**
@@ -268,38 +271,63 @@ export function buildOutbound(node: ParsedNode, tag: string): Record<string, unk
 
 export interface GeneratedConfig {
   config: Record<string, unknown>
-  /** nodeKey -> local port. */
-  portMap: Map<string, number>
+  /**
+   * Local port per INPUT node, index-aligned; `0` for a node whose type has no
+   * sing-box outbound mapping (no inbound, no rule, no port burned).
+   *
+   * Index alignment replaced a `type:server:port`-keyed map (live 2026-10-13).
+   * That key is NOT a node identity: a real airport fronts many distinct nodes
+   * on ONE edge `host:port` and separates them only by the anytls TLS
+   * `server_name`, so 44 parsed nodes collapsed into 13 keys. The map kept the
+   * LAST port per key, every earlier node resolved to that same port, and 31
+   * generated inbounds were orphaned — listening, never handed to the pool. The
+   * exit table showed 13 exits for a 44-node subscription. Two nodes that are
+   * genuinely one exit are still collapsed, one layer down and quota-aware:
+   * `ExitPool.add()` refuses a second address that measured the same exit IP
+   * (docs §3.1).
+   */
+  ports: number[]
 }
 
-/** nodeKey (GoProxy): type:server:port. */
-export function nodeKeyOf(node: ParsedNode): string {
-  return `${node.type}:${node.server}:${node.port}`
-}
-
-/** The full sing-box config for a node list (GoProxy generateConfig). */
-export function generateConfig(nodes: ParsedNode[], basePort = 30_000): GeneratedConfig {
-  const portMap = new Map<string, number>()
+/**
+ * The full sing-box config for a node list (GoProxy generateConfig).
+ *
+ * `keep` restricts the emitted inbounds to those candidate indexes (the
+ * onboarding's selection). Ports are assigned from the node's position in the
+ * CANDIDATE list, never from its position in the emitted subset — so shrinking
+ * the config to the fastest N, or promoting a reserve later, leaves every node
+ * that stays selected on the same local port. That stability is what lets the
+ * pool keep its exit ids (and their health, counters and session stickiness)
+ * across a rebuild; a positional subset would renumber every survivor and
+ * silently repoint the pool at different nodes.
+ */
+export function generateConfig(nodes: ParsedNode[], basePort = 30_000, keep?: readonly number[]): GeneratedConfig {
+  const ports: number[] = []
   const inbounds: Array<Record<string, unknown>> = []
   const outbounds: Array<Record<string, unknown>> = []
   const rules: Array<Record<string, unknown>> = []
-  let port = basePort
+  const keepSet = keep === undefined ? null : new Set(keep)
   nodes.forEach((node, index) => {
-    port += 1
+    if (keepSet !== null && !keepSet.has(index)) {
+      ports.push(0)
+      return
+    }
     const tag = `node-${index}`
-    portMap.set(nodeKeyOf(node), port)
+    const outbound = buildOutbound(node, `out-${tag}`)
+    if (outbound === null) {
+      // Keep the index slot (0 = unmapped) so node -> port stays a plain
+      // positional lookup that no key can collide on.
+      ports.push(0)
+      return
+    }
+    const port = basePort + 1 + index
+    ports.push(port)
     inbounds.push({
       type: 'socks',
       tag: `in-${tag}`,
       listen: '127.0.0.1',
       listen_port: port,
     })
-    const outbound = buildOutbound(node, `out-${tag}`)
-    if (outbound === null) {
-      portMap.delete(nodeKeyOf(node))
-      inbounds.pop()
-      return
-    }
     outbounds.push(outbound)
     rules.push({ inbound: [`in-${tag}`], outbound: `out-${tag}` })
   })
@@ -311,7 +339,7 @@ export function generateConfig(nodes: ParsedNode[], basePort = 30_000): Generate
       outbounds,
       route: { rules, final: 'direct' },
     },
-    portMap,
+    ports,
   }
 }
 
@@ -338,7 +366,8 @@ export class SingBoxSupervisor {
   #running = false
   #configPath: string
   #dataDir: string
-  #portMap = new Map<string, number>()
+  /** Port per node of the last reload(), index-aligned (`0` = no inbound). */
+  #ports: number[] = []
   #nodes: ParsedNode[] = []
 
   constructor(options: SingBoxOptions) {
@@ -357,8 +386,10 @@ export class SingBoxSupervisor {
     return this.#running
   }
 
-  get portMap(): Map<string, number> {
-    return new Map(this.#portMap)
+  /** The ports the last reload() handed out, index-aligned with its node list
+   *  (`0` = that node produced no inbound). Diagnostics only. */
+  get ports(): number[] {
+    return [...this.#ports]
   }
 
   /** The binary location: absolute path as-is; bare name must exist on PATH
@@ -379,8 +410,14 @@ export class SingBoxSupervisor {
     return bin
   }
 
-  /** Full reload: regenerate the config for the node list and (re)start. */
-  async reload(input: ParsedNode[]): Promise<ConvertedExit[]> {
+  /**
+   * Full reload: regenerate the config for the node list and (re)start.
+   *
+   * `keep` (candidate indexes) emits only those nodes' inbounds — the
+   * onboarding's "keep the fastest N" and its later reserve promotions — while
+   * every kept node stays on its own stable port. Absent = every node.
+   */
+  async reload(input: ParsedNode[], keep?: readonly number[]): Promise<ConvertedExit[]> {
     const unroutable = input.filter((node) => !isDialableServer(node.server))
     if (unroutable.length > 0) {
       const sample = unroutable
@@ -392,15 +429,17 @@ export class SingBoxSupervisor {
       )
     }
     const nodes = input.filter((node) => isDialableServer(node.server))
-    // no tunnel nodes -> stop and clean (GoProxy Reload empty case)
-    if (nodes.length === 0) {
+    // no tunnel nodes -> stop and clean (GoProxy Reload empty case). A keep
+    // selection that matches nothing is the same state: nothing to run.
+    const emit = keep === undefined ? nodes.length : keep.length
+    if (nodes.length === 0 || emit === 0) {
       await this.stop()
       this.#nodes = []
-      this.#portMap = new Map()
+      this.#ports = []
       return []
     }
     const binary = await this.#resolveBinary()
-    const { config, portMap } = generateConfig(nodes, this.#options.basePort ?? 30_000)
+    const { config, ports } = generateConfig(nodes, this.#options.basePort ?? 30_000, keep)
 
     // atomic config write (tmp + rename)
     await mkdir(this.#dataDir, { recursive: true })
@@ -426,7 +465,7 @@ export class SingBoxSupervisor {
     const child = this.#child
     this.#running = true
     this.#nodes = nodes
-    this.#portMap = portMap
+    this.#ports = ports
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim()
       if (text.length > 0) this.#options.logger?.info(`[sing-box] ${text}`)
@@ -440,12 +479,12 @@ export class SingBoxSupervisor {
 
     // port readiness (GoProxy: 20 x 500ms over the first port)
     const deadline = Date.now() + (this.#options.readyTimeoutMs ?? 10_000)
-    const ports = [...portMap.values()]
+    const listening = ports.filter((port) => port > 0)
     let ready = false
     while (Date.now() < deadline && !ready) {
       if (!this.#running) throw new Error('sing-box exited immediately after start (see logs)')
       await new Promise((resolve) => setTimeout(resolve, 500))
-      for (const port of ports) {
+      for (const port of listening) {
         // eslint-disable-next-line no-await-in-loop
         if (await canConnect(port)) {
           ready = true
@@ -456,11 +495,11 @@ export class SingBoxSupervisor {
     if (!ready) this.#options.logger?.warn('opencode2dsh: sing-box ports not ready in time; some converted nodes may be unreachable')
 
     const exits: ConvertedExit[] = []
-    for (const node of nodes) {
-      const port = portMap.get(nodeKeyOf(node))
-      if (port === undefined) continue
-      exits.push({ address: `127.0.0.1:${port}`, protocol: 'socks5', node })
-    }
+    nodes.forEach((node, index) => {
+      const port = ports[index] ?? 0
+      if (port <= 0) return
+      exits.push({ address: `127.0.0.1:${port}`, protocol: 'socks5', node, slot: index })
+    })
     return exits
   }
 

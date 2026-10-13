@@ -316,6 +316,10 @@ export async function startIpPool(
     // wrote the config and left the old pin winning pick() until a restart.
     syncManualExits(pool, current)
     pool.setTargetSize(current.free?.targetSize ?? 20)
+    // Whole-pool capacity (settings `poolSize`, default 20): the onboarding
+    // keeps the fastest N and shrinks the sing-box config to them, and the free
+    // refill's admissionQuota() honours the same ceiling.
+    pool.setPoolSize(current.poolSize ?? 20)
     admissionDeps.blockedCountries = current.free?.blockedCountries
     admissionDeps.smokeModel = probeModels[0]
     prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3)
@@ -409,6 +413,14 @@ export async function startIpPool(
         // Refresh the node's facts (admission re-measured them).
         pool.add({ ...entry, ...verdict.node, pinned: entry.pinned })
         applyProbeVerdict(pool, entry.id, verdict, model)
+        // The upstream lane refused this exit (a failed smoke / 401/403 — a 429
+        // arrives as `limited`, never here): swap in the next-fastest reserve,
+        // or move it to the pool tail when the reserve is empty. Routed
+        // through the subscription layer, which owns the candidate list and the
+        // reserve; it demotes the exit itself when it has nothing to promote.
+        if (verdict.unverified === true && entry.source === 'subscription') {
+          void subscriptions?.replaceExit(entry.id).catch(() => {})
+        }
       } else {
         pool.markDeadStrike(entry.id)
         break

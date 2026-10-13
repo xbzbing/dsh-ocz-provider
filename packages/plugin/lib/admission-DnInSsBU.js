@@ -34,7 +34,15 @@ var ExitPool = class {
 	#directRequests = 0;
 	/** Fired once per newly added node — see onAdmitted(). */
 	#admittedCallbacks = [];
+	/**
+	* Exits rejected by the upstream lane (a failed OpenCode smoke, or a 401/403
+	* verdict) with no reserve left to promote: they stay in the pool as the last
+	* resort but are ranked last by `pick()` and listed last by `list()` — the
+	* pool keeps its size instead of draining to zero (live request 2026-10-13).
+	*/
+	#demoted = /* @__PURE__ */ new Set();
 	#targetSize;
+	#poolSize;
 	#cooldownBase;
 	#cooldownMax;
 	#banConfirmations;
@@ -42,11 +50,70 @@ var ExitPool = class {
 	#now;
 	constructor(options = {}) {
 		this.#targetSize = options.targetSize ?? 20;
+		this.#poolSize = options.poolSize ?? 20;
 		this.#cooldownBase = options.limitedCooldownBaseMs ?? 6e4;
 		this.#cooldownMax = options.limitedCooldownMaxMs ?? 30 * 6e4;
 		this.#banConfirmations = options.modelBanConfirmations ?? 2;
 		this.#deadEvictions = options.deadEvictions ?? 2;
 		this.#now = options.now ?? Date.now;
+	}
+	/** Live re-apply of the whole-pool capacity (settings page, §5.1). */
+	setPoolSize(value) {
+		this.#poolSize = Math.max(1, value);
+	}
+	/** The effective whole-pool capacity (diagnostics / status bridge). */
+	get poolSize() {
+		return this.#poolSize;
+	}
+	/** Is the pool at capacity? Callers admit only after this returns false. */
+	isFull() {
+		return this.#nodes.size >= this.#poolSize;
+	}
+	/** Is this exit demoted to the tail (rejected, no reserve to promote)? */
+	demoted(id) {
+		return this.#demoted.has(id);
+	}
+	/**
+	* Move an exit to the tail of the pool's own order: keep it (it may still
+	* serve another model, or recover) but let `pick()` rank it last and the exit
+	* table list it last. `add()`'s Map insertion order IS the pool order, so a
+	* delete + re-insert is the whole move — every side table (health, bans,
+	* passive counters, activity) is keyed by id and survives untouched.
+	*/
+	demoteToTail(id) {
+		const node = this.#nodes.get(id);
+		if (node === void 0) return false;
+		this.#nodes.delete(id);
+		this.#nodes.set(id, node);
+		this.#demoted.add(id);
+		return true;
+	}
+	/**
+	* Evict the worst exit to make room for a better candidate (whole pool, any
+	* source, pinned never). Worst = lowest quality grade, then slowest, then
+	* oldest — the same ordering `evictWorstFree()` uses, minus the source filter.
+	*/
+	evictWorst() {
+		const gradeRank = {
+			S: 0,
+			A: 1,
+			B: 2,
+			C: 3
+		};
+		let worst = null;
+		for (const node of this.#nodes.values()) {
+			if (node.pinned) continue;
+			if (worst === null) {
+				worst = node;
+				continue;
+			}
+			const byGrade = gradeRank[node.quality] - gradeRank[worst.quality];
+			const byLatency = node.latencyMs - worst.latencyMs;
+			if (byGrade > 0 || byGrade === 0 && byLatency > 0 || byGrade === 0 && byLatency === 0 && node.addedAt < worst.addedAt) worst = node;
+		}
+		if (worst === null) return false;
+		this.remove(worst.id);
+		return true;
 	}
 	/** Live re-apply of the free-pool target capacity (settings page, §5.1). */
 	setTargetSize(value) {
@@ -112,6 +179,7 @@ var ExitPool = class {
 		this.#health.delete(id);
 		this.#passive.delete(id);
 		this.#activity.delete(id);
+		this.#demoted.delete(id);
 		for (const key of this.#bans.keys()) if (key.startsWith(`${id}\u0000`)) this.#bans.delete(key);
 		for (const [session, exitId] of this.#sessionExit) if (exitId === id) this.#sessionExit.delete(session);
 		this.#clearPinnedIf(id);
@@ -180,6 +248,7 @@ var ExitPool = class {
 			health.deadStrikes = 0;
 			health.deadAt = 0;
 		}
+		this.#demoted.delete(id);
 		if (model !== void 0) this.#bans.set(banKey(id, model), {
 			state: "ok",
 			bannedAt: 0,
@@ -396,6 +465,8 @@ var ExitPool = class {
 		usable.sort((left, right) => {
 			const a = health(left);
 			const b = health(right);
+			const byDemoted = (this.#demoted.has(left) ? 1 : 0) - (this.#demoted.has(right) ? 1 : 0);
+			if (byDemoted !== 0) return byDemoted;
 			const stateRank = (h) => h.state === "ok" ? 0 : 1;
 			const byState = stateRank(a) - stateRank(b);
 			if (byState !== 0) return byState;
@@ -450,9 +521,13 @@ var ExitPool = class {
 		if (ratio < .95) return "warning";
 		return "healthy";
 	}
-	/** Admission quota for a refill round: how many free nodes to accept. */
+	/** Admission quota for a refill round: how many free nodes to accept.
+	*  Bounded by BOTH the free target and the whole-pool capacity, so a free
+	*  refill can never push the pool past `poolSize` (settings §5.1). */
 	admissionQuota() {
-		return Math.max(0, this.#targetSize - this.availableFreeCount());
+		const freeRoom = Math.max(0, this.#targetSize - this.availableFreeCount());
+		const poolRoom = Math.max(0, this.#poolSize - this.#nodes.size);
+		return Math.min(freeRoom, poolRoom);
 	}
 	/** Replace the worst free node (C grade / oldest) to make room (3.5). */
 	evictWorstFree() {
@@ -726,7 +801,10 @@ async function admitCandidate(deps, candidate, options = {}) {
 *  pool facts are PRESERVED on the failure fallback — a failed smoke wipes
 *  neither a previously measured exitIP/latency nor the routing key. */
 async function admitTrusted(deps, candidate, options = {}) {
-	const result = await admitCandidate(deps, candidate, { pinned: options.pinned });
+	const result = await admitCandidate(deps, candidate, {
+		pinned: options.pinned,
+		echoFacts: options.echoFacts
+	});
 	if (result.admitted) return result;
 	deps.logger?.warn(`opencode2dsh: trusted exit ${candidate.address} failed admission (${result.reason}); kept UNVERIFIED with ${options.previous?.exitIP ? "previous" : "unknown"} exit facts (not routing until a probe verifies it)`);
 	const previous = options.previous;
@@ -750,4 +828,4 @@ async function admitTrusted(deps, candidate, options = {}) {
 }
 
 //#endregion
-export { ExitPool as a, coarseScreenBatch as i, admitTrusted as n, gradeOf as o, coarseScreen as r, admitCandidate as t };
+export { ExitPool as a, coarseScreenBatch as i, admitTrusted as n, UNVERIFIED_QUALITY as o, coarseScreen as r, gradeOf as s, admitCandidate as t };
