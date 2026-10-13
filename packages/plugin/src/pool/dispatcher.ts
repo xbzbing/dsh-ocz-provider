@@ -65,6 +65,11 @@ export interface PoolRoutingOptions {
   undici: UndiciSeam
   /** Hosts whose traffic goes through the pool; everything else is direct. */
   proxyHosts?: string[]
+  /**
+   * Path prefixes ON those hosts that the pool carries (default
+   * `/zen/v1` = this plugin's own lane). Empty means every path.
+   */
+  proxyPathPrefixes?: string[]
   /** Per-exit ProxyAgent cache LRU cap (connection setup is lazy). */
   agentLruCap?: number
   /** Response-silence sentinel, window (a): dispatch -> first callback (docs §4.3; default 2s, test-injectable). */
@@ -80,6 +85,76 @@ export interface PoolRoutingOptions {
 
 const DEFAULT_PROXY_HOSTS = ['opencode.ai']
 const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
+
+/**
+ * The path prefixes this plugin's OWN traffic uses on the proxied hosts.
+ *
+ * Host matching alone is too coarse to mean "our traffic": one opencode.ai
+ * serves ZEN's free lane (`/zen/v1` — what this plugin's adapter calls), the
+ * paid/go lane (`/zen/go/v1`, driven by the separate `opencode-go` provider)
+ * and the usage-billing plugin's `/zen/go/v1/usage` poll. Live 2026-10-13
+ * with host-only routing: 77 `POST /zen/go/v1/chat/completions` in 6.3
+ * minutes (≈12/min) were proxied through the airport exits and counted as
+ * requests with zero tokens (tokens are attributed only for traffic that
+ * flows through our adapter), so "I stopped using opencode2dsh models" and
+ * "the request count keeps climbing" were both true — and paid-lane traffic
+ * was egressing through free airport exits by accident.
+ *
+ * Empty means "every path on the proxied hosts" (the old behaviour), which
+ * stays reachable for anyone who wants the pool to carry the whole host.
+ */
+export const DEFAULT_PROXY_PATH_PREFIXES = ['/zen/v1']
+
+/**
+ * The effective path-prefix list: an absent OR EMPTY list means the default.
+ * Same empty-equals-absent rule as {@link resolveProxyHosts}, and for the
+ * same reason: the settings schema hands the runtime `[]` when the user never
+ * touched the field, and an empty list read literally would exclude every
+ * path — the mirror image of the empty-host-list bug below.
+ */
+export function resolveProxyPathPrefixes(prefixes?: readonly string[] | null): string[] {
+  const normalized = (prefixes ?? [])
+    .map((prefix) => normalizePathPrefix(prefix))
+    .filter((prefix) => prefix !== '')
+  return normalized.length > 0 ? normalized : [...DEFAULT_PROXY_PATH_PREFIXES]
+}
+
+/** 'zen/v1/', '/zen/v1?x=1' -> '/zen/v1'; an unusable entry -> '' (dropped). */
+export function normalizePathPrefix(prefix: string): string {
+  const trimmed = (prefix ?? '').trim().split('?')[0]?.trim() ?? ''
+  if (trimmed === '') return ''
+  const rooted = trimmed.startsWith('/') ? trimmed : `/${trimmed}`
+  return rooted.length > 1 ? rooted.replace(/\/+$/, '') : rooted
+}
+
+/** Segment-aware prefix match: '/zen/v1' takes '/zen/v1' and
+ *  '/zen/v1/chat/completions?x=1', never '/zen/v10' or '/zen/go/v1'. */
+export function matchesPathPrefix(path: string, prefix: string): boolean {
+  const clean = path.split('?')[0] ?? ''
+  if (prefix === '/') return true
+  return clean === prefix || clean.startsWith(`${prefix}/`)
+}
+
+/** The request path from either dispatch shape. undici's fetch builds
+ *  `{origin, path}` (lib/web/fetch/index.js: `url.pathname + url.search`); a
+ *  raw DispatchOptions or a Request-shaped argument carries the rest. */
+export function dispatchRequestPath(options: Dispatcher.DispatchOptions): string {
+  const direct = (options as unknown as { path?: unknown }).path
+  if (typeof direct === 'string') return direct
+  const candidate = (options as unknown as { url?: unknown }).url
+  const text = typeof candidate === 'string'
+    ? candidate
+    : candidate !== null && typeof candidate === 'object' && 'url' in candidate
+      ? String((candidate as { url: unknown }).url)
+      : ''
+  if (text === '') return ''
+  try {
+    const url = new URL(text)
+    return `${url.pathname}${url.search}`
+  } catch {
+    return ''
+  }
+}
 
 /**
  * The effective proxied-host set: an absent OR EMPTY list means the default.
@@ -139,6 +214,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   #pool: ExitPool
   #undici: UndiciSeam
   #proxyHosts: Set<string>
+  #proxyPathPrefixes: string[]
   #agentLruCap: number
   #sentinelMs: number
   #headersMs: number
@@ -154,6 +230,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     this.#pool = options.pool
     this.#undici = options.undici
     this.#proxyHosts = new Set(resolveProxyHosts(options.proxyHosts))
+    this.#proxyPathPrefixes = resolveProxyPathPrefixes(options.proxyPathPrefixes)
     this.#agentLruCap = options.agentLruCap ?? 16
     this.#sentinelMs = options.sentinelMs ?? 2_000
     // Window (b) must stay looser than the ADAPTER's own first-event budget,
@@ -175,6 +252,31 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /** The proxied-host set as configured (diagnostics / status bridge). */
   get proxyHosts(): readonly string[] {
     return [...this.#proxyHosts]
+  }
+
+  /** Live re-apply of the path scope (settings page, docs §5.1). */
+  setProxyPathPrefixes(prefixes: string[] | undefined): void {
+    this.#proxyPathPrefixes = resolveProxyPathPrefixes(prefixes)
+  }
+
+  /** The path scope in force (diagnostics / status bridge). */
+  get proxyPathPrefixes(): readonly string[] {
+    return [...this.#proxyPathPrefixes]
+  }
+
+  /**
+   * Does this request belong to the pool's configured scope?
+   *
+   * An EMPTY path means the caller never exposed one (a raw dispatch, a future
+   * undici shape): that counts as IN scope. Guessing "out" there would
+   * silently disable routing — the failure class this file has already been
+   * bitten by twice (empty host list, deferred dispatcher) — while guessing
+   * "in" at worst sends one extra request through an exit on a host the user
+   * explicitly opted into.
+   */
+  #inScope(path: string): boolean {
+    if (path === '') return true
+    return this.#proxyPathPrefixes.some((prefix) => matchesPathPrefix(path, prefix))
   }
 
   /** The agent for one exit, LRU-capped (docs/ip-pool.md 2). */
@@ -235,6 +337,16 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // instead of dropping them into an invisible void.
       const context = routingContext.getStore()
       if (context !== undefined) context.exitId = LOCAL_EXIT_ID
+      return this.#direct.dispatch(options, handler)
+    }
+    if (!this.#inScope(dispatchRequestPath(options))) {
+      // Right host, wrong lane: /zen/go/* (the separate opencode-go provider
+      // and its usage poll) shares this host with our own /zen/v1 traffic,
+      // and host-only routing used to drag all of it through the airport
+      // exits and into the request counters. Deliberately NOT stamped as
+      // 本机 — this traffic is not ours to account — and not a blind spot
+      // either: were a path change to exclude OUR calls, the adapter's usage
+      // would still land in 本机 through attributeUsage's default.
       return this.#direct.dispatch(options, handler)
     }
     const context = routingContext.getStore() ?? {}

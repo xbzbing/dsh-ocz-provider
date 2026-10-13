@@ -103,6 +103,9 @@ export interface PoolStatusView {
   targetSize: number
   pinned: { id: string; strict: boolean } | null
   proxyHosts: string[]
+  /** Path prefixes on those hosts the pool carries (default `/zen/v1`); this
+   *  is the scope that decides WHICH opencode.ai traffic the exits serve. */
+  proxyPathPrefixes: string[]
   exits: ExitRowView[]
   prober: ProberView
   refill: RefillView | null
@@ -141,9 +144,10 @@ export function buildStatusView(
   runtime: IpPoolRuntime | null,
   pinnedStrict: boolean,
   proxyHosts: string[],
-  options: { freeEnabled?: boolean } = {},
+  options: { freeEnabled?: boolean; proxyPathPrefixes?: string[] } = {},
 ): PoolStatusView {
   const freeEnabled = options.freeEnabled ?? true
+  const proxyPathPrefixes = options.proxyPathPrefixes ?? ['/zen/v1']
   const snapshot = runtime
     ? runtime.pool.snapshot()
     : { state: 'healthy' as PoolState, total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, availableFree: 0, pinned: '' }
@@ -201,6 +205,7 @@ export function buildStatusView(
       ? { id: snapshot.pinned, strict: pinnedStrict }
       : null,
     proxyHosts,
+    proxyPathPrefixes,
     exits,
     prober: runtime
       ? runtime.prober.stats
@@ -362,7 +367,7 @@ export type ListLiveModels = () => string[]
 /** Build the bridge handlers over the runtime + current settings. */
 export function makeBridgeHandlers(
   runtime: () => IpPoolRuntime | null,
-  settings: () => { pinnedStrict: boolean; proxyHosts: string[]; freeEnabled?: boolean },
+  settings: () => { pinnedStrict: boolean; proxyHosts: string[]; proxyPathPrefixes?: string[]; freeEnabled?: boolean },
   deps: { listLiveModels?: ListLiveModels } = {},
 ): BridgeHandlers {
   return {
@@ -370,7 +375,10 @@ export function makeBridgeHandlers(
       const current = settings()
       return {
         ok: true,
-        value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, { freeEnabled: current.freeEnabled }),
+        value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, {
+          freeEnabled: current.freeEnabled,
+          proxyPathPrefixes: current.proxyPathPrefixes,
+        }),
       }
     },
     async probe(body) {

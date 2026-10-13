@@ -112,6 +112,12 @@ export const IpPoolConfigSchema = Schema.object({
   pinnedStrict: Schema.boolean().default(false),
   /** Hosts whose traffic goes through the pool (default opencode.ai). */
   proxyHosts: Schema.array(Schema.string()).default([]),
+  /**
+   * Path prefixes on those hosts the pool carries (default `/zen/v1`, this
+   * plugin's own lane). Empty = every path on the host, which also drags the
+   * separate `opencode-go` provider's `/zen/go/v1` calls through the exits.
+   */
+  proxyPathPrefixes: Schema.array(Schema.string()).default([]),
   /** Same-request rotate attempts on pre-content transport/429 failures (§3.4). */
   maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3),
 })
@@ -128,6 +134,7 @@ export interface IpPoolSettings {
   pinnedExitId: string
   pinnedStrict: boolean
   proxyHosts: string[]
+  proxyPathPrefixes: string[]
   maxRotateAttempts: number
 }
 
@@ -153,6 +160,7 @@ export interface AnyIpPoolSection {
   pinnedExitId?: string
   pinnedStrict?: boolean
   proxyHosts?: string[]
+  proxyPathPrefixes?: string[]
   free?: Partial<IpPoolSettings['free']>
   /** Settings spelling: nested. */
   subscription?: Partial<IpPoolSettings['subscription']>
@@ -204,6 +212,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     pinnedExitId: raw.pinnedExitId ?? '',
     pinnedStrict: raw.pinnedStrict ?? false,
     proxyHosts: raw.proxyHosts ?? [],
+    proxyPathPrefixes: raw.proxyPathPrefixes ?? [],
     maxRotateAttempts: raw.maxRotateAttempts ?? 3,
   }
 }
@@ -219,6 +228,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   pinnedExitId: string
   pinnedStrict: boolean
   proxyHosts: string[]
+  proxyPathPrefixes: string[]
   free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   subscriptions: string[]
   subscription: { refreshMs: number; userAgent: string }
@@ -233,6 +243,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     pinnedExitId: value.pinnedExitId,
     pinnedStrict: value.pinnedStrict,
     proxyHosts: value.proxyHosts,
+    proxyPathPrefixes: value.proxyPathPrefixes,
     free: {
       enabled: value.free.enabled,
       targetSize: value.free.targetSize,

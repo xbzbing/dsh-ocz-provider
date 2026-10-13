@@ -125,6 +125,33 @@ test('proxyHosts reports the list actually in force, empty config included (live
   assert.deepEqual(installer.proxyHosts, ['opencode.ai'], 'clearing the field falls back to the default')
 })
 
+test('proxyPathPrefixes reports the path scope actually in force (live regression)', () => {
+  // Same contract as proxyHosts, for the second half of the routing rule: the
+  // card and /status must read the scope the router is using, not a display
+  // default — the divergence that hid the empty-host-list bug also made
+  // "which opencode.ai traffic is in the pool" unanswerable (live 2026-10-13).
+  const installer = new RoutingInstaller({
+    pool: makePoolStub(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    undici: makeUndiciStub() as any,
+    proxyPathPrefixes: [],
+    logger: { info: () => {}, warn: () => {} },
+  })
+  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1'], 'empty config reports the default it resolves to')
+
+  installer.install()
+  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1'], 'and the running router agrees')
+
+  installer.setProxyPathPrefixes(['/zen/v1/', 'zen/go/v1'])
+  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1', '/zen/go/v1'], 'a live re-apply is reported normalized')
+
+  installer.setProxyPathPrefixes(['/'])
+  assert.deepEqual(installer.proxyPathPrefixes, ['/'], 'the whole host stays expressible')
+
+  installer.setProxyPathPrefixes([])
+  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1'], 'clearing the field falls back to the default')
+})
+
 test('disable() restores the dispatcher that was active before install (regression)', () => {
   const undici = makeUndiciStub()
   const before = undici.peek()

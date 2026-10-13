@@ -1,4 +1,4 @@
-import { r as resolveProxyHosts, t as PoolRoutingDispatcher } from "./dispatcher-C7TaiMG4.js";
+import { i as resolveProxyPathPrefixes, r as resolveProxyHosts, t as PoolRoutingDispatcher } from "./dispatcher-Duu4cMIa.js";
 
 //#region src/pool/installer.ts
 var RoutingInstaller = class {
@@ -32,6 +32,15 @@ var RoutingInstaller = class {
 	setProxyHosts(hosts) {
 		this.#deps.proxyHosts = hosts;
 		this.#current?.setProxyHosts(hosts);
+	}
+	/** The path scope actually in force (running router wins, exactly like hosts). */
+	get proxyPathPrefixes() {
+		return this.#current?.proxyPathPrefixes ?? resolveProxyPathPrefixes(this.#deps.proxyPathPrefixes);
+	}
+	/** Live re-apply of the path scope (forwards to the running router). */
+	setProxyPathPrefixes(prefixes) {
+		this.#deps.proxyPathPrefixes = prefixes;
+		this.#current?.setProxyPathPrefixes(prefixes);
 	}
 	/**
 	* Decide whether installing is safe (docs/ip-pool.md R1 coexistence policy).
@@ -69,6 +78,7 @@ var RoutingInstaller = class {
 			pool: this.#deps.pool,
 			undici: this.#deps.undici,
 			proxyHosts: this.#deps.proxyHosts,
+			proxyPathPrefixes: this.#deps.proxyPathPrefixes,
 			logger: this.#deps.logger
 		});
 		let previous = null;

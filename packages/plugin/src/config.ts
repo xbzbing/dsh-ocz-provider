@@ -69,6 +69,8 @@ export interface IpPoolConfig {
   pinnedStrict?: boolean
   /** Hosts whose traffic goes through the pool (default opencode.ai). */
   proxyHosts?: string[]
+  /** Path prefixes on those hosts the pool carries (default /zen/v1). */
+  proxyPathPrefixes?: string[]
   /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
   free?: {
     enabled?: boolean
