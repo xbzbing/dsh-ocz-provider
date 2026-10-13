@@ -169,9 +169,14 @@ test('a refused exit is replaced by the next-fastest reserve', async () => {
 })
 
 test('with no reserve left a refused exit is kept, demoted to the tail', async () => {
+  // Deterministic order: the refused candidate must be the SLOWER one, so the
+  // connectivity test reaches it last and its demotion to the tail is the last
+  // move the pool makes. With equal latencies the tie-break is the address and
+  // timer jitter decides — that made this assertion a coin flip.
   const { pool, nodes, onboarder } = harness({
     count: 2,
     poolSize: 2,
+    latencyMs: (port) => (port - BASE_PORT) * 10,
     refuseSmoke: [BASE_PORT + 2],
   })
   const result = await onboarder.run(nodes)
@@ -203,7 +208,13 @@ test('a 429 is a cooldown, never a refusal', async () => {
 })
 
 test('replace() promotes a reserve for an exit the upstream refuses later', async () => {
-  const { pool, nodes, onboarder } = harness({ count: 3, poolSize: 2 })
+  // Deterministic speed order (equal latencies fall back to the address tie-break
+  // and timer jitter decides which two of three get selected).
+  const { pool, nodes, onboarder } = harness({
+    count: 3,
+    poolSize: 2,
+    latencyMs: (port) => (port - BASE_PORT) * 10,
+  })
   await onboarder.run(nodes)
   assert.deepEqual(pool.list().map((entry) => entry.id).sort(), [`127.0.0.1:${BASE_PORT + 1}`, `127.0.0.1:${BASE_PORT + 2}`])
 
