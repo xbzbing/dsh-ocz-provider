@@ -361,6 +361,23 @@
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
+/* Collapsed sidebar: only the token count, sized to survive a ~48px rail
+   without pushing the icon out of the row. */
+.footerEntryCompact {
+  gap: 4px;
+  padding: 6px 4px;
+  justify-content: center;
+}
+
+.footerCompact {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .statsSummary {
   display: flex;
   flex-wrap: wrap;
