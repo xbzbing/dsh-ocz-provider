@@ -458,14 +458,17 @@
   font-size: 12px;
 }
 
-/* Column budget (sums to 100%): IP and last-used carry the longest runs. */
-.statsTable th:nth-child(1) { width: 22%; }
-.statsTable th:nth-child(2) { width: 14%; }
-.statsTable th:nth-child(3) { width: 11%; }
-.statsTable th:nth-child(4) { width: 10%; }
-.statsTable th:nth-child(5) { width: 10%; }
-.statsTable th:nth-child(6) { width: 11%; }
-.statsTable th:nth-child(7) { width: 22%; }
+/* Column budget (sums to 100%): 9 columns since the token total split into
+   input/output/cache; IP and last-used still carry the longest runs. */
+.statsTable th:nth-child(1) { width: 20%; }
+.statsTable th:nth-child(2) { width: 11%; }
+.statsTable th:nth-child(3) { width: 10%; }
+.statsTable th:nth-child(4) { width: 8%; }
+.statsTable th:nth-child(5) { width: 8%; }
+.statsTable th:nth-child(6) { width: 8%; }
+.statsTable th:nth-child(7) { width: 8%; }
+.statsTable th:nth-child(8) { width: 8%; }
+.statsTable th:nth-child(9) { width: 19%; }
 
 .statsTable th {
   text-align: left;
@@ -474,6 +477,37 @@
   padding: 6px 8px;
   border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
   white-space: normal;
+}
+
+/* Sortable header: a bare button inheriting the th ink; the arrow slot is
+   always rendered (empty when inactive) so columns do not shift on click. */
+.statsSortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.statsSortButton:hover {
+  color: var(--dsw-alias-label-primary, #1f2329);
+}
+
+.statsSortButton:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, #4f8cff);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.statsSortArrow {
+  font-size: 9px;
+  line-height: 1;
+  min-width: 10px;
+  text-align: center;
 }
 
 .statsTable td {
