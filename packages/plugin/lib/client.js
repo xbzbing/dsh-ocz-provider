@@ -41,68 +41,68 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"fieldLabel": "QmduLW_fieldLabel",
 	"badgeHealthy": "QmduLW_badgeHealthy",
-	"badge": "QmduLW_badge",
-	"compliance": "QmduLW_compliance",
-	"rowLabel": "QmduLW_rowLabel",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"stateOk": "QmduLW_stateOk",
-	"radio": "QmduLW_radio",
-	"badgePinned": "QmduLW_badgePinned",
-	"table": "QmduLW_table",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"statsTable": "QmduLW_statsTable",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"statsModal": "QmduLW_statsModal",
-	"footerMain": "QmduLW_footerMain",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"footerSub": "QmduLW_footerSub",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"footerCompact": "QmduLW_footerCompact",
-	"statsInflight": "QmduLW_statsInflight",
-	"rowAdd": "QmduLW_rowAdd",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"tableGrid": "QmduLW_tableGrid",
-	"footerText": "QmduLW_footerText",
-	"section": "QmduLW_section",
-	"fieldHint": "QmduLW_fieldHint",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"stateCooling": "QmduLW_stateCooling",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"fieldRow": "QmduLW_fieldRow",
-	"mono": "QmduLW_mono",
 	"ghostButton": "QmduLW_ghostButton",
-	"rowList": "QmduLW_rowList",
-	"overviewBar": "QmduLW_overviewBar",
-	"status": "QmduLW_status",
-	"statsContent": "QmduLW_statsContent",
-	"select": "QmduLW_select",
-	"statsWrap": "QmduLW_statsWrap",
-	"footerIcon": "QmduLW_footerIcon",
+	"tableGrid": "QmduLW_tableGrid",
+	"textarea": "QmduLW_textarea",
+	"saveStatusError": "QmduLW_saveStatusError",
+	"footerUnit": "QmduLW_footerUnit",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"mono": "QmduLW_mono",
+	"radio": "QmduLW_radio",
 	"field": "QmduLW_field",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"statsChip": "QmduLW_statsChip",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"rowRemove": "QmduLW_rowRemove",
-	"stateDead": "QmduLW_stateDead",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"statsRowLocal": "QmduLW_statsRowLocal",
 	"saveStatusOk": "QmduLW_saveStatusOk",
-	"statsSummary": "QmduLW_statsSummary",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"statsContent": "QmduLW_statsContent",
+	"statsTable": "QmduLW_statsTable",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"select": "QmduLW_select",
+	"row": "QmduLW_row",
 	"body": "QmduLW_body",
 	"rowInput": "QmduLW_rowInput",
-	"input": "QmduLW_input",
-	"row": "QmduLW_row",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"stateCooling": "QmduLW_stateCooling",
+	"footerMain": "QmduLW_footerMain",
+	"stateUnknown": "QmduLW_stateUnknown",
 	"saveStatus": "QmduLW_saveStatus",
-	"footerUnit": "QmduLW_footerUnit",
-	"textarea": "QmduLW_textarea",
-	"footerEntry": "QmduLW_footerEntry",
+	"footerCompact": "QmduLW_footerCompact",
+	"compliance": "QmduLW_compliance",
+	"fieldHint": "QmduLW_fieldHint",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"footerText": "QmduLW_footerText",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"table": "QmduLW_table",
+	"statsModal": "QmduLW_statsModal",
+	"statsWrap": "QmduLW_statsWrap",
+	"footerSub": "QmduLW_footerSub",
+	"statsInflight": "QmduLW_statsInflight",
+	"stateDead": "QmduLW_stateDead",
+	"stateOk": "QmduLW_stateOk",
+	"rowRemove": "QmduLW_rowRemove",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"fieldRow": "QmduLW_fieldRow",
+	"statsRowLocal": "QmduLW_statsRowLocal",
 	"statsDot": "QmduLW_statsDot",
-	"statsDotWarn": "QmduLW_statsDotWarn"
+	"rowAdd": "QmduLW_rowAdd",
+	"rowList": "QmduLW_rowList",
+	"input": "QmduLW_input",
+	"overviewBar": "QmduLW_overviewBar",
+	"footerIcon": "QmduLW_footerIcon",
+	"footerEntry": "QmduLW_footerEntry",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"status": "QmduLW_status",
+	"badge": "QmduLW_badge",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"rowLabel": "QmduLW_rowLabel",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"badgePinned": "QmduLW_badgePinned",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"statsDotLocal": "QmduLW_statsDotLocal",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"statsSummary": "QmduLW_statsSummary",
+	"statsChip": "QmduLW_statsChip",
+	"section": "QmduLW_section"
 };
 
 //#endregion
@@ -1083,6 +1083,20 @@ function IpPoolCard(props) {
 
 //#endregion
 //#region src/client/ExitStatsEntry.tsx
+/**
+* The display total: input + output + cacheRead + cacheWrite. The tracker's
+* `totalTokens` is the net-new figure (input is normalized to exclude the
+* cache buckets upstream), which read ~3x smaller than the Agent's own
+* all-in count (live 2026-10-13) — the footer and the modal show the
+* all-in number so the two agree; the breakdown stays in the table notes.
+*/
+function grandTotal(tokens) {
+	return tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens;
+}
+/** Cache share of one bucket, for the per-row note (0 hides the note). */
+function cacheTotal(tokens) {
+	return tokens.cacheReadTokens + tokens.cacheWriteTokens;
+}
 /** Compact token label: 1_234_567 → 1.2M, 856 → 856. */
 function compact(value) {
 	if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
@@ -1131,10 +1145,10 @@ function ExitStatsEntry({ wide, t }) {
 	}, [open, refresh]);
 	const totals = (0, react.useMemo)(() => {
 		const localRequests = status?.local?.requests ?? 0;
-		const localTokens = status?.local?.tokens.totalTokens ?? 0;
+		const localTokens = status?.local?.tokens;
 		return {
 			requests: (status?.exits ?? []).reduce((sum, exit) => sum + exit.requests, 0) + localRequests,
-			tokens: (status?.exits ?? []).reduce((sum, exit) => sum + exit.tokens.totalTokens, 0) + localTokens,
+			tokens: (status?.exits ?? []).reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === void 0 ? 0 : grandTotal(localTokens)),
 			inFlight: (status?.exits ?? []).reduce((sum, exit) => sum + exit.inFlight, 0)
 		};
 	}, [status]);
@@ -1274,7 +1288,10 @@ function ExitStatsEntry({ wide, t }) {
 									"aria-hidden": "true"
 								}), stateLabel] }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.requests.toLocaleString() }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.totalTokens) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [compact(grandTotal(exit.tokens)), cacheTotal(exit.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ip_pool_module_css_default.statsEndpoint,
+									children: t("statsCacheNote", { count: compact(cacheTotal(exit.tokens)) })
+								})] }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t("statsNever") }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: ip_pool_module_css_default.statsInflight,
@@ -1296,7 +1313,10 @@ function ExitStatsEntry({ wide, t }) {
 								"aria-hidden": "true"
 							}), t("statsLocalState")] }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(status?.local?.tokens.totalTokens ?? 0) }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [compact(grandTotal(status.local.tokens)), cacheTotal(status.local.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								className: ip_pool_module_css_default.statsEndpoint,
+								children: t("statsCacheNote", { count: compact(cacheTotal(status.local.tokens)) })
+							})] }) }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) })
 						]
@@ -1393,7 +1413,7 @@ const zh = {
 	footerRequests: "{count} 请求",
 	footerDisabled: "IP 池未启用",
 	statsTitle: "出口 IP 统计",
-	statsDescription: "进程内累计（重启清零），出口按请求数排序。",
+	statsDescription: "进程内累计（重启清零），总数 = 输入 + 输出 + 缓存读写；出口按请求数排序。",
 	statsClose: "关闭",
 	statsSummaryRequests: "请求 {count}",
 	statsSummaryTokens: "Token {count}",
@@ -1405,6 +1425,7 @@ const zh = {
 	statsColState: "状态",
 	statsColRequests: "请求数",
 	statsColTokens: "Token",
+	statsCacheNote: "缓存 {count}",
 	statsColLatency: "延迟",
 	statsColLastUsed: "最后使用",
 	statsStateUsable: "可用",
@@ -1508,7 +1529,7 @@ const en = {
 	footerRequests: "{count} requests",
 	footerDisabled: "IP pool off",
 	statsTitle: "Exit IP stats",
-	statsDescription: "Process-lifetime totals (reset on restart), exits sorted by request count.",
+	statsDescription: "Process-lifetime totals (reset on restart; the total includes cache read/write), exits sorted by request count.",
 	statsClose: "Close",
 	statsSummaryRequests: "{count} requests",
 	statsSummaryTokens: "{count} tokens",
@@ -1520,6 +1541,7 @@ const en = {
 	statsColState: "State",
 	statsColRequests: "Requests",
 	statsColTokens: "Tokens",
+	statsCacheNote: "cache {count}",
 	statsColLatency: "Latency",
 	statsColLastUsed: "Last used",
 	statsStateUsable: "usable",
