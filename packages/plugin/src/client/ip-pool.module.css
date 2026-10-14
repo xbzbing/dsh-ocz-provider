@@ -364,6 +364,12 @@
 .footerSub {
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary, #6b7280);
+  /* Three numbers now (请求 · token · tok/s) on one line: without nowrap the
+     last one wraps under the button and reads as a second row (live
+     2026-10-14). */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Collapsed sidebar: only the token count, sized to survive a ~56px rail
@@ -460,21 +466,24 @@
   font-size: 12px;
 }
 
-/* Column budget (sums to 100%): 8 columns — IP, state, requests, input, output
-   (which also carries the "N tok/s" note), cache, latency, last-used. The `#`
-   slot column and the location column were both dropped on request
-   (2026-10-14); the IP column now owns the location as a tooltip, so it takes
-   the width those two gave back. Keep this block in step with the header: a
-   leftover rule silently squeezes the first column (measured 2026-10-14: IP at
-   4% after `#` was removed but its width rules stayed). */
-.statsTable th:nth-child(1) { width: 25%; }
-.statsTable th:nth-child(2) { width: 12%; }
-.statsTable th:nth-child(3) { width: 8%; }
+/* Column budget (sums to 100%): 10 columns — IP, region, state, requests,
+   input, output (which also carries the "N tok/s" note), cache, latency,
+   last-used, actions. The `#` slot column was dropped and the location column
+   became a tooltip on the IP cell (2026-10-14); the 地区 code column and the
+   actions column (固定 / 删除) were added back the same day on request. Keep
+   this block in step with the header: a leftover rule silently squeezes the
+   first column (measured 2026-10-14: IP at 4% after `#` was removed but its
+   width rules stayed). */
+.statsTable th:nth-child(1) { width: 22%; }
+.statsTable th:nth-child(2) { width: 7%; }
+.statsTable th:nth-child(3) { width: 9%; }
 .statsTable th:nth-child(4) { width: 8%; }
-.statsTable th:nth-child(5) { width: 11%; }
-.statsTable th:nth-child(6) { width: 8%; }
-.statsTable th:nth-child(7) { width: 9%; }
-.statsTable th:nth-child(8) { width: 19%; }
+.statsTable th:nth-child(5) { width: 7%; }
+.statsTable th:nth-child(6) { width: 10%; }
+.statsTable th:nth-child(7) { width: 7%; }
+.statsTable th:nth-child(8) { width: 7%; }
+.statsTable th:nth-child(9) { width: 11%; }
+.statsTable th:nth-child(10) { width: 12%; }
 
 .statsTable th {
   text-align: left;
@@ -549,10 +558,6 @@
   font-weight: 500;
 }
 
-.statsDotLocal {
-  background: var(--dsw-alias-label-tertiary, #6b7280);
-}
-
 /* The local SOCKS5 endpoint of an exit that was never verified: a debugging
    handle, never an exit IP, so it stays muted and out of the way. */
 .statsEndpoint {
@@ -583,6 +588,62 @@
 
 .statsDotBad {
   background: var(--dsw-alias-state-error-primary, #d1242f);
+}
+
+/* The 地区 code: a short uppercase token, so it gets tabular figures and no
+   wrapping ("SGP" must never break into "SG / P"). */
+.statsRegion {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* The actions column: two small buttons per row (固定/取消固定 + 删除). */
+.statsActions {
+  white-space: nowrap;
+}
+
+.rowAction {
+  padding: 2px 6px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.rowAction + .rowAction {
+  margin-left: 4px;
+}
+
+.rowAction:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.rowAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.rowActionDanger:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-error-primary, #d1242f);
+  color: var(--dsw-alias-state-error-primary, #d1242f);
+}
+
+/* The last action's outcome, above the table. A read-only profile lands in the
+   warn tone: the pin works, it just will not survive a restart. */
+.statsActionNote {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-success-primary, #1a7f37);
+}
+
+.statsActionNoteWarn {
+  composes: statsActionNote;
+  color: var(--dsw-alias-state-warning-primary, #9a6700);
 }
 
 .statsInflight {

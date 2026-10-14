@@ -564,3 +564,76 @@ test('a dead exit is not usable, whatever its position in the order', () => {
   assert.equal(p.isUsable('a:1', 'm'), false)
   for (let index = 0; index < 10; index += 1) assert.equal(p.pick(`s-${index}`, 'm'), 'b:2')
 })
+
+test('pin: 固定本机 hands out no exit at all, and unpin restores rotation', () => {
+  // Live request 2026-10-14: the stats modal's 本机 row gets the same 固定
+  // button as an exit row. "Fixed to this machine" can only mean pick()
+  // returns null (the dispatcher's documented direct path) — falling through
+  // to the rotation pool would silently ignore the click.
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 100 }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2', latencyMs: 200 }))
+  p.markOk('a:1')
+  p.markOk('b:2')
+  p.pin('a:1')
+  assert.equal(p.pick('ses-a', 'm'), 'a:1')
+
+  p.pinLocal()
+  assert.equal(p.pinnedId, 'local', 'the sentinel is the local bucket id')
+  assert.equal(p.pinnedLocal, true)
+  for (const session of ['ses-a', 'ses-b', 'ses-c']) assert.equal(p.pick(session, 'm'), null)
+  assert.equal(p.get('a:1')?.pinned, false, 'no row keeps the primary flag once the pin is 本机')
+
+  p.unpin()
+  assert.equal(p.pinnedLocal, false)
+  assert.equal(p.pick('ses-d', 'm'), 'a:1', 'the fastest healthy exit is back in service')
+})
+
+test('pin: the 本机 sentinel survives a stale pinned-flag sweep, and remove() clears it', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.markOk('a:1')
+  p.pinLocal()
+  // remove() clears a pin only when it names the row being dropped: the
+  // sentinel is not a row, so dropping an exit must not turn 固定本机 off.
+  p.remove('a:1')
+  assert.equal(p.pinnedLocal, true)
+  assert.equal(p.snapshot().pinned, 'local', 'the status view can report the local pin from snapshot()')
+})
+
+test('refresh: facts land on a live row, and a row that left the table is never resurrected', () => {
+  // A probe holds an `entry` snapshot from before it ran; the exit can leave
+  // the table meanwhile (dead rotation, refusal replacement, an operator's
+  // 删除). add() is an upsert, so writing that snapshot back resurrects the
+  // removed row — measured live 2026-10-14: 11 rows against a capacity of 10,
+  // the extra one demoted, unverified and listenerless.
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 900, quality: 'B' }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+
+  assert.equal(p.refresh('a:1', { exitIP: '9.9.9.9', latencyMs: 120, quality: 'S' }), true)
+  const row = p.get('a:1')!
+  assert.equal(row.exitIP, '9.9.9.9')
+  assert.equal(row.latencyMs, 120)
+  assert.equal(row.quality, 'S')
+  assert.deepEqual(p.list().map((entry) => entry.id), ['a:1', 'b:2'], 'the row keeps its position in the pool order')
+
+  p.remove('a:1')
+  assert.equal(p.refresh('a:1', { exitIP: '9.9.9.9' }), false, 'the removed row is not written back')
+  assert.equal(p.has('a:1'), false)
+  assert.equal(p.list().length, 1, 'the pool stays at its size')
+})
+
+test('refresh never rewrites identity, source or the pin flag', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', source: 'subscription', exitIP: '1.1.1.1' }))
+  p.pin('a:1')
+  // The seam is typed to the admission-measured fields, but a caller can still
+  // hand over a whole ExitNode (probeOne does): identity fields must be ignored.
+  p.refresh('a:1', { id: 'evil:1', source: 'manual', pinned: false, exitIP: '1.1.1.1', latencyMs: 50 } as never)
+  const row = p.get('a:1')!
+  assert.equal(row.id, 'a:1')
+  assert.equal(row.source, 'subscription')
+  assert.equal(row.pinned, true)
+  assert.equal(row.latencyMs, 50, 'the measured field still lands')
+})

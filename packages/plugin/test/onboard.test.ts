@@ -280,3 +280,48 @@ test('trim() converges a live pool to a lowered capacity and closes the dropped 
   assert.equal(await onboarder.trim(), 0)
   assert.equal(selections.length, 1)
 })
+
+test('replace() is a no-op for an exit that already left both the table and the selection', async () => {
+  // The late-duplicate shape (live 2026-10-14): two callers ask for the same
+  // exit's replacement — the dead rotation and the probe that was already in
+  // flight both fire replaceExit(). The first one promotes a reserve and drops
+  // the row AND its slot; the second must do nothing, because promoting there
+  // would ADD a slot instead of swapping one (`selected − (slot that is no
+  // longer there) + next` is one bigger than the selection, i.e. one extra
+  // local listener — the capacity lie from the other direction).
+  const { pool, nodes, onboarder, selections } = harness({
+    count: 5,
+    poolSize: 3,
+    latencyMs: (port) => (BASE_PORT + 6 - port) * 10,
+  })
+  await onboarder.run(nodes)
+  const victim = pool.list().map((entry) => entry.id).sort()[0]!
+  assert.equal(await onboarder.replace(victim), true, 'the first call swaps in a reserve')
+  const afterFirst = selections.length
+  assert.equal(pool.list().length, 3)
+
+  assert.equal(await onboarder.replace(victim), false, 'the late duplicate promotes nothing')
+  assert.equal(selections.length, afterFirst, 'and requests no rebuild')
+  assert.equal(pool.list().length, 3, 'the pool stays at its capacity')
+  assert.ok(selections.every((slots) => slots.length <= 3), 'no rebuild ever asks for more slots than the capacity')
+})
+
+test('replace() still swaps a reserve for an exit that is in the table', async () => {
+  // The guard above must not swallow the real case: a row that IS in the table
+  // but no longer in the selection (a manual/uncandidate row) sinks; one that
+  // is in the selection gets its reserve.
+  const { pool, nodes, onboarder, selections } = harness({
+    count: 5,
+    poolSize: 3,
+    latencyMs: (port) => (BASE_PORT + 6 - port) * 10,
+  })
+  await onboarder.run(nodes)
+  const before = selections.length
+  const online = pool.list().map((entry) => entry.id).sort()
+  const replaced = await onboarder.replace(online[0]!)
+
+  assert.equal(replaced, true, 'the next-fastest reserve took the slot')
+  assert.equal(selections.length, before + 1)
+  assert.equal(pool.list().length, 3, 'the pool holds its capacity')
+  assert.equal(pool.demoted(online[0]!), false, 'a promoted replacement is not a demotion')
+})

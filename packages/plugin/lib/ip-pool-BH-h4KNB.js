@@ -1,8 +1,8 @@
 import "./catalog-BraBPliY.js";
 import "./messages-CLaBfusR.js";
-import "./dispatcher-ko3LVHp4.js";
+import { s as LOCAL_EXIT_ID } from "./dispatcher-ko3LVHp4.js";
 import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-CSPCLacb.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-BchUs9wO.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
@@ -848,6 +848,19 @@ var Onboarder = class {
 			this.#deps.pool.demoteToTail(address);
 			return false;
 		}
+		/**
+		* Nothing to give up: the exit already left BOTH the table and the current
+		* selection, so this call is a late duplicate (a rotation removed it while
+		* the probe that asks for this replacement was still in flight). Promoting
+		* here would ADD a slot rather than swap one — `selected − (slot that is no
+		* longer there) + next` is one bigger than the selection, i.e. one extra
+		* local listener, the same capacity lie from the other direction.
+		*
+		* A candidate that has not been admitted yet (onboarding step 4, which runs
+		* the smokes before anything reaches the table) is not in the pool either,
+		* but its slot IS in the selection — that case must still be replaced.
+		*/
+		if (!this.#deps.pool.has(address) && !this.#selected.has(candidate.slot)) return false;
 		const result = {
 			candidates: 0,
 			screened: 0,
@@ -1539,6 +1552,15 @@ var SubscriptionFetcher = class {
 		}
 	}
 	/**
+	* Whether a replacement/trim is holding the rebuild mutex. The dead-rotation
+	* path ignores this (a skipped one is retried by the periodic probe), but an
+	* operator's 删除 must not be mistaken for "no reserve left": the bridge
+	* reads this to answer "busy, try again" instead of sinking the row.
+	*/
+	get busy() {
+		return this.#replacing;
+	}
+	/**
 	* An exit in the pool was refused by the upstream lane after onboarding (a
 	* periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
 	* the next-fastest reserve; with the reserve exhausted the exit is kept and
@@ -1782,8 +1804,15 @@ function syncManualExits(pool, ipPool = {}) {
 		}
 	}
 	const requested = (ipPool?.pinnedExitId ?? "").trim();
+	/**
+	* `local` is the 本机 sentinel (the stats modal's 固定 button on the local
+	* row): every request egresses from this machine. It is not an address, so
+	* it must be answered before the manual-row path — parseManualProxy would
+	* reject it and the pin would silently read as "nothing pinned".
+	*/
+	const pinnedLocal = requested === LOCAL_EXIT_ID;
 	let pinned = "";
-	if (requested !== "") {
+	if (requested !== "" && !pinnedLocal) {
 		if (pool.has(requested)) pinned = requested;
 		else {
 			const parsed = parseManualProxy(requested);
@@ -1796,7 +1825,8 @@ function syncManualExits(pool, ipPool = {}) {
 		if (pinned !== "") desired.add(pinned);
 	}
 	for (const node of pool.list()) if (node.source === "manual" && !desired.has(node.id)) pool.remove(node.id);
-	if (pinned === "") pool.unpin();
+	if (pinnedLocal) pool.pinLocal();
+	else if (pinned === "") pool.unpin();
 	else pool.pin(pinned);
 }
 /** Build the ExitPool from config (manual proxies + pinned). The pool starts
@@ -1944,7 +1974,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-Dxihhhbu.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-BZvE2FJI.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
@@ -1965,11 +1995,13 @@ async function startIpPool(config, logger, deps = {}) {
 				}
 			});
 			if (verdict.admitted && verdict.node) {
-				pool.add({
-					...entry,
-					...verdict.node,
-					pinned: entry.pinned
-				});
+				if (!pool.refresh(entry.id, {
+					protocol: verdict.node.protocol,
+					exitIP: verdict.node.exitIP,
+					exitLocation: verdict.node.exitLocation,
+					latencyMs: verdict.node.latencyMs,
+					quality: verdict.node.quality
+				})) break;
 				applyProbeVerdict(pool, entry.id, verdict, model);
 				if (verdict.unverified === true && entry.source === "subscription") subscriptions?.replaceExit(entry.id).catch(() => {});
 			} else {

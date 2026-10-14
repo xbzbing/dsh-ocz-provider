@@ -197,3 +197,24 @@ test('applyProbeVerdict: unverified never marks an exit ok, and cannot revive a 
   applyProbeVerdict(pool, 'sub:1', { admitted: true, unverified: true }, 'big-pickle')
   assert.notEqual(pool.list()[0]!.health.state, 'ok', 'the fallback can never claim a dead exit is healthy')
 })
+
+test('syncManualExits: pinnedExitId "local" pins this machine and admits no row', () => {
+  // The stats modal's 本机 固定 button writes this sentinel. It is not an
+  // address, so the manual-row path (parseManualProxy) must not see it: a
+  // rejection there would read as "nothing pinned" and the click would do
+  // nothing at all.
+  const pool = new ExitPool()
+  syncManualExits(pool, { manual: ['http://b:2'], pinnedExitId: 'local' })
+  assert.deepEqual(ids(pool), ['http://b:2'], 'the sentinel is never admitted as a manual row')
+  assert.equal(pool.pinnedLocal, true)
+  assert.equal(pool.pinnedId, 'local')
+
+  // Switching back to an address pin: the local sentinel must give way.
+  syncManualExits(pool, { manual: ['http://b:2'], pinnedExitId: 'http://b:2' })
+  assert.equal(pool.pinnedLocal, false)
+  assert.equal(pool.pinnedId, 'http://b:2')
+
+  // And clearing the pin entirely leaves neither.
+  syncManualExits(pool, { manual: ['http://b:2'], pinnedExitId: '' })
+  assert.equal(pool.pinnedId, '')
+})

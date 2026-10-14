@@ -1327,7 +1327,8 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 		poolSize: runtime ? runtime.pool.poolSize : 10,
 		pinned: snapshot.pinned !== "" ? {
 			id: snapshot.pinned,
-			strict: pinnedStrict
+			strict: pinnedStrict,
+			local: snapshot.pinned === LOCAL_EXIT_ID
 		} : null,
 		proxyHosts,
 		proxyPathPrefixes,
@@ -1532,6 +1533,80 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 				ok: true,
 				value: { models: rows }
 			};
+		},
+		async exit(body) {
+			const rt = runtime();
+			if (rt === null) return {
+				ok: false,
+				code: "pool-disabled",
+				message: "ip pool is not running (enabled off)"
+			};
+			const action = body.action;
+			if (action === "pin" || action === "pin-local" || action === "unpin") {
+				const raw = action === "unpin" ? "" : action === "pin-local" ? LOCAL_EXIT_ID : typeof body.exitId === "string" ? body.exitId.trim() : "";
+				if (raw !== "" && raw !== LOCAL_EXIT_ID && !rt.pool.has(raw)) return {
+					ok: false,
+					code: "unknown-exit",
+					message: `exit "${raw}" is not in the pool`
+				};
+				let persisted = false;
+				try {
+					persisted = await deps.writePin?.(raw) ?? false;
+				} catch {
+					persisted = false;
+				}
+				if (raw === "") rt.pool.unpin();
+				else if (raw === LOCAL_EXIT_ID) rt.pool.pinLocal();
+				else rt.pool.pin(raw);
+				return {
+					ok: true,
+					value: {
+						pinned: raw,
+						local: raw === LOCAL_EXIT_ID,
+						persisted
+					}
+				};
+			}
+			if (action === "remove") {
+				const exitId = typeof body.exitId === "string" ? body.exitId : "";
+				if (!rt.pool.has(exitId)) return {
+					ok: false,
+					code: "unknown-exit",
+					message: `exit "${exitId}" is not in the pool`
+				};
+				if (rt.pool.pinnedId === exitId) {
+					try {
+						await deps.writePin?.("");
+					} catch {}
+					rt.pool.unpin();
+				}
+				const replaced = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false;
+				if (!replaced && rt.pool.has(exitId)) {
+					if (rt.subscriptions?.busy === true) return {
+						ok: true,
+						value: {
+							removed: false,
+							replaced: false,
+							busy: true,
+							remaining: rt.pool.snapshot().total
+						}
+					};
+					rt.pool.demoteToTail(exitId);
+				}
+				return {
+					ok: true,
+					value: {
+						removed: true,
+						replaced,
+						remaining: rt.pool.snapshot().total
+					}
+				};
+			}
+			return {
+				ok: false,
+				code: "settings-rejected",
+				message: "exit action must be 'pin', 'pin-local', 'unpin' or 'remove'"
+			};
 		}
 	};
 }
@@ -1589,6 +1664,28 @@ function makeBridgeRoutes(handlers, deps = {}) {
 				}
 				writeJson(res, 200, await handlers.probe(body));
 			}
+		},
+		{
+			kind: "exact",
+			path: `${IP_POOL_BRIDGE_PREFIX}/exit`,
+			handler: async (req, res) => {
+				if (!check(req, res)) return;
+				let body;
+				try {
+					body = await readJsonBody(req);
+				} catch {
+					body = void 0;
+				}
+				if (body === void 0 || typeof body !== "object" || body === null) {
+					writeJson(res, 400, {
+						ok: false,
+						code: "settings-rejected",
+						message: "unreadable JSON body"
+					});
+					return;
+				}
+				writeJson(res, 200, await handlers.exit(body));
+			}
 		}
 	];
 }
@@ -1596,7 +1693,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-HXDqV2z2.js");
+	const { startIpPool } = await import("./ip-pool-BH-h4KNB.js");
 	return startIpPool(config, logger);
 };
 /**
@@ -1648,9 +1745,12 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 	if (typeof maybeOn === "function") maybeOn.call(ctx, "loader/volatile-update", () => {
 		applyCommitted(controller.settings());
 	});
+	let settingsHandle;
 	if (typeof ctx.inject === "function") Promise.resolve(ctx.inject(["settings"], (sctx) => {
 		const settings = sctx.settings;
-		if (typeof settings?.configure !== "function") return;
+		if (settings === void 0) return;
+		settingsHandle = settings;
+		if (typeof settings.configure !== "function") return;
 		const fiber = ctx.fiber;
 		const claim = () => settings.configure({ auto: false }, fiber);
 		const maybeFiberEffect = sctx.effect;
@@ -1660,6 +1760,28 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 		}
 		claim();
 	}));
+	/**
+	* Persist one pin value into this plugin's own namespace. `pinnedExitId` is
+	* a volatile field of the entry's Config, so the path carries the field name
+	* in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
+	* an empty value unsets it so the schema default applies rather than a stored
+	* empty string. No expectedRevision: this is a single-field path op from a
+	* surface that never read the descriptor (the same tolerance
+	* provider.ts::removeProviderRoute uses for the sidecar route).
+	*/
+	const writePin = async (value) => {
+		const settings = settingsHandle;
+		if (typeof settings?.mutate !== "function") return false;
+		await settings.mutate(IP_POOL_NAMESPACE, [value === "" ? {
+			op: "unset",
+			path: ["ipPool", "pinnedExitId"]
+		} : {
+			op: "set",
+			path: ["ipPool", "pinnedExitId"],
+			value
+		}]);
+		return true;
+	};
 	if (typeof ctx.inject === "function") Promise.resolve(ctx.inject(["webServer"], (bctx) => {
 		if (!bctx.webServer) return;
 		const handlers = makeBridgeHandlers(() => controller.runtime, () => ({
@@ -1667,7 +1789,10 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 			proxyHosts: controller.runtime?.installer?.proxyHosts !== void 0 ? [...controller.runtime.installer.proxyHosts] : controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"],
 			proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== void 0 ? [...controller.runtime.installer.proxyPathPrefixes] : controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : ["/zen/v1"],
 			freeEnabled: controller.settings().free.enabled
-		}), { listLiveModels: deps.listLiveModels });
+		}), {
+			listLiveModels: deps.listLiveModels,
+			writePin
+		});
 		const disposers = [];
 		for (const route of makeBridgeRoutes(handlers)) disposers.push(bctx.webServer.register(route));
 		logger.info(`opencode2dsh: ip-pool bridge mounted at ${IP_POOL_BRIDGE_PREFIX} (${disposers.length} routes)`);

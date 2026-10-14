@@ -207,6 +207,16 @@ export class SubscriptionFetcher {
   }
 
   /**
+   * Whether a replacement/trim is holding the rebuild mutex. The dead-rotation
+   * path ignores this (a skipped one is retried by the periodic probe), but an
+   * operator's 删除 must not be mistaken for "no reserve left": the bridge
+   * reads this to answer "busy, try again" instead of sinking the row.
+   */
+  get busy(): boolean {
+    return this.#replacing
+  }
+
+  /**
    * An exit in the pool was refused by the upstream lane after onboarding (a
    * periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
    * the next-fastest reserve; with the reserve exhausted the exit is kept and

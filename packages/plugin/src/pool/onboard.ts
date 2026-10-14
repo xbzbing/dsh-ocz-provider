@@ -262,6 +262,19 @@ export class Onboarder {
       this.#deps.pool.demoteToTail(address)
       return false
     }
+    /**
+     * Nothing to give up: the exit already left BOTH the table and the current
+     * selection, so this call is a late duplicate (a rotation removed it while
+     * the probe that asks for this replacement was still in flight). Promoting
+     * here would ADD a slot rather than swap one — `selected − (slot that is no
+     * longer there) + next` is one bigger than the selection, i.e. one extra
+     * local listener, the same capacity lie from the other direction.
+     *
+     * A candidate that has not been admitted yet (onboarding step 4, which runs
+     * the smokes before anything reaches the table) is not in the pool either,
+     * but its slot IS in the selection — that case must still be replaced.
+     */
+    if (!this.#deps.pool.has(address) && !this.#selected.has(candidate.slot)) return false
     const result: OnboardResult = {
       candidates: 0,
       screened: 0,
