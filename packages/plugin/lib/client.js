@@ -31,7 +31,7 @@ let react_jsx_runtime = require("react/jsx-runtime");
 react_jsx_runtime = __toESM(react_jsx_runtime);
 
 //#region \0dsh-css:/Users/ankh/workspace/private/opencode2dsh/packages/plugin/src/client/ip-pool.module.css.mjs
-const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{white-space:nowrap;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:22%}.QmduLW_statsTable th:nth-child(2){width:7%}.QmduLW_statsTable th:nth-child(3){width:9%}.QmduLW_statsTable th:nth-child(4){width:8%}.QmduLW_statsTable th:nth-child(5){width:7%}.QmduLW_statsTable th:nth-child(6){width:10%}.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8){width:7%}.QmduLW_statsTable th:nth-child(9){width:11%}.QmduLW_statsTable th:nth-child(10){width:12%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsRegion{font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap}.QmduLW_statsActions{white-space:nowrap}.QmduLW_rowAction{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:5px;justify-content:center;align-items:center;padding:3px 5px;line-height:0;display:inline-flex}.QmduLW_rowAction+.QmduLW_rowAction{margin-left:4px}.QmduLW_rowAction:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowAction:disabled{opacity:.5;cursor:default}.QmduLW_rowIcon{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;align-items:center;padding:4px 7px;line-height:0;display:inline-flex}.QmduLW_rowIcon:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowIcon:disabled{opacity:.5;cursor:default}.QmduLW_tableGrid td>button+button{margin-left:4px}.QmduLW_statsActionNote{color:var(--dsw-alias-state-success-primary,#1a7f37);margin:0 0 8px;font-size:12px}.QmduLW_statsActionNoteWarn{color:var(--dsw-alias-state-warning-primary,#9a6700);}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
+const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{white-space:nowrap;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:22%}.QmduLW_statsTable th:nth-child(2){width:7%}.QmduLW_statsTable th:nth-child(3){width:9%}.QmduLW_statsTable th:nth-child(4){width:8%}.QmduLW_statsTable th:nth-child(5){width:7%}.QmduLW_statsTable th:nth-child(6){width:10%}.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8){width:7%}.QmduLW_statsTable th:nth-child(9){width:11%}.QmduLW_statsTable th:nth-child(10){width:12%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsRegion{font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap}.QmduLW_statsActions{white-space:nowrap}.QmduLW_rowAction{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:5px;justify-content:center;align-items:center;padding:3px 5px;line-height:0;display:inline-flex}.QmduLW_rowAction:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowAction:disabled{opacity:.5;cursor:default}.QmduLW_rowIcon{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;align-items:center;padding:4px 7px;line-height:0;display:inline-flex}.QmduLW_rowIcon:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowIcon:disabled{opacity:.5;cursor:default}.QmduLW_actionGroup{vertical-align:middle;display:inline-flex}.QmduLW_actionGroup>button+button{margin-left:-1px}.QmduLW_actionGroup>button:not(:first-child){border-top-left-radius:0;border-bottom-left-radius:0}.QmduLW_actionGroup>button:not(:last-child){border-top-right-radius:0;border-bottom-right-radius:0}.QmduLW_actionGroup>button:hover:not(:disabled),.QmduLW_actionGroup>button:focus-visible{z-index:1;position:relative}.QmduLW_tableGrid td>*+*{margin-left:4px}.QmduLW_statsActionNote{color:var(--dsw-alias-state-success-primary,#1a7f37);margin:0 0 8px;font-size:12px}.QmduLW_statsActionNoteWarn{color:var(--dsw-alias-state-warning-primary,#9a6700);}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
 const tagId = "@opencode2dsh/dsh-plugin/ip-pool.module.css";
 if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 	const tag = document.createElement("style");
@@ -41,75 +41,76 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"saveStatus": "QmduLW_saveStatus",
-	"radio": "QmduLW_radio",
-	"statsInflight": "QmduLW_statsInflight",
-	"textarea": "QmduLW_textarea",
-	"rowRemove": "QmduLW_rowRemove",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"overviewBar": "QmduLW_overviewBar",
-	"stateDead": "QmduLW_stateDead",
-	"rowList": "QmduLW_rowList",
-	"badgePinned": "QmduLW_badgePinned",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"statsActionNoteWarn": "QmduLW_statsActionNoteWarn",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"input": "QmduLW_input",
-	"statsActions": "QmduLW_statsActions",
-	"compliance": "QmduLW_compliance",
-	"rowAction": "QmduLW_rowAction",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"footerCompact": "QmduLW_footerCompact",
-	"rowIcon": "QmduLW_rowIcon",
-	"statsTable": "QmduLW_statsTable",
-	"table": "QmduLW_table",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"rowLabel": "QmduLW_rowLabel",
-	"rowInput": "QmduLW_rowInput",
 	"rowAdd": "QmduLW_rowAdd",
-	"statsContent": "QmduLW_statsContent",
-	"footerEntry": "QmduLW_footerEntry",
-	"footerSub": "QmduLW_footerSub",
+	"footerCompact": "QmduLW_footerCompact",
+	"input": "QmduLW_input",
+	"mono": "QmduLW_mono",
+	"saveStatusOk": "QmduLW_saveStatusOk",
 	"saveStatusError": "QmduLW_saveStatusError",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"statsSummary": "QmduLW_statsSummary",
-	"fieldHint": "QmduLW_fieldHint",
-	"statsWrap": "QmduLW_statsWrap",
-	"badgeCritical": "QmduLW_badgeCritical",
+	"rowAction": "QmduLW_rowAction",
 	"statsSortButton": "QmduLW_statsSortButton",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"body": "QmduLW_body",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"badgePinned": "QmduLW_badgePinned",
+	"ghostButton": "QmduLW_ghostButton",
+	"table": "QmduLW_table",
+	"compliance": "QmduLW_compliance",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"statsSortArrow": "QmduLW_statsSortArrow",
+	"fieldHint": "QmduLW_fieldHint",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"footerSub": "QmduLW_footerSub",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"rowInput": "QmduLW_rowInput",
+	"rowRemove": "QmduLW_rowRemove",
+	"overviewBar": "QmduLW_overviewBar",
+	"radio": "QmduLW_radio",
+	"statsRowLocal": "QmduLW_statsRowLocal",
+	"rowList": "QmduLW_rowList",
+	"footerText": "QmduLW_footerText",
+	"stateCooling": "QmduLW_stateCooling",
+	"textarea": "QmduLW_textarea",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"footerUnit": "QmduLW_footerUnit",
+	"footerEntry": "QmduLW_footerEntry",
+	"statsModal": "QmduLW_statsModal",
 	"tableGrid": "QmduLW_tableGrid",
+	"statsDot": "QmduLW_statsDot",
+	"select": "QmduLW_select",
+	"statsActions": "QmduLW_statsActions",
+	"body": "QmduLW_body",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"statsActionNoteWarn": "QmduLW_statsActionNoteWarn",
+	"statsContent": "QmduLW_statsContent",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"status": "QmduLW_status",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"rowIcon": "QmduLW_rowIcon",
+	"saveStatus": "QmduLW_saveStatus",
+	"row": "QmduLW_row",
+	"badge": "QmduLW_badge",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"stateOk": "QmduLW_stateOk",
+	"stateDead": "QmduLW_stateDead",
+	"field": "QmduLW_field",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"statsRegion": "QmduLW_statsRegion",
+	"footerMain": "QmduLW_footerMain",
+	"statsActionNote": "QmduLW_statsActionNote",
+	"section": "QmduLW_section",
+	"statsSummary": "QmduLW_statsSummary",
+	"statsWrap": "QmduLW_statsWrap",
+	"rowLabel": "QmduLW_rowLabel",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"statsChip": "QmduLW_statsChip",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"statsInflight": "QmduLW_statsInflight",
 	"fieldRow": "QmduLW_fieldRow",
 	"footerIcon": "QmduLW_footerIcon",
-	"statsRowLocal": "QmduLW_statsRowLocal",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"section": "QmduLW_section",
-	"status": "QmduLW_status",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"select": "QmduLW_select",
-	"stateOk": "QmduLW_stateOk",
-	"ghostButton": "QmduLW_ghostButton",
-	"badge": "QmduLW_badge",
-	"stateCooling": "QmduLW_stateCooling",
-	"footerText": "QmduLW_footerText",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"statsActionNote": "QmduLW_statsActionNote",
-	"statsChip": "QmduLW_statsChip",
-	"mono": "QmduLW_mono",
-	"footerUnit": "QmduLW_footerUnit",
-	"field": "QmduLW_field",
-	"statsSortArrow": "QmduLW_statsSortArrow",
-	"row": "QmduLW_row",
-	"statsModal": "QmduLW_statsModal",
-	"statsDot": "QmduLW_statsDot",
-	"footerMain": "QmduLW_footerMain",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"statsRegion": "QmduLW_statsRegion"
+	"statsTable": "QmduLW_statsTable",
+	"actionGroup": "QmduLW_actionGroup",
+	"collapseToggle": "QmduLW_collapseToggle"
 };
 
 //#endregion
@@ -577,15 +578,15 @@ function ExitTable(props) {
 					className: ip_pool_module_css_default.mono,
 					children: exit.passive.ok > 0 || exit.passive.limited > 0 || exit.passive.refused > 0 || exit.passive.dead > 0 || exit.passive.transport > 0 ? `✓${exit.passive.ok} 429:${exit.passive.limited} 401/403:${exit.passive.refused} ✗:${exit.passive.dead + exit.passive.transport}` : "—"
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: ip_pool_module_css_default.rowRemove,
-						disabled: busy,
-						onClick: () => onProbe(exit.id),
-						children: t("exitProbe")
-					}),
-					!exit.pinned && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					className: ip_pool_module_css_default.rowRemove,
+					disabled: busy,
+					onClick: () => onProbe(exit.id),
+					children: t("exitProbe")
+				}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+					className: ip_pool_module_css_default.actionGroup,
+					children: [!exit.pinned && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: ip_pool_module_css_default.rowIcon,
 						disabled: busy,
@@ -593,8 +594,7 @@ function ExitTable(props) {
 						"aria-label": t("exitPin"),
 						onClick: () => onPin(exit.id),
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: ip_pool_module_css_default.rowIcon,
 						disabled: busy,
@@ -602,8 +602,8 @@ function ExitTable(props) {
 						"aria-label": t("statsRotate"),
 						onClick: () => onRotate(exit.id),
 						children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RotateIcon, {})
-					})
-				] })
+					})]
+				})] })
 			] }, exit.id)), status.exits.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 				colSpan: 8,
 				className: ip_pool_module_css_default.status,
@@ -1686,39 +1686,42 @@ function ExitStatsEntry({ wide, t }) {
 									className: ip_pool_module_css_default.statsInflight,
 									children: t("statsInflight", { count: exit.inFlight })
 								}), timeLabel(exit.lastUsedAt, t("statsNever"))] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 									className: ip_pool_module_css_default.statsActions,
-									children: [exit.pinned ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: ip_pool_module_css_default.rowAction,
-										disabled: busy !== "",
-										title: t("statsUnpinHint"),
-										"aria-label": t("statsUnpin"),
-										onClick: () => {
-											runExitAction("unpin");
-										},
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnpinIcon, {})
-									}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: ip_pool_module_css_default.rowAction,
-										disabled: busy !== "",
-										title: t("statsPinHint"),
-										"aria-label": t("statsPin"),
-										onClick: () => {
-											runExitAction("pin", exit.id);
-										},
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
-									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: ip_pool_module_css_default.rowAction,
-										disabled: busy !== "",
-										title: t("statsRotateHint"),
-										"aria-label": t("statsRotate"),
-										onClick: () => {
-											runExitAction("rotate", exit.id);
-										},
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RotateIcon, {})
-									})]
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+										className: ip_pool_module_css_default.actionGroup,
+										children: [exit.pinned ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: ip_pool_module_css_default.rowAction,
+											disabled: busy !== "",
+											title: t("statsUnpinHint"),
+											"aria-label": t("statsUnpin"),
+											onClick: () => {
+												runExitAction("unpin");
+											},
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnpinIcon, {})
+										}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: ip_pool_module_css_default.rowAction,
+											disabled: busy !== "",
+											title: t("statsPinHint"),
+											"aria-label": t("statsPin"),
+											onClick: () => {
+												runExitAction("pin", exit.id);
+											},
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
+										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: ip_pool_module_css_default.rowAction,
+											disabled: busy !== "",
+											title: t("statsRotateHint"),
+											"aria-label": t("statsRotate"),
+											onClick: () => {
+												runExitAction("rotate", exit.id);
+											},
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RotateIcon, {})
+										})]
+									})
 								})
 							]
 						}, exit.id);
@@ -1746,26 +1749,29 @@ function ExitStatsEntry({ wide, t }) {
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 								className: ip_pool_module_css_default.statsActions,
-								children: status?.pinned?.local === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ip_pool_module_css_default.rowAction,
-									disabled: busy !== "",
-									title: t("statsUnpinHint"),
-									"aria-label": t("statsUnpin"),
-									onClick: () => {
-										runExitAction("unpin");
-									},
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnpinIcon, {})
-								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-									type: "button",
-									className: ip_pool_module_css_default.rowAction,
-									disabled: busy !== "",
-									title: t("statsPinLocalHint"),
-									"aria-label": t("statsPin"),
-									onClick: () => {
-										runExitAction("pin-local");
-									},
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
+								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+									className: ip_pool_module_css_default.actionGroup,
+									children: status?.pinned?.local === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ip_pool_module_css_default.rowAction,
+										disabled: busy !== "",
+										title: t("statsUnpinHint"),
+										"aria-label": t("statsUnpin"),
+										onClick: () => {
+											runExitAction("unpin");
+										},
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnpinIcon, {})
+									}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ip_pool_module_css_default.rowAction,
+										disabled: busy !== "",
+										title: t("statsPinLocalHint"),
+										"aria-label": t("statsPin"),
+										onClick: () => {
+											runExitAction("pin-local");
+										},
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
+									})
 								})
 							})
 						]

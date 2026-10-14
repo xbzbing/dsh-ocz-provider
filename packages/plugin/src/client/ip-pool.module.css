@@ -620,10 +620,6 @@
   cursor: pointer;
 }
 
-.rowAction + .rowAction {
-  margin-left: 4px;
-}
-
 .rowAction:hover:not(:disabled) {
   border-color: var(--dsw-alias-state-business-primary, #4f8cff);
   color: var(--dsw-alias-state-business-primary, #4f8cff);
@@ -659,9 +655,40 @@
   cursor: default;
 }
 
-/* The exit table's action cell mixes a text button (探测) with the icon pair;
-   without this the three of them touch. */
-.tableGrid td > button + button {
+/* 固定 + 轮换 are one SEGMENTED group, not two buttons with a gap (live request
+   2026-10-14): the shared edge collapses to a single 1px border and only the
+   group's outer corners stay rounded. The -1px margin is what does the
+   collapsing — the second button's border sits on top of the first one's — and
+   the hovered button lifts above its neighbour so the highlight is not clipped
+   by that overlap. */
+.actionGroup {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.actionGroup > button + button {
+  margin-left: -1px;
+}
+
+.actionGroup > button:not(:first-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.actionGroup > button:not(:last-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.actionGroup > button:hover:not(:disabled),
+.actionGroup > button:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+/* The settings card's action cell mixes a text button (探测) with that group:
+   the gap goes between the two things, never inside the group. */
+.tableGrid td > * + * {
   margin-left: 4px;
 }
 
