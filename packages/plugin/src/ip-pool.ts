@@ -232,6 +232,13 @@ export interface IpPoolAssemblyDeps {
    * can be asserted without installing a global dispatcher into the process.
    */
   makeInstaller?: (deps: InstallerDeps) => IpPoolRuntime['installer']
+  /**
+   * Transport seam. Production leaves it unset and gets the real undici
+   * (imported lazily so it stays out of the default install's module graph);
+   * a test injects a fake so probe traffic — the ip echo, the models list and
+   * the smoke — can be captured without a network.
+   */
+  undici?: UndiciSeam
 }
 
 /**
@@ -252,11 +259,15 @@ export async function startIpPool(
   const pool = buildPoolFromConfig(config)
 
   let undici: UndiciSeam
-  try {
-    undici = (await import('undici')) as UndiciSeam
-  } catch (err) {
-    logger.warn(`opencode2dsh: undici unavailable; exit routing disabled (${err instanceof Error ? err.message : String(err)})`)
-    return null
+  if (deps.undici !== undefined) {
+    undici = deps.undici
+  } else {
+    try {
+      undici = (await import('undici')) as UndiciSeam
+    } catch (err) {
+      logger.warn(`opencode2dsh: undici unavailable; exit routing disabled (${err instanceof Error ? err.message : String(err)})`)
+      return null
+    }
   }
 
   const installerDeps: InstallerDeps = {
@@ -276,8 +287,12 @@ export async function startIpPool(
     logger,
     blockedCountries: ipPool.free?.blockedCountries,
     smokeModel: (ipPool.probeModels ?? [])[0],
+    smokeContents: ipPool.probeContents ?? [],
   }
   const probeModels = ipPool.probeModels ?? []
+  // Same in-place-mutated list as probeModels: reconfigure() splices the new
+  // setting in and the admission deps keep pointing at this array.
+  const probeContents = ipPool.probeContents ?? []
   const prober = new Prober({ pool, maxConcurrentProbes: ipPool.maxConcurrentProbes ?? 3 })
 
   // Free-source refill loop (docs/ip-pool.md 3.5/4.5, IP-2): periodic state
@@ -331,6 +346,7 @@ export async function startIpPool(
     pool.setPoolSize(current.poolSize ?? 20)
     admissionDeps.blockedCountries = current.free?.blockedCountries
     admissionDeps.smokeModel = probeModels[0]
+    admissionDeps.smokeContents = probeContents
     prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3)
     installer.setProxyHosts?.(current.proxyHosts)
     installer.setProxyPathPrefixes?.(current.proxyPathPrefixes)
@@ -548,6 +564,8 @@ export async function startIpPool(
       config.ipPool = next.ipPool
       probeModels.length = 0
       probeModels.push(...(next.ipPool?.probeModels ?? []))
+      probeContents.length = 0
+      probeContents.push(...(next.ipPool?.probeContents ?? []))
       const enable = next.ipPool?.enabled !== false
       applyConfig()
       // rotate ceiling is live-tunable (settings page) — rebuild the delegate

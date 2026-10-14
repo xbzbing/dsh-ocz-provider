@@ -20,6 +20,7 @@ interface VolatileRef<T> {
 interface IpPoolSettings {
   enabled: boolean;
   probeModels: string[];
+  probeContents: string[];
   maxConcurrentProbes: number;
   poolSize: number;
   free: {
@@ -144,6 +145,8 @@ interface IpPoolConfig {
   };
   /** Admission smoke model (docs 4.1 probeModels[0]). */
   probeModels?: string[];
+  /** Admission probe-content pool (docs 4.1 step 4); empty = ['hello']. */
+  probeContents?: string[];
   /** Same-request rotate attempts on pre-content failures (docs 3.4). */
   maxRotateAttempts?: number;
 }
@@ -202,6 +205,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
+    probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
@@ -238,6 +242,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
+    probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
@@ -306,6 +311,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
+    probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{
@@ -342,6 +348,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
+    probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
     free: Schema<Schemastery.ObjectS<NoInfer<{

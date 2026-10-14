@@ -84,6 +84,8 @@ const formLabels = (t: IpPoolCardProps['t']): {
 export interface IpPoolSettingsValue {
   enabled: boolean
   probeModels: string[]
+  /** Probe-content pool; empty = the Host default ('hello'). */
+  probeContents: string[]
   maxConcurrentProbes: number
   /** Whole-pool capacity: exits kept online at once (default 20). */
   poolSize: number
@@ -218,6 +220,9 @@ const IP_POOL_FIELD = 'ipPool'
 const DEFAULTS: IpPoolSettingsValue = {
   enabled: false,
   probeModels: [],
+  // Literal by policy: the browser bundle never imports a Host module, so every
+  // default here is spelled out (DEFAULT_SMOKE_CONTENT in src/pool/smoke-content.ts).
+  probeContents: [],
   maxConcurrentProbes: 3,
   poolSize: 10,
   manual: [],
@@ -266,6 +271,7 @@ interface FormState {
   pinnedExitId: string
   pinnedStrict: boolean
   probeModels: string[]
+  probeContents: string[]
   maxConcurrentProbes: string
   poolSize: string
   usageScope: UsageScopeView
@@ -282,6 +288,7 @@ function emptyForm(): FormState {
     pinnedExitId: '',
     pinnedStrict: DEFAULTS.pinnedStrict,
     probeModels: [],
+    probeContents: [],
     maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
     poolSize: String(DEFAULTS.poolSize),
     usageScope: DEFAULTS.usageScope,
@@ -299,6 +306,7 @@ function formFromValue(value: IpPoolSettingsValue): FormState {
     pinnedExitId: value.pinnedExitId,
     pinnedStrict: value.pinnedStrict,
     probeModels: [...value.probeModels],
+    probeContents: [...(value.probeContents ?? [])],
     maxConcurrentProbes: String(value.maxConcurrentProbes),
     poolSize: String(value.poolSize ?? DEFAULTS.poolSize),
     usageScope: value.usageScope === 'run' ? 'run' : 'total',
@@ -350,6 +358,7 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
   push('pinnedExitId', form.pinnedExitId, value.pinnedExitId, base.pinnedExitId)
   push('pinnedStrict', form.pinnedStrict, value.pinnedStrict, base.pinnedStrict)
   push('probeModels', form.probeModels, value.probeModels, base.probeModels)
+  push('probeContents', form.probeContents, value.probeContents, base.probeContents)
   push('maxConcurrentProbes', Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes)
   push('poolSize', Number(form.poolSize), value.poolSize, base.poolSize)
   push('usageScope', form.usageScope, value.usageScope, base.usageScope)
@@ -1049,6 +1058,16 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           loading={probeModelsLoading}
           t={t}
           onChange={(next) => { setSaved(false); setForm({ ...form, probeModels: next }) }}
+        />
+        {/* The smoke's user turn (live request 2026-10-14): a pool of
+            one-liners, one picked at random per probe; empty = 'hello'. */}
+        <StringList
+          label={t('probeContents')}
+          hint={t('probeContentsHint')}
+          values={form.probeContents}
+          placeholder={t('probeContentsPlaceholder')}
+          testId="field-probeContents"
+          onChange={(next) => { setSaved(false); setForm({ ...form, probeContents: next }) }}
         />
         <TextField
           label={t('probeConcurrency')}

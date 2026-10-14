@@ -101,6 +101,8 @@ export interface IpPoolConfig {
   }
   /** Admission smoke model (docs 4.1 probeModels[0]). */
   probeModels?: string[]
+  /** Admission probe-content pool (docs 4.1 step 4); empty = ['hello']. */
+  probeContents?: string[]
   /** Same-request rotate attempts on pre-content failures (docs 3.4). */
   maxRotateAttempts?: number
 }

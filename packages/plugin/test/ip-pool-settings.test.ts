@@ -10,7 +10,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { IpPoolConfigSchema, resolveIpPoolSettings, resolveProbeModels, toIpPoolConfig, IP_POOL_NAMESPACE } from '../src/ip-pool-settings/namespace.ts'
+import { IpPoolConfigSchema, resolveIpPoolSettings, resolveProbeContents, resolveProbeModels, toIpPoolConfig, IP_POOL_NAMESPACE } from '../src/ip-pool-settings/namespace.ts'
 import { buildStatusView, buildUsageView, isTrustedBridgeRequest, makeBridgeHandlers, makeBridgeRoutes, IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
 import { UsageStore } from '../src/pool/usage-store.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, usageTracker } from '../src/pool/usage.ts'
@@ -100,6 +100,13 @@ test('resolveProbeModels defaults to S3 first and dedupes user entries', () => {
   assert.deepEqual(resolveProbeModels(['muse', 'muse']), ['muse'])
 })
 
+test('resolveProbeContents defaults to hello and cleans up a hand-typed pool', () => {
+  // Live request 2026-10-14: 默认 content 修改为 hello，允许多条、随机选择.
+  assert.deepEqual(resolveProbeContents([]), ['hello'])
+  assert.deepEqual(resolveProbeContents(['   ']), ['hello'])
+  assert.deepEqual(resolveProbeContents([' hello ', 'hi', 'hi', '']), ['hello', 'hi'])
+})
+
 test('toIpPoolConfig maps the settings value onto the plugin config shape', () => {
   const mapped = toIpPoolConfig(IpPoolConfigSchema({
     enabled: true,
@@ -116,6 +123,7 @@ test('toIpPoolConfig maps the settings value onto the plugin config shape', () =
   assert.equal(mapped.pinnedStrict, true)
   assert.deepEqual(mapped.subscriptions, ['https://sub.example.com/token'])
   assert.deepEqual(mapped.probeModels, ['big-pickle'])
+  assert.deepEqual(mapped.probeContents, ['hello'], 'the runtime always receives a non-empty pool')
   assert.deepEqual(mapped.singbox, { path: 'sing-box' })
   // The runtime reads these two off the config shape (ip-pool.ts:
   // Prober construction + SubscriptionFetcher interval/UA), so dropping them

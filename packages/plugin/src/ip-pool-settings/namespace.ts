@@ -25,6 +25,7 @@
 
 import Schema from '@deepseek-ai/schemastery'
 
+import { DEFAULT_SMOKE_CONTENT, normalizeSmokeContents } from '../pool/smoke-content.ts'
 import { DEFAULT_SUBSCRIPTION_USER_AGENT } from '../pool/subscription.ts'
 
 /**
@@ -70,6 +71,11 @@ export const IpPoolConfigSchema = Schema.object({
   enabled: Schema.boolean().default(false),
   /** Probe model set; empty = [S3 first] (docs §4.6 probeModels). */
   probeModels: Schema.array(Schema.string()).default([]),
+  /**
+   * Probe-content pool: the smoke request's user turn is picked from it at
+   * random (live request 2026-10-14). Empty = {@link DEFAULT_SMOKE_CONTENT}.
+   */
+  probeContents: Schema.array(Schema.string()).default([]),
   /** Cross-exit probe concurrency cap (1-8; same-exit is always serial, §4.1). */
   maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
   /**
@@ -141,6 +147,7 @@ export const IpPoolConfigSchema = Schema.object({
 export interface IpPoolSettings {
   enabled: boolean
   probeModels: string[]
+  probeContents: string[]
   maxConcurrentProbes: number
   poolSize: number
   free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
@@ -171,6 +178,16 @@ export function resolveProbeModels(configured: string[]): string[] {
 }
 
 /**
+ * Resolve the probe-content pool (§4.5 step 4): trimmed and deduped, or the
+ * single default when nothing is configured — the runtime always hands
+ * admission a non-empty pool, so the random pick has something to choose from.
+ */
+export function resolveProbeContents(configured: string[]): string[] {
+  const pool = normalizeSmokeContents(configured)
+  return pool.length > 0 ? pool : [DEFAULT_SMOKE_CONTENT]
+}
+
+/**
  * Either layer's ip-pool spelling: the resolved settings value (the volatile
  * reference's snapshot) and the flat entry-config shape, which carries
  * subscription URLs under the legacy `subscriptions` key.
@@ -194,6 +211,7 @@ export interface AnyIpPoolSection {
   subscriptions?: string[]
   singbox?: Partial<IpPoolSettings['singbox']>
   probeModels?: string[]
+  probeContents?: string[]
   maxConcurrentProbes?: number
   poolSize?: number
   maxRotateAttempts?: number
@@ -224,6 +242,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
   return {
     enabled: raw.enabled ?? false,
     probeModels: raw.probeModels ?? [],
+    probeContents: raw.probeContents ?? [],
     maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
     poolSize: raw.poolSize ?? 10,
     free: {
@@ -264,6 +283,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   subscription: { refreshMs: number; userAgent: string }
   singbox: { path: string }
   probeModels: string[]
+  probeContents: string[]
   maxConcurrentProbes: number
   poolSize: number
   maxRotateAttempts: number
@@ -285,6 +305,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     subscription: { refreshMs: value.subscription.refreshMs, userAgent: value.subscription.userAgent },
     singbox: { path: value.singbox.path },
     probeModels: resolveProbeModels(value.probeModels),
+    probeContents: resolveProbeContents(value.probeContents),
     maxConcurrentProbes: value.maxConcurrentProbes,
     poolSize: value.poolSize,
     maxRotateAttempts: value.maxRotateAttempts,

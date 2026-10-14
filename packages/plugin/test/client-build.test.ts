@@ -96,6 +96,16 @@ test('client reads and writes settings through the page-supplied ConfigPageForm'
   assert.ok(!stripped.includes('.bind({ namespace'), 'no settingsScope.bind({ namespace }) call shape remains')
 })
 
+test('the probe-content field ships in the bundle', () => {
+  const source = bundle()
+  // Live request 2026-10-14: the probe's user turn became a configurable pool
+  // (default 'hello'). The field is a plain string list next to the probe-model
+  // picker; this pins that the section is actually mounted in the shipped half.
+  assert.ok(source.includes('field-probeContents'), 'the 探测文案 list editor is mounted')
+  assert.ok(source.includes('探测文案（probeContents）'), 'with its zh label')
+  assert.ok(source.includes('probeContentsHint'), 'and its hint (留空 = 默认 hello)')
+})
+
 test('client externals stay inside the host platform table', () => {
   const source = bundle()
   const required = [...source.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]!)

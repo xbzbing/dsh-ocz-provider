@@ -5,7 +5,7 @@ import http from 'node:http'
 import * as realUndici from 'undici'
 
 import { ExitPool } from '../src/pool/pool.ts'
-import { admitCandidate, admitTrusted, coarseScreen } from '../src/pool/admission.ts'
+import { admitCandidate, admitTrusted, coarseScreen, type AdmissionDeps } from '../src/pool/admission.ts'
 
 /**
  * A fake per-request transport: the seam `undici.request` would hit. Each
@@ -59,14 +59,21 @@ function okScript() {
   }
 }
 
-function deps(transport: ReturnType<typeof fakeTransport>) {
+function deps(transport: ReturnType<typeof fakeTransport>, overrides: Partial<AdmissionDeps> = {}) {
   return {
     pool: new ExitPool(),
     undici: transport.undici,
     zenBaseUrl: 'https://zen.test',
     ipEchoUrl: ECHO_URL,
     smokeModel: 'big-pickle',
+    ...overrides,
   }
+}
+
+/** The smoke request's user turn, read back out of the captured body. */
+function smokeContentOf(transport: ReturnType<typeof fakeTransport>): string {
+  const body = JSON.parse(transport.bodies.get(CHAT_URL)!) as { messages: Array<{ content: string }> }
+  return body.messages[0]!.content
 }
 
 test('admission: the four-step happy path admits with exit facts and grade', async () => {
@@ -130,10 +137,12 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   const smokeBody = JSON.parse(okTransport.bodies.get(CHAT_URL)!) as {
     stream?: boolean
     tool_choice?: string
+    messages?: Array<{ role: string; content: string }>
     tools?: Array<{ type: string; function: { name: string } }>
   }
   assert.equal(smokeBody.stream, true)
   assert.equal(smokeBody.tool_choice, 'none')
+  assert.deepEqual(smokeBody.messages, [{ role: 'user', content: 'hello' }], 'the unconfigured probe content is hello (live request 2026-10-14)')
   const smokeToolNames = smokeBody.tools?.map((t) => t.function.name) ?? []
   assert.deepEqual([...smokeToolNames].sort(), ['bash', 'read'])
   const smokeHeaders = okTransport.headers.get(CHAT_URL)!
@@ -144,6 +153,23 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /ECONNREFUSED/)
+})
+
+test('admission: the probe content is drawn at random from the configured pool', async () => {
+  // Live request 2026-10-14: 允许用户自定义多个 content，探索时随机选择.
+  const pool = ['alpha', 'beta', 'gamma']
+  const first = fakeTransport(okScript())
+  await admitCandidate(deps(first, { smokeContents: pool, random: () => 0 }), { address: 'h:1', protocol: 'http', source: 'free' })
+  assert.equal(smokeContentOf(first), 'alpha')
+
+  const last = fakeTransport(okScript())
+  await admitCandidate(deps(last, { smokeContents: pool, random: () => 0.99 }), { address: 'h:2', protocol: 'http', source: 'free' })
+  assert.equal(smokeContentOf(last), 'gamma')
+
+  // A hand-typed list with blanks and duplicates still yields a valid turn.
+  const messy = fakeTransport(okScript())
+  await admitCandidate(deps(messy, { smokeContents: ['  ', 'only'], random: () => 0.5 }), { address: 'h:3', protocol: 'http', source: 'free' })
+  assert.equal(smokeContentOf(messy), 'only')
 })
 
 test('admission: latency gate (relaxed for critical/emergency states)', async () => {
