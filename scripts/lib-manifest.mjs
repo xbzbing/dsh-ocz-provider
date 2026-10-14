@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Freshness manifest for the committed `packages/plugin/lib/`.
+ * Freshness manifest for the committed `lib/`.
  *
  * `lib/` is committed so `file:` / `github:` installs ship working code
  * without running any lifecycle script. The failure mode that commitment
@@ -22,8 +22,8 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from '
 import { dirname, join, posix, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** Repo-relative paths (inside packages/plugin) that determine the bundle. */
-const INPUTS = ['src', 'tsdown.client.config.ts']
+/** Repo-relative paths that determine the bundle (both halves' inputs). */
+const INPUTS = ['src', 'tsdown.config.ts', 'tsdown.client.config.ts']
 const MANIFEST_VERSION = 1
 
 /** Every input file under `root`, as posix-relative paths, sorted. */
@@ -71,7 +71,7 @@ export function writeBuildManifest(root) {
 export function checkBuildManifest(root) {
   const path = manifestPath(root)
   if (!existsSync(path)) {
-    return { code: 1, message: `lib/.build-manifest.json is missing — run \`pnpm build\` at the repo root and commit packages/plugin/lib/` }
+    return { code: 1, message: `lib/.build-manifest.json is missing — run \`pnpm build\` at the repo root and commit lib/` }
   }
   let recorded
   try {
@@ -91,18 +91,18 @@ export function checkBuildManifest(root) {
     if (!(rel in actual)) stale.push(`${rel} (deleted)`)
   }
   if (stale.length > 0) {
-    return { code: 1, message: `packages/plugin/lib/ is stale (source changed without a rebuild):\n  ${stale.join('\n  ')}\nRun \`pnpm build\` at the repo root and commit packages/plugin/lib/.` }
+    return { code: 1, message: `lib/ is stale (source changed without a rebuild):\n  ${stale.join('\n  ')}\nRun \`pnpm build\` at the repo root and commit lib/.` }
   }
   return { code: 0, message: 'ok' }
 }
 
 const invokedDirectly = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === process.argv[1]
 if (invokedDirectly) {
-  const pluginDir = join(dirname(dirname(fileURLToPath(import.meta.url))), 'packages', 'plugin')
+  const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)))
   if (process.argv.includes('--check')) {
-    const { code, message } = checkBuildManifest(pluginDir)
+    const { code, message } = checkBuildManifest(repoRoot)
     if (code !== 0) console.error(message)
     process.exit(code)
   }
-  writeBuildManifest(pluginDir)
+  writeBuildManifest(repoRoot)
 }

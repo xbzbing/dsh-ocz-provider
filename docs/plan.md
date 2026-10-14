@@ -1,4 +1,4 @@
-# opencode2dsh：实施计划
+# opencode-zen：实施计划
 
 > 状态：v1（2026-02-05），配套 `design.md`（架构决策 D1/D2、复用审计表 §5、目录结构 §10 均以该文档为准）。执行顺序：Phase 0 → 1 → 2 → 3，Phase 0/1 串行，2/3 可并行。每个 Phase 含「做什么 / 复用来源 / 验收标准」；**验收未过不进下一 Phase**。
 > 源码只读约定：opencode2api 克隆位于 `C:\Users\FishBottle\AppData\Local\Temp\opencode\opencode2api\`，**只拷贝、不改动**；所有 `文件:行号` 锚点见 design.md §2.4/§5。
@@ -67,7 +67,7 @@ curl -s http://127.0.0.1:8317/healthz | jq -r '.status'   # "ok"
 
 **前置**：Phase 0 验收通过。
 
-**做什么**：建 `packages/plugin`（cordis 插件），实现 spawn/看护/端口发现/token，并把 DSH 的模型请求指向本地代理。
+**做什么**：建 cordis 插件（仓库根，原 packages/plugin），实现 spawn/看护/端口发现/token，并把 DSH 的模型请求指向本地代理。
 
 任务分解：
 
@@ -84,7 +84,7 @@ curl -s http://127.0.0.1:8317/healthz | jq -r '.status'   # "ok"
 **Phase 1 验收标准**：
 
 1. DSH 正常启动后 `Get-Process`（或 `ps`）可见 agent 子进程，父进程为 DSH/Node；关闭 DSH（或停用插件）后子进程在宽限期内退出，无孤儿进程。
-2. DSH 模型列表出现 opencode2dsh provider 及 ≥1 个免费模型；选中后发送一次对话，DSH 界面收到流式回复。
+2. DSH 模型列表出现 opencode-zen provider 及 ≥1 个免费模型；选中后发送一次对话，DSH 界面收到流式回复。
 3. 手工 `Stop-Process -Kill` agent 进程：插件在退避间隔内自动重启，DSH 恢复可用（看护生效）。
 4. 重启 DSH：token 复用（数据目录已持久化），端口可变（DSH provider 每次随插件刷新），模型列表正常。
 5. 断网状态启动：DSH 能启动、healthz 为 degraded、对话报错信息可读（不崩溃、不挂死），恢复网络后目录自动刷新（design.md §4.2 回退链 + gateway 定时刷新）。
@@ -172,9 +172,9 @@ Phase 0 ──► Phase 1 ──┬──► Phase 2 ──► 交付
 # ~/.dsh/settings.yaml
 llm-pi-ai:
   providers:
-    opencode2dsh:
-      displayName: opencode2dsh
-      apiKeyEnv: OPENCODE2DSH_TOKEN      # 走 ctx.credentials 解析；协议 openai-completions
+    opencode-zen:
+      displayName: opencode-zen
+      apiKeyEnv: OPENCODE_ZEN_TOKEN      # 走 ctx.credentials 解析；协议 openai-completions
       api: openai-completions
       baseURL: http://127.0.0.1:<port>/v1
       models:
@@ -190,12 +190,12 @@ llm-pi-ai:
 - 包根附 `cordis.patch.yml`：bundle patch，`- insert: [{ id, name, config }]` 把插件插进运行图（cordis-plugin-include/loader 机制）；
 - 安装：`dsh plugin --profile web add <pkg>`（pnpm 转发到 profile 目录），并把包名加进 profile `package.json` 的 `dsh.profile.bundles`。
 
-### A.4 opencode2dsh 的 provider.ts 定案
+### A.4 opencode-zen 的 provider.ts 定案
 
 两段式：
 
 1. **进程管理**（本项目独有职责）：spawn agent.exe、READY 握手拿端口、看护重启——任何现有插件都不做这件事，必须自己写（agent-process.ts）。
-2. **provider 接入**：**不自己实现 LlmAdapter**，改为插件启动/模型刷新时，用 `ctx.settings`（`settings.mutate('llm-pi-ai', …)`）确保 `llm-pi-ai.providers.opencode2dsh` 路由存在并指向 `http://127.0.0.1:<port>/v1`，模型清单从 agent `GET /v1/models` 拉取后写入该路由的 `models` 数组；token 经 `ctx.credentials.set(credentialRef('OPENCODE2DSH_TOKEN'), token)` 写入。流式/重试/错误映射复用 pi-ai 与 dsh-llm-retry 的现成实现，Phase 3 的「DSH 端错误 UX」由这条现成链路承担。
+2. **provider 接入**：**不自己实现 LlmAdapter**，改为插件启动/模型刷新时，用 `ctx.settings`（`settings.mutate('llm-pi-ai', …)`）确保 `llm-pi-ai.providers.opencode-zen` 路由存在并指向 `http://127.0.0.1:<port>/v1`，模型清单从 agent `GET /v1/models` 拉取后写入该路由的 `models` 数组；token 经 `ctx.credentials.set(credentialRef('OPENCODE_ZEN_TOKEN'), token)` 写入。流式/重试/错误映射复用 pi-ai 与 dsh-llm-retry 的现成实现，Phase 3 的「DSH 端错误 UX」由这条现成链路承担。
    - 若实测发现 settings 写入在无 UI 的 headless 启动序中不可用，退路：改走 `ctx.llm.registerAdapter` 自实现薄 adapter（仅转发 fetch 到本地代理），接口面见 A.1。
 
 **对 plan.md 的影响**：1.5 的产出从「实现 LlmAdapter」改为「settings/credentials 写入 + 模型清单刷新」；验收标准不变。

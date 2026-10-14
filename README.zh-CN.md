@@ -1,13 +1,13 @@
 <div align="center">
 
-# opencode2dsh
+# opencode-zen
 
 **在 DSH（DeepSeek Harness）里原生使用 OpenCode Zen 的免费匿名模型。**
 
 无需 API Key。无需注册。无需额外进程。
 
-[![npm](https://img.shields.io/npm/v/@opencode2dsh%2Fdsh-plugin)](https://www.npmjs.com/package/@opencode2dsh/dsh-plugin)
-[![license](https://img.shields.io/npm/l/@opencode2dsh%2Fdsh-plugin)](https://github.com/FishBottle7/opencode2dsh/blob/master/LICENSE)
+[![npm](https://img.shields.io/npm/v/dsh-opencode-zen-provider)](https://www.npmjs.com/package/dsh-opencode-zen-provider)
+[![license](https://img.shields.io/npm/l/dsh-opencode-zen-provider)](https://github.com/FishBottle7/opencode2dsh/blob/master/LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-blue)](https://github.com/FishBottle7/opencode2dsh)
 
@@ -17,9 +17,9 @@
 
 ---
 
-opencode2dsh 会向 DSH 注册一个原生的 `LlmAdapter`，直接流式对接
+opencode-zen 会向 DSH 注册一个原生的 `LlmAdapter`，直接流式对接
 [OpenCode Zen](https://opencode.ai/zen) 的**匿名免费通道**——也就是
-OpenCode 官方 CLI 无需登录即可使用的那批免费模型，它们会以 `opencode2dsh`
+OpenCode 官方 CLI 无需登录即可使用的那批免费模型，它们会以 `opencode-zen`
 这个常规 provider 出现在你的 DSH 模型选择器里。
 
 插件发出的请求与 OpenCode CLI 的流量完全同形（相同的 User-Agent、相同的
@@ -51,26 +51,26 @@ dsh plugin --profile web add github:xbzbing/opencode2dsh
 
 ```sh
 git clone https://github.com/xbzbing/opencode2dsh.git
-dsh plugin --profile web add file:/path/to/opencode2dsh
+dsh plugin --profile web add file:/path/to/opencode-zen
 ```
 
 **从 tarball 安装**（可选）：
 
 ```sh
 pnpm build && pnpm pack
-dsh plugin --profile web add ./opencode2dsh-dsh-plugin-<version>.tgz
+dsh plugin --profile web add ./dsh-opencode-zen-provider-<version>.tgz
 ```
 
-注意不要和 `dsh plugin add @opencode2dsh/dsh-plugin` 混用：那是上游发到 npm 的包，包名与本 fork 相同，装上会把本 fork 的副本替换成不含这些修复的代码。
+注意不要和 `dsh plugin add dsh-opencode-zen-provider` 混用：那是上游发到 npm 的包，包名与本 fork 相同，装上会把本 fork 的副本替换成不含这些修复的代码。
 
-**验证**：重启 `dsh web`，打开模型选择器，在 **opencode2dsh** 分组里选模型即可。
+**验证**：重启 `dsh web`，打开模型选择器，在 **opencode-zen** 分组里选模型即可。
 
 ### 从源码开发
 
-`packages/plugin/lib/` 是**故意提交进仓库的**——两条 Git 安装路径都不跑构建，产物必须已经在检出里。改了 `packages/plugin/src/` 下任何文件后执行：
+`lib/` 是**故意提交进仓库的**——两条 Git 安装路径都不跑构建，产物必须已经在检出里。改了 `src/` 下任何文件后执行：
 
 ```sh
-pnpm build && git add packages/plugin/lib
+pnpm build && git add lib
 ```
 
 `pnpm test` 会在 `lib/` 与 `src/` 不一致时报错，所以忘重建的产物合不进去。
@@ -82,18 +82,18 @@ pnpm build && git add packages/plugin/lib
 默认配置开箱即用。需要覆盖时，编辑 profile 的 `cordis.patch.yml`：
 
 ```yaml
-- id: opencode2dsh
-  name: '@opencode2dsh/dsh-plugin'
+- id: opencode-zen
+  name: 'dsh-opencode-zen-provider'
   config:
     mode: adapter        # adapter（默认）| sidecar
-    providerId: opencode2dsh
+    providerId: opencode-zen
     refreshSeconds: 300  # 目录刷新周期（秒）
 ```
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `mode` | `adapter` | `adapter`：原生 LlmAdapter 直连 Zen。`sidecar`：旧版本地 agent 模式，不随包发行——请从 `legacy/agent` 自行构建并通过 `agentPath` 指定。 |
-| `providerId` | `opencode2dsh` | 在 DSH 中显示的 provider 名称。 |
+| `providerId` | `opencode-zen` | 在 DSH 中显示的 provider 名称。 |
 | `refreshSeconds` | `300` | 实时目录刷新间隔；定价元数据每 24 小时刷新。 |
 | `agentPath` | 自动解析 | 仅 sidecar：agent 二进制路径。 |
 | `agentArgs` | — | 仅 sidecar：传给 agent 的额外 CLI 参数。 |
@@ -136,7 +136,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 插件在每轮刷新后写入健康快照：
 
 ```
-~/.opencode2dsh/adapter-status.json
+~/.opencode-zen/adapter-status.json
 ```
 
 ```json
@@ -152,7 +152,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 | 现象 | 可能原因与处理 |
 | --- | --- |
 | 启动页报 `Failed to load plugins … list slot "plugins.item" requires options.id`，或 IP 池条目没有配置页 | DSH 早于 0.1.7 的插件页契约。升级 DSH 到 0.1.7（推荐最新）；页面挂载门控是 `configForms.whileServed`，0.1.6 及更早上整页不出现，模型路由不受影响。 |
-| 安装插件后 DSH 0.1.7/0.2 无法启动，报 `pending … settingsScope` | 更新插件到 0.3.5；DSH 0.2 的 IP 池设置在插件页的 opencode2dsh 条目里。 |
+| 安装插件后 DSH 0.1.7/0.2 无法启动，报 `pending … settingsScope` | 更新插件到 0.3.5；DSH 0.2 的 IP 池设置在插件页的 opencode-zen 条目里。 |
 | 只有 3 个模型 | 启动时网络未就绪，重试会在约 1 分钟内补齐；看 `adapter-status.json` 里的 `lastError`。 |
 | `lastError: "fetch failed"` 持续出现 | 出站 HTTPS 到 `opencode.ai` 被拦截；检查代理/VPN 规则。 |
 | 对话中报限流错误（`429 … Endpoint is unavailable`） | 匿名通道按 IP 限额，免费模型竞争大。[#51](https://github.com/FishBottle7/opencode2dsh/issues/51) 修复后，插件的 provider 重试策略会静默扛过 429 突发（8 次重试、约 1s→20s 退避、每步最坏约 90s），不再直接抛给用户；仍被打满时可降低思考强度、换一个竞争较小的 `-free` 模型，或在插件设置页开启 IP 池（多出口轮换）。 |
@@ -171,14 +171,14 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 
 ```sh
 git clone https://github.com/xbzbing/opencode2dsh.git
-cd opencode2dsh
-pnpm --dir packages/plugin install   # 构建工具链在这里
-pnpm typecheck && pnpm test          # 根脚本转发到 packages/plugin
+cd opencode-zen
+pnpm install                         # 构建工具链
+pnpm typecheck && pnpm test          # 全量门禁
 pnpm build                           # 干净构建两个半 + 写新鲜度清单
-git add packages/plugin/lib          # 产物是提交进仓库的，不是忽略的
+git add lib                          # 产物是提交进仓库的，不是忽略的
 ```
 
-`pnpm build` 是唯一受支持的构建入口：它先清空 `packages/plugin/lib`（内部 build 带 `--no-clean`，好让两个半共用这个目录），再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`pnpm test` 会拿它与 `src/` 比对。
+`pnpm build` 是唯一受支持的构建入口：它先清空 `lib/`，再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`pnpm test` 会拿它与 `src/` 比对。两半共用 `tsdown.config.ts` / `tsdown.client.config.ts` 一对配置，chunk 文件名固定，反复重建不会留下 `admission-<hash>.js` 这类垃圾文件。
 
 旧版 Go sidecar 在 `legacy/agent`（`go test ./...`）。架构说明与移植记录见 `docs/`。
 

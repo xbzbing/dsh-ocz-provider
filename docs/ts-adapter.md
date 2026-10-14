@@ -1,4 +1,4 @@
-# opencode2dsh 纯 TS adapter 版 — 实施计划
+# opencode-zen 纯 TS adapter 版 — 实施计划
 
 > 状态：v2（2026-08-29）。**定位定案：插件市场只上 TS 版；Go sidecar 不分发，保留在仓库作语义参照与上游变更时的对照实现。**
 > 本档回答「TS 版是否真的简单」：是，但原因不是逻辑少，而是**壳消失 + 协议已验证 + 目录逻辑有现成参照**。
@@ -21,9 +21,9 @@ Go 版慢在「保真移植 8300 行里的每一段语义」。TS 版不走移�
 ```yaml
 llm-pi-ai:
   providers:
-    opencode2dsh:
+    opencode-zen:
       baseURL: https://opencode.ai/inference/v1     # 直连上游，无本地代理
-      apiKeyEnv: OPENCODE2DSH_TOKEN            # 该凭证的值就是字面量 "public"
+      apiKeyEnv: OPENCODE_ZEN_TOKEN            # 该凭证的值就是字面量 "public"
       api: openai-completions
       headers:                                 # 静态伪装头
         user-agent: opencode/1.18.21 (windows amd64; node)
@@ -51,7 +51,7 @@ llm-pi-ai:
 - pi-ai `Context`：`{systemPrompt?, messages, tools?}`；`Message = UserMessage | AssistantMessage | ToolResultMessage`；内容块 `text | thinking | toolCall | image`
 - chunk 输出词汇表（dsh-llm-pi-ai toStreamChunks，index.js:1342-1420 逐条核实）：`block-start{text|reasoning|tool-call}` / `text-delta` / `reasoning-delta` / `tool-call-delta` / `block-end` / `usage` / `finish{reason, replayState?}`，流必须以 usage+finish 终止
 
-**adapter 模式下插件职责坍缩为**：目录维护 + `ctx.llm.registerAdapter(['opencode2dsh'], adapter)`。无 spawn、无端口、无 token、无 credentials/settings 写入（'public' 非秘密）。
+**adapter 模式下插件职责坍缩为**：目录维护 + `ctx.llm.registerAdapter(['opencode-zen'], adapter)`。无 spawn、无端口、无 token、无 credentials/settings 写入（'public' 非秘密）。
 
 ### T0 — 探针（降级为可选信息项）
 

@@ -1,13 +1,13 @@
 <div align="center">
 
-# opencode2dsh
+# opencode-zen
 
 **Free OpenCode Zen models, natively inside DSH (DeepSeek Harness).**
 
 No API key. No registration. No extra process.
 
-[![npm](https://img.shields.io/npm/v/@opencode2dsh%2Fdsh-plugin)](https://www.npmjs.com/package/@opencode2dsh/dsh-plugin)
-[![license](https://img.shields.io/npm/l/@opencode2dsh%2Fdsh-plugin)](https://github.com/FishBottle7/opencode2dsh/blob/master/LICENSE)
+[![npm](https://img.shields.io/npm/v/dsh-opencode-zen-provider)](https://www.npmjs.com/package/dsh-opencode-zen-provider)
+[![license](https://img.shields.io/npm/l/dsh-opencode-zen-provider)](https://github.com/FishBottle7/opencode2dsh/blob/master/LICENSE)
 [![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
 [![DeepSeek Harness](https://img.shields.io/badge/DeepSeek%20Harness-plugin-blue)](https://github.com/FishBottle7/opencode2dsh)
 
@@ -17,10 +17,10 @@ English | [简体中文](README.zh-CN.md)
 
 ---
 
-opencode2dsh registers a native DSH `LlmAdapter` that streams directly from
+opencode-zen registers a native DSH `LlmAdapter` that streams directly from
 [OpenCode Zen](https://opencode.ai/zen)'s **anonymous free lane** — the same
 models OpenCode's own CLI uses without an account, served to your DSH model
-picker as a regular provider called `opencode2dsh`.
+picker as a regular provider called `opencode-zen`.
 
 Requests leave your machine looking exactly like traffic from the OpenCode
 CLI (same user agent, same correlation headers), and the model catalog stays
@@ -55,31 +55,31 @@ dsh plugin --profile web add github:xbzbing/opencode2dsh
 
 ```sh
 git clone https://github.com/xbzbing/opencode2dsh.git
-dsh plugin --profile web add file:/path/to/opencode2dsh
+dsh plugin --profile web add file:/path/to/opencode-zen
 ```
 
 **From a tarball** (optional):
 
 ```sh
 pnpm build && pnpm pack
-dsh plugin --profile web add ./opencode2dsh-dsh-plugin-<version>.tgz
+dsh plugin --profile web add ./dsh-opencode-zen-provider-<version>.tgz
 ```
 
-Do not mix these with `dsh plugin add @opencode2dsh/dsh-plugin`: that is the
+Do not mix these with `dsh plugin add dsh-opencode-zen-provider`: that is the
 upstream npm package, it resolves to the same package name, and installing it
 would replace this fork's copy with code that does not carry these fixes.
 
 **Verify**: restart `dsh web`, open the model picker, and pick a model from
-the **opencode2dsh** group.
+the **opencode-zen** group.
 
 ### Working from source
 
-`packages/plugin/lib/` is committed on purpose — neither Git install path runs
-a build, so the shipped artifacts have to already be in the checkout. After
-changing anything under `packages/plugin/src/`, run
+`lib/` is committed on purpose — neither Git install path runs a build, so
+the shipped artifacts have to already be in the checkout. After changing
+anything under `src/`, run
 
 ```sh
-pnpm build && git add packages/plugin/lib
+pnpm build && git add lib
 ```
 
 `pnpm test` fails when `lib/` no longer matches `src/`, so a stale build
@@ -94,18 +94,18 @@ present if DSH runs); outbound HTTPS to `opencode.ai` and `models.dev`.
 Defaults work out of the box. Override via the profile's `cordis.patch.yml`:
 
 ```yaml
-- id: opencode2dsh
-  name: '@opencode2dsh/dsh-plugin'
+- id: opencode-zen
+  name: 'dsh-opencode-zen-provider'
   config:
     mode: adapter        # adapter (default) | sidecar
-    providerId: opencode2dsh
+    providerId: opencode-zen
     refreshSeconds: 300  # catalog refresh cadence
 ```
 
 | Option | Default | Description |
 | --- | --- | --- |
 | `mode` | `adapter` | `adapter`: native LlmAdapter streaming straight from Zen. `sidecar`: legacy local-agent mode, not bundled — build the agent from `legacy/agent` and pass `agentPath`. |
-| `providerId` | `opencode2dsh` | Provider name shown in DSH. |
+| `providerId` | `opencode-zen` | Provider name shown in DSH. |
 | `refreshSeconds` | `300` | Live catalog refresh interval. Pricing metadata refreshes every 24 h. |
 | `agentPath` | auto-resolved | Sidecar only: path to the agent binary. |
 | `agentArgs` | — | Sidecar only: extra CLI args for the agent. |
@@ -155,7 +155,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 The plugin writes a health snapshot after every refresh round:
 
 ```
-~/.opencode2dsh/adapter-status.json
+~/.opencode-zen/adapter-status.json
 ```
 
 ```json
@@ -171,7 +171,7 @@ The plugin writes a health snapshot after every refresh round:
 | Symptom | Likely cause & fix |
 | --- | --- |
 | Boot screen shows `Failed to load plugins … list slot "plugins.item" requires options.id`, or the IP 池 entry has no configuration page | Your DSH predates the 0.1.7 Plugins page contract. Upgrade DSH to 0.1.7 (latest recommended). On 0.1.6 and older the page never mounts (it is gated on `configForms.whileServed`) — model routing is unaffected. |
-| DSH 0.1.7/0.2 cannot start after plugin installation (`pending … settingsScope`) | Upgrade the plugin to 0.3.5. On DSH 0.2, configure IP pooling through the installed opencode2dsh row on the Plugins page. |
+| DSH 0.1.7/0.2 cannot start after plugin installation (`pending … settingsScope`) | Upgrade the plugin to 0.3.5. On DSH 0.2, configure IP pooling through the installed opencode-zen row on the Plugins page. |
 | Only 3 models | Startup fetch raced your network; retries land within ~1 min. Check `adapter-status.json` for `lastError`. |
 | `lastError: "fetch failed"` persisting | Outbound HTTPS to `opencode.ai` blocked; check proxy/VPN rules. |
 | Rate-limit errors in chat (`429 … Endpoint is unavailable`) | The anonymous lane is quota-per-IP and free models are contended. Since the fix for [#51](https://github.com/FishBottle7/opencode2dsh/issues/51) the plugin's provider retry policy rides out 429 bursts silently (8 retries, ~1s→20s backoff, ≈90s worst case per step) instead of surfacing them; when contention still wins, lower the reasoning effort, pick a less contended `-free` model, or enable IP pooling (multi-exit rotation) on the plugin settings page. |
@@ -190,17 +190,18 @@ The plugin writes a health snapshot after every refresh round:
 
 ```sh
 git clone https://github.com/xbzbing/opencode2dsh.git
-cd opencode2dsh
-pnpm --dir packages/plugin install   # build toolchain lives here
-pnpm typecheck && pnpm test          # root scripts forward to packages/plugin
+cd opencode-zen
+pnpm install                         # build toolchain
+pnpm typecheck && pnpm test          # full gate
 pnpm build                           # clean build of both halves + freshness manifest
-git add packages/plugin/lib          # artifacts are committed, not ignored
+git add lib                          # artifacts are committed, not ignored
 ```
 
-`pnpm build` is the only supported build entry: it empties `packages/plugin/lib`
-first (the inner build runs with `--no-clean` so the two halves can share the
-directory), then builds the node half, the browser half, and stamps
-`lib/.build-manifest.json` — which `pnpm test` checks against `src/`.
+`pnpm build` is the only supported build entry: it empties `lib/` first, then
+builds the node half, the browser half, and stamps `lib/.build-manifest.json`
+— which `pnpm test` checks against `src/`. Both halves build through one
+`tsdown.config.ts` / `tsdown.client.config.ts` pair with fixed chunk names, so
+rebuilds never leave `admission-<hash>.js` litter behind.
 
 The legacy Go sidecar lives in `legacy/agent` (`go test ./...`). Architecture
 notes and the porting record live in `docs/`.

@@ -17,7 +17,7 @@ const { SlotCore } = await hostImport('@deepseek-ai/dsh-client-ui-slots')
 const { default: HostSchema } = await hostImport('@deepseek-ai/schemastery')
 const { createVolatile, updateVolatile } = await hostImport('@deepseek-ai/cosmokit')
 const { LlmRuntime } = await hostImport('@deepseek-ai/dsh-llm')
-const pluginRoot = new URL('../packages/plugin/', import.meta.url)
+const pluginRoot = new URL('../', import.meta.url)
 const pluginRequire = createRequire(new URL('package.json', pluginRoot))
 const pkg = JSON.parse(readFileSync(new URL('package.json', pluginRoot), 'utf8'))
 const bundle = readFileSync(new URL('lib/client.js', pluginRoot), 'utf8')
@@ -51,7 +51,7 @@ const client = await modules.import(pkg.name)
 assert.deepEqual(Array.from(client.inject), ['slots', 'locale'])
 const ctx = new Context()
 const core = new SlotCore()
-core.register({ name: 'root', children: { 'plugins.row.config': { kind: 'keyed', scope: 'root' } } }, () => null)
+core.register({ name: 'root', children: { 'plugins.bundle.config': { kind: 'keyed', scope: 'root' } } }, () => null)
 class Slots extends Service {
   constructor(ctx, core) { super(ctx, 'slots'); this.core = core }
   spec(name) { return this.core.specDynamic(name) }
@@ -65,8 +65,11 @@ new Slots(ctx, core)
 ctx.reflect.provide('locale', { register: () => () => {}, bind: () => (key) => key })
 class ConfigForms extends Service {
   constructor(ctx) { super(ctx, 'configForms') }
+  // the bundle-config card binds this controller itself (the slot's render
+  // site supplies no form), so the read face is part of the fixture contract.
+  get(ns) { return { settings: () => ({ enabled: false }) } }
   whileServed(names, register) {
-    assert.deepEqual(Array.from(names), ['opencode2dsh'])
+    assert.deepEqual(Array.from(names), ['opencode-zen'])
     return register(new Set(names))
   }
 }
@@ -78,7 +81,7 @@ assert.equal(old.state, 0, 'old client must remain PENDING without settingsScope
 const current = ctx.plugin(client)
 await current.await()
 assert.equal(current.state, 2, 'adapted client must become ACTIVE')
-assert.equal(core.entriesOfSlot('plugins.row.config').length, 2)
+assert.equal(core.entriesOfSlot('plugins.bundle.config').length, 2)
 
 const withoutForms = new Context()
 new Slots(withoutForms, core)
@@ -116,10 +119,10 @@ const { ModelCatalog } = await import(new URL('src/adapter/catalog.ts', pluginRo
 const { applyIpPoolSettings: applyPool } = await import(new URL('src/ip-pool-settings/apply.ts', pluginRoot))
 const adapter = new Adapter(new ModelCatalog())
 const registry = { adapters: new Map() }
-const routes = LlmRuntime.prototype.prepareRoutes.call(registry, ['opencode2dsh'], adapter, new Set())
-assert.equal(routes[0].provider.id, 'opencode2dsh')
-registry.adapters.set('opencode2dsh', { adapter })
-assert.equal(LlmRuntime.prototype.imageRequestPricing.call(registry, 'opencode2dsh', 'big-pickle'), undefined)
+const routes = LlmRuntime.prototype.prepareRoutes.call(registry, ['opencode-zen'], adapter, new Set())
+assert.equal(routes[0].provider.id, 'opencode-zen')
+registry.adapters.set('opencode-zen', { adapter })
+assert.equal(LlmRuntime.prototype.imageRequestPricing.call(registry, 'opencode-zen', 'big-pickle'), undefined)
 
 // Load the actual server artifact in a real Cordis fiber, without touching
 // the user's DSH profile or making a request to the external Zen service.
@@ -172,5 +175,5 @@ assert.equal(reconfigured[0].ipPool.manual[0], 'http://127.0.0.1:7897')
 await poolContext.fiber.dispose()
 assert.equal(disposed, true)
 await ctx.fiber.dispose()
-assert.equal(core.entriesOfSlot('plugins.row.config').length, 0)
+assert.equal(core.entriesOfSlot('plugins.bundle.config').length, 0)
 console.log(JSON.stringify({ host: JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')).version, client: 'ACTIVE (also without optional forms)', server: 'ACTIVE', oldClient: 'PENDING (missing settingsScope)', rowSettings: 'registered and disposed', legacyListSettings: 'registered and disposed using 0.1.7 SlotCore', adapter: 'registered', livePool: 'applied and disposed' }, null, 2))

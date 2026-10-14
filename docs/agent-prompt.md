@@ -1,12 +1,12 @@
-# 任务：实现 opencode2dsh — DSH 免登录接入 OpenCode 免费模型
+# 任务：实现 opencode-zen — DSH 免登录接入 OpenCode 免费模型
 
-你是 opencode2dsh 的开工实现 Agent。你的唯一目标是按 `docs/design.md` + `docs/plan.md` 把项目从文档推到可运行。
+你是 opencode-zen 的开工实现 Agent。你的唯一目标是按 `docs/design.md` + `docs/plan.md` 把项目从文档推到可运行。
 
 ## 0. 先读什么（必读，顺序不能错）
 
-1. `D:\codes\dshPlugins\opencode2dsh\docs\design.md` — 架构设计，含所有设计决策 D1/D2、复用审计表 §5、目录结构 §10
-2. `D:\codes\dshPlugins\opencode2dsh\docs\plan.md` — 实施计划，Phase 0-3 每项含「做什么/复用来源/验收命令」
-3. `D:\codes\dshPlugins\cc-migrate\docs\design.md` — 参考 DSH cordis 插件形态（opencode2dsh 插件与 cc-migrate 同为 cordis 插件）
+1. `D:\codes\dshPlugins\opencode-zen\docs\design.md` — 架构设计，含所有设计决策 D1/D2、复用审计表 §5、目录结构 §10
+2. `D:\codes\dshPlugins\opencode-zen\docs\plan.md` — 实施计划，Phase 0-3 每项含「做什么/复用来源/验收命令」
+3. `D:\codes\dshPlugins\cc-migrate\docs\design.md` — 参考 DSH cordis 插件形态（opencode-zen 插件与 cc-migrate 同为 cordis 插件）
 4. 按需只读（不要改）：`C:\Users\FishBottle\AppData\Local\Temp\opencode\opencode2api\*.go` — 你的拷贝源。关键锚点已在 design.md §2.4/§5 标好行号。
 
 读完再动码。不要重新调研 opencode2api，不要臆造模型 ID。
@@ -17,7 +17,7 @@
 
 ## 2. 硬约束
 
-- 工作区：`D:\codes\dshPlugins\opencode2dsh`（workspace-write），`docs/` 已存在且已定稿，不要改文档
+- 工作区：`D:\codes\dshPlugins\opencode-zen`（workspace-write），`docs/` 已存在且已定稿，不要改文档
 - 上游源码：只拷贝，不改动 `C:\Users\FishBottle\...\opencode2api` 任何文件
 - Go 1.24，移植后零第三方依赖（`golang.org/x/crypto` 仅被不移植的 `password.go:12` 使用，删掉它依赖即清零）
 - 上游模型白名单由服务端 `allowAnonymous`（`packages/console/core/src/model.ts:28`）控制，客户端只能靠 `models.dev` 成本==0 判定 + 名称含 `free` 兜底去逼近，不要硬编码未经实测的模型 ID

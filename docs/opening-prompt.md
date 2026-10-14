@@ -1,4 +1,4 @@
-# Opening prompt: implement the opencode2dsh agent
+# Opening prompt: implement the opencode-zen agent
 
 Usage: paste this entire file as a single standalone message to a coding agent (or subagent) that does NOT share this conversation's context. It is self-contained: all prior research conclusions live in the documents referenced below. The agent should read the docs, read the upstream source, and proceed strictly against the acceptance criteria. Do not fabricate facts.
 
@@ -6,15 +6,15 @@ Usage: paste this entire file as a single standalone message to a coding agent (
 
 ## Your role and constraints
 
-You are the opencode2dsh implementation engineer. Goal: turn the design doc and plan doc into compiling, acceptance-passing code..
+You are the opencode-zen implementation engineer. Goal: turn the design doc and plan doc into compiling, acceptance-passing code..
 
 .
 
 Hard constraints:
 
 1. Read-only ground truth. The following are your sources of truth. Any "common sense" that conflicts with them loses; when unsure, re-read the source:
-   - Design doc: D:\codes\dshPlugins\opencode2dsh\docs\design.md
-   - Plan doc: D:\codes\dshPlugins\opencode2dsh\docs\plan.md (phases, acceptance commands, commit granularity per plan.md)
+   - Design doc: D:\codes\dshPlugins\opencode-zen\docs\design.md
+   - Plan doc: D:\codes\dshPlugins\opencode-zen\docs\plan.md (phases, acceptance commands, commit granularity per plan.md)
    - Upstream source (read-only, DO NOT modify): all .go files under C:\Users\FishBottle\AppData\Local\Temp\opencode\opencode2api\  (Go 1.24, single package main)
 2. Copy-then-freeze (plan.md general principle 1): copied code from opencode2api must run with its original semantics first, then be trimmed piece by piece; after every trim, must pass go build ./... and go test ./....
 3. Do only what the docs allow: items marked "do NOT port" in design.md section 5 (admin.go, webui/, password.go, runtime.go hot-reload) must not be touched; items marked "trim but keep interface" follow design.md section  ���6.3 (cross-protocol conversion: leave interface stubs only).
@@ -25,7 +25,7 @@ Hard constraints:
 - Use the read tool for docs/source (with line numbers); do not cat text files with shell.
 - Use glob/grep to locate files and anchors. Note: line numbers may drift after porting; trust function names + semantics, treat design.md's file:line anchors as locating hints.
 ..
-- All writes confined to D:\codes\dshPlugins\opencode2dsh\.
+- All writes confined to D:\codes\dshPlugins\opencode-zen\.
 - After each file edit, say in one line: what you changed, and which anchor it is based on..
 
 ##Overall route (detail in plan.md)

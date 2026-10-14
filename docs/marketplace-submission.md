@@ -1,12 +1,12 @@
 # Marketplace submission — awesome-dsh-plugin
 
-Draft for the PR that lists opencode2dsh in the dsh-market catalog
+Draft for the PR that lists opencode-zen in the dsh-market catalog
 ([awesome-dsh-plugin/awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)).
 Format verified against that repo's `contributing.md` (2026-08-29).
 
 ## The entry file
 
-Add exactly one file: `data/plugins/FishBottle7__opencode2dsh.yml`
+Add exactly one file: `data/plugins/xbzbing__opencode-zen.yml`
 (filename = `<owner>__<repo>.yml`).
 
 ```yaml
@@ -32,7 +32,7 @@ Notes on the wording (their review rules):
 - [ ] `dsh.bundle` manifest reachable **from the URL the entry points at**:
       the check reads the `package.json` at the entry URL. The repo ROOT now
       declares `dsh.bundle.patch: ./cordis.patch.yml` plus an npm dependency
-      on `@opencode2dsh/dsh-plugin` (commit 9c21f9e), so the entry points at
+      on `dsh-opencode-zen-provider` (commit 9c21f9e), so the entry points at
       the repository root with no `#` suffix and the npm mapping links.
       History: the first submission pointed at the root but was bounced
       ("root package.json declares no dsh.bundle"), refiled at the
@@ -54,7 +54,7 @@ Notes on the wording (their review rules):
 # 1. fork https://github.com/awesome-dsh-plugin/awesome-dsh-plugin
 # 2. in the fork:
 npm ci
-# 3. add data/plugins/FishBottle7__opencode2dsh.yml with the content above
+# 3. add data/plugins/xbzbing__opencode-zen.yml with the content above
 node scripts/generate-readme.mjs
 # 4. commit the YAML + both regenerated READMEs, open the PR
 ```
@@ -68,7 +68,7 @@ Add FishBottle7/opencode2dsh (model)
 ## PR body
 
 ```markdown
-Adds one entry: `data/plugins/FishBottle7__opencode2dsh.yml`.
+Adds one entry: `data/plugins/xbzbing__opencode-zen.yml`.
 
 **What it does** — registers a native DSH `LlmAdapter` that streams from
 OpenCode Zen's free endpoint (`Authorization: Bearer public`), so the
@@ -76,10 +76,10 @@ free models (big-pickle, hy3-free, ...) appear in the model picker without
 any API key. Catalog comes from the live `/v1/models` list
 intersected with models.dev free-by-metadata, falling back to a disk cache
 and a verified static list; the plugin auto-refreshes and writes a health
-snapshot to `~/.opencode2dsh/adapter-status.json`.
+snapshot to `~/.opencode-zen/adapter-status.json`.
 
 **Install source** — published to npm as
-[`@opencode2dsh/dsh-plugin`](https://www.npmjs.com/package/@opencode2dsh/dsh-plugin);
+[`dsh-opencode-zen-provider`](https://www.npmjs.com/package/dsh-opencode-zen-provider);
 its `repository` field points back at the listed repo.
 
 **Manifest** — `packages/plugin/package.json` declares
