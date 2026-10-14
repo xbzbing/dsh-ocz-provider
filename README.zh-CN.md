@@ -116,9 +116,11 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
      x-opencode-request, x-opencode-project
 ```
 
-- **会话关联**——session id 为规范的 `ses_*`（会话稳定的 Base62 尾段 + 时钟铸造的
-  时间前缀，兼顾上游 prompt-cache 亲和与不可逆推），每请求附一个全新的 `msg_*`
-  消息 id，project id 用客户端同款无前缀 `global`，与 CLI 行为一致。
+- **会话关联**——session id 为规范的 `ses_*`，两半都取自会话摘要：稳定的 Base62
+  尾段 + 计数器恒为 1 的降序时间前缀（免费层只接受 0–63 的计数器，且不校验时间戳
+  ——因此前缀不取自时钟，长驻进程永远不会走出这个窗口），兼顾上游 prompt-cache
+  亲和、不可逆推与跨重启稳定；每请求附一个全新的 `msg_*` 消息 id，project id 用
+  客户端同款无前缀 `global`，与 CLI 行为一致。
 - **目录回退链**——S1：实时 `GET /v1/models`；S2：models.dev 定价元数据判定
   "免费"；S3：编译期验证的静态名单。上游故障时由磁盘缓存（约 7 天有效期）兜底。
 - **韧性**——adapter 在启动时立即注册；若首次目录拉取撞上网络尚未就绪

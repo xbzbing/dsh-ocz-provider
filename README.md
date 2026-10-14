@@ -129,9 +129,12 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
      x-opencode-request, x-opencode-project
 ```
 
-- **Session correlation** — the session id is a canonical `ses_*` (a
-  conversation-stable Base62 tail plus a clock-minted time prefix, so upstream
-  prompt-cache affinity is stable and non-reversible), the per-request id is a
+- **Session correlation** — the session id is a canonical `ses_*` whose two
+  halves both come from the conversation's digest: a stable Base62 tail plus a
+  descending time prefix with counter 1 (the free tier accepts only counters
+  0-63 and ignores the timestamp), so upstream prompt-cache affinity is stable,
+  non-reversible and survives restarts — the prefix is not clock-derived, so a
+  long-lived host can never walk out of that window. The per-request id is a
   fresh `msg_*` message id, and the project id is the client's prefix-less
   `global`, mirroring the CLI.
 - **Catalog fallback chain** — S1: live `GET /v1/models`; S2: models.dev

@@ -352,10 +352,16 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  *   2. a canonical `ses_*` id rides `x-opencode-session` (or
  *      `x-opencode-session-id`) — and NOT `x-session-affinity` /
  *      `X-Session-Id`, which the client sends only for its other providers and
- *      which now mark a foreign client (adapter/ids.ts);
+ *      which now mark a foreign client (adapter/ids.ts). The id's 12-hex
+ *      prefix must be the client's DESCENDING word with its 12-bit counter in
+ *      0-63: live-probed 2026-10-15, counters 0/1/32/63 -> 200, 64/128 -> 403,
+ *      the timestamp half unchecked, so a clock-minted counter 403s everything
+ *      minted after the 64th (the prefix is now digest-derived, counter 1);
  *   3. `x-opencode-request` is a `msg_*` message id and `x-opencode-project`
  *      is the prefix-less project id (`global`, or a 40-hex worktree hash) —
- *      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts);
+ *      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts); the request
+ *      header is optional (the 2.x client omits it) and its word is never
+ *      decoded by the gate, while the project header is required;
  *   4. a streaming body (`stream: true`);
  *   5. a `tools` array carrying `bash` AND `read` with the GENUINE definitions
  *      (adapter/gate-tools.ts — the placeholder stubs this file used to inject

@@ -1,4 +1,4 @@
-import { f as conversationLabel, m as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, p as deriveRequestIDs, r as ZEN_BASE_URL } from "./catalog-BNFQ3XW4.js";
+import { f as conversationLabel, m as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, p as deriveRequestIDs, r as ZEN_BASE_URL } from "./catalog-h3c6GNa6.js";
 import { a as freeLaneGateFlatTool, c as isGenuineFlatGateTool, i as FREE_LANE_GATE_TOOL_NAMES, l as isGenuineGateTool, n as normalizeSmokeContents, o as freeLaneGateTool, s as gateToolArgumentBridge, t as DEFAULT_SMOKE_CONTENT } from "./smoke-content-3O2qKne8.js";
 import { c as LOCAL_EXIT_ID, d as emptyTotals, f as setUsageRecorder, l as UsageTracker, o as routingContext, p as usageTracker, s as DIRECT_EXIT_ID, t as DEFAULT_PROXY_PATH_PREFIXES, u as attributeUsage } from "./dispatcher-CuJu-myX.js";
 import { c as shouldRotate, i as classifyStreamFailure, n as DEFAULT_SUBSCRIPTION_USER_AGENT, o as isRegionBlocked, t as stateDir } from "./paths-Czv1ZEwZ.js";
@@ -490,10 +490,16 @@ async function toPiContext(options) {
 *   2. a canonical `ses_*` id rides `x-opencode-session` (or
 *      `x-opencode-session-id`) — and NOT `x-session-affinity` /
 *      `X-Session-Id`, which the client sends only for its other providers and
-*      which now mark a foreign client (adapter/ids.ts);
+*      which now mark a foreign client (adapter/ids.ts). The id's 12-hex
+*      prefix must be the client's DESCENDING word with its 12-bit counter in
+*      0-63: live-probed 2026-10-15, counters 0/1/32/63 -> 200, 64/128 -> 403,
+*      the timestamp half unchecked, so a clock-minted counter 403s everything
+*      minted after the 64th (the prefix is now digest-derived, counter 1);
 *   3. `x-opencode-request` is a `msg_*` message id and `x-opencode-project`
 *      is the prefix-less project id (`global`, or a 40-hex worktree hash) —
-*      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts);
+*      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts); the request
+*      header is optional (the 2.x client omits it) and its word is never
+*      decoded by the gate, while the project header is required;
 *   4. a streaming body (`stream: true`);
 *   5. a `tools` array carrying `bash` AND `read` with the GENUINE definitions
 *      (adapter/gate-tools.ts — the placeholder stubs this file used to inject
@@ -2030,7 +2036,7 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 			};
 		},
 		async models() {
-			const { staticFreeModels } = await import("./catalog-2HUpbXaQ.js");
+			const { staticFreeModels } = await import("./catalog-B_VWdLPh.js");
 			const rows = staticFreeModels.map((id) => ({
 				id,
 				verified: true
@@ -2308,7 +2314,7 @@ function makeSessionTitleResolver(query, options = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-B2KfR2Dr.js");
+	const { startIpPool } = await import("./ip-pool-BA3iW_QO.js");
 	return startIpPool(config, logger);
 };
 /**

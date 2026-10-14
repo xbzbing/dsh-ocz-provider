@@ -113,27 +113,37 @@ export function deriveRequestIDs(messages: Array<{ role: string; content: unknow
  *
  * Since 2026-10-13 the tier additionally DECODES the 12 hex characters as an
  * inverted millisecond timestamp, ~(unix_ms*0x1000+counter) in its low 48
- * bits — a digest-derived prefix reads as a non-OpenCode client and 403s, so
- * the timestamp half must be MINTED from the clock (upstream fix:
- * jasonxu114514/opencode2api PR #69; the same defect in decolua/9router is
- * issue #4780). Live-verified 2026-10-13 against /zen/v1/chat/completions
- * with the full gate body: digest prefix -> 403, minted prefix -> 200, the
- * same minted id again -> 200.
+ * bits (upstream fixes: jasonxu114514/opencode2api PR #69, then PR #70; the
+ * same defect in decolua/9router is issue #4780). Two rules, both re-probed
+ * live 2026-10-15 against /inference/v1 with the full gate body and this
+ * adapter's header set, one variable at a time:
+ *
+ *   1. the word must be INVERTED — a digest-shaped or ascending prefix 403s;
+ *   2. the 12-bit counter must land in 0-63. After the inversion the low 12
+ *      bits read 0xFFF-counter, so anything below 0xFC0 403s: counters 0, 1,
+ *      32 and 63 -> 200, counters 64 and 128 -> 403. The timestamp half is
+ *      not checked at all — a prefix decoding to ts36=1 (epoch+1ms) -> 200.
+ *
+ * So a clock-derived counter dies after 64 mints in a long-lived process
+ * (exactly what PR #70 replaced), and this adapter mints often: one session
+ * per new conversation AND one per pool exit address (pool/admission.ts), so
+ * a single refill round could burn the window and 403 every session minted
+ * afterwards. The prefix is therefore DERIVED FROM THE DIGEST with counter 1
+ * — always inside the window, stateless, and one conversation keeps one id
+ * even across restarts (PR #70's encoding; the in-memory cache it replaces
+ * could not do that).
  */
 const CANONICAL_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/
 
-const BASE62_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-
 /**
- * Bounded signal→session cache (upstream PR #69). Entries are keyed by
- * digest, because conversation seeds can be large; the whole map drops when
- * full, which only costs affinity for the oldest conversations.
+ * The acceptance window for the inverted counter: after the bitwise NOT the
+ * low 12 bits read 0xFFF-counter, so a genuine descending id always has `f`
+ * followed by `[c-f]` in the 10th/11th hex character (counter 0-63). A
+ * canonical-shaped id outside it is re-encoded rather than passed through.
  */
-const SESSION_CACHE_LIMIT = 8192
-const sessionCache = new Map<string, string>()
+const DESCENDING_TIME_PART_PATTERN = /^[0-9a-f]{9}f[c-f][0-9a-f]$/
 
-/** Clock state for the descending time prefix (mirrors the OpenCode client). */
-let sessionCounter = 0
+const BASE62_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
 function base62Fixed(value: bigint, width: number): string {
   const base = 62n
@@ -146,21 +156,27 @@ function base62Fixed(value: bigint, width: number): string {
   return out.join('')
 }
 
-/**
- * The 12 hex characters OpenCode derives from `~(unix_ms * 0x1000 +
- * counter)` truncated to its low 48 bits — a descending scheme, so newer ids
- * sort first. The counter keeps same-millisecond ids distinct; the inversion
- * is arithmetic on a BigInt (sign-extended), so taking the low 6 bytes
- * yields exactly the official client's prefix.
- */
-function mintedTimePrefix(): string {
-  sessionCounter = (sessionCounter + 1) & 0xfff
-  const value = ~(BigInt(Date.now()) * 0x1000n + BigInt(sessionCounter))
+/** The low 6 bytes of a 48-bit id word, lowercase hex (the client's carry width). */
+function hex48(value: bigint): string {
   let hex = ''
   for (let bit = 40; bit >= 0; bit -= 8) {
     hex += Number((value >> BigInt(bit)) & 0xffn).toString(16).padStart(2, '0')
   }
   return hex
+}
+
+/**
+ * The 12 hex characters of a descending session id: the digest's leading 36
+ * bits as the "timestamp", counter 1 in the low 12 bits, then the client's
+ * bitwise NOT, so newer ids sort first. The inversion is arithmetic on a
+ * BigInt (sign-extended), and taking the low 6 bytes yields exactly the
+ * official client's prefix — with the counter inside the 0-63 window the
+ * gate accepts, whatever the digest says.
+ */
+function descendingTimePrefix(sum: Buffer): string {
+  // the digest's leading 36 bits = first 32 bits + the top nibble of byte 4
+  const timestamp = (BigInt(sum.readUInt32BE(0)) << 4n) | BigInt((sum[4] ?? 0) >> 4)
+  return hex48(~((timestamp << 12n) | 1n) & ((1n << 48n) - 1n))
 }
 
 /** Clock state for the ascending message-id prefix (kept apart from sessions). */
@@ -173,39 +189,33 @@ let messageCounter = 0
  * session prefix WITHOUT the inversion, plus a random Base62 tail. The gate
  * only ever sees it as the `x-opencode-request` header, so the tail carries no
  * affinity: one fresh id per request is what the client does (`input.user.id`
- * is that request's own user turn).
+ * is that request's own user turn). Unlike the session word, this one is not
+ * decoded by the gate at all — live-probed 2026-10-15: counters 64 and 4095,
+ * ts36=1, an inverted word and a junk tail all return 200 — so the process
+ * counter behind it can never walk out of a window.
  */
 export function mintedMessageID(): string {
   messageCounter = (messageCounter + 1) & 0xfff
   const value = BigInt(Date.now()) * 0x1000n + BigInt(messageCounter)
-  let hex = ''
-  for (let bit = 40; bit >= 0; bit -= 8) {
-    hex += Number((value >> BigInt(bit)) & 0xffn).toString(16).padStart(2, '0')
-  }
-  return `msg_${hex}${base62Fixed(BigInt('0x' + randomBytes(10).toString('hex')), 14)}`
+  return `msg_${hex48(value)}${base62Fixed(BigInt('0x' + randomBytes(10).toString('hex')), 14)}`
 }
 
 /**
  * The session id sent upstream. A signal that already carries an official
- * OpenCode session passes through unchanged (preserving upstream prompt-cache
- * affinity). Any other identity — the conversation seed in adapter mode,
- * foreign client sessions, admission probes — keeps its digest-derived
- * Base62 tail (stable per conversation, so affinity does not change) but the
- * time prefix is MINTED from the clock: the free tier decodes the prefix and
- * rejects digest-shaped ones (2026-10-13, upstream PR #69). One signal
- * therefore returns one id for the life of the process.
+ * OpenCode session whose counter is inside the acceptance window passes
+ * through unchanged (preserving upstream prompt-cache affinity); a canonical
+ * but out-of-window id — or any foreign identity (the conversation seed in
+ * adapter mode, admission probes) — is re-encoded from its digest: the
+ * 14-char Base62 tail stays digest-derived so per-conversation affinity does
+ * not change, and the prefix is the digest's own descending timestamp with
+ * counter 1. Pure function of the signal: one signal always returns one id,
+ * in this process and the next one (2026-10-15, upstream PR #70).
  */
 export function canonicalSessionID(signal: string): string {
-  if (CANONICAL_SESSION_PATTERN.test(signal)) return signal
+  if (CANONICAL_SESSION_PATTERN.test(signal) && DESCENDING_TIME_PART_PATTERN.test(signal.slice(4, 16))) return signal
   const sum = createHash('sha256').update('ses\x00' + signal).digest()
-  const key = sum.toString('hex')
-  const cached = sessionCache.get(key)
-  if (cached !== undefined) return cached
   const randomPart = base62Fixed(BigInt('0x' + sum.subarray(6, 16).toString('hex')), 14)
-  const id = `ses_${mintedTimePrefix()}${randomPart}`
-  if (sessionCache.size >= SESSION_CACHE_LIMIT) sessionCache.clear()
-  sessionCache.set(key, id)
-  return id
+  return `ses_${descendingTimePrefix(sum)}${randomPart}`
 }
 
 /** CLI-identical user agent (ids.go opencodeUserAgent, node runtime values). */
@@ -227,6 +237,17 @@ export function opencodeUserAgent(): string {
  * `/inference/v1` with an otherwise-passing request, adding
  * `x-session-affinity` and/or `X-Session-Id` -> 403 FreeTierError, while
  * `x-opencode-session` alone (or with `x-opencode-session-id`) -> 200.
+ *
+ * 2026-10-15: that check is FINGERPRINT COHERENCE, not a fixed allow-list.
+ * Replaying upstream's own 2.x recipe (jasonxu114514/opencode2api PR #83: UA
+ * `opencode/latest/<ver>/cli`, all four session spellings, a 40-hex project
+ * and the 2.x `shell/edit/glob/grep/read` definitions) also answers 200 —
+ * while mixing the two fingerprints 403s every time (this UA with 2.x tool
+ * names, their UA with our `x-opencode-request: msg_*`). Dropping
+ * `x-opencode-request` from THIS set stays 200 as well, so the header is
+ * optional here; it is kept because the 1.18.31 client sends it and `req_*`
+ * is a rejection signal. Adopting any part of another generation's recipe
+ * without the rest is what fails, not this set.
  */
 export function disguiseHeaders(ids: RequestIDs): Record<string, string> {
   return {
