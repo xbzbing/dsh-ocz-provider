@@ -74,6 +74,7 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 | On-disk state root | `~/.dsh/oc2dsh` (env `OC2DSH_HOME` redirects) | src/paths.ts `stateDir()` |
 | Credential env var (sidecar only) | `OC2DSH_TOKEN` | src/config.ts |
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/IpPoolCard.tsx `IP_POOL_FIELD` |
+| Zen-lane User-Agent (config, ordinary field) | `userAgent` — empty = the built-in `opencode/1.18.31 (<platform> <arch>; node<ver>)`; it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `opencodeUserAgent` |
 | Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call) | src/adapter/catalog.ts `ZEN_BASE_URL` |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
 

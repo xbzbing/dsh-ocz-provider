@@ -92,6 +92,18 @@ interface Opencode2dshConfig {
    */
   responsesBodyIdleMs?: number;
   /**
+   * The User-Agent sent on every Zen request (adapter mode): chat, the model
+   * catalog refresh and the pool's admission probes. Empty = the built-in
+   * CLI-identical value (`opencode/1.18.31 (<platform> <arch>; node<ver>)`).
+   *
+   * The anonymous lane accepts a FINGERPRINT, not one string: this header
+   * travels with the session/project/request id shapes and the tool
+   * definitions, and mixing two generations answers 403. Change it only to a
+   * UA whose generation you can keep coherent (adapter/ids.ts
+   * `disguiseHeaders` holds the live-probed recipes).
+   */
+  userAgent?: string;
+  /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
    * the cordis.patch.yml seam.
@@ -199,8 +211,15 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   firstEventMs: Schema<number, number, "plain">;
   /** Watchdog: ms of body silence tolerated mid-stream (chat models). */
   bodyIdleMs: Schema<number, number, "plain">;
-  /** Watchdog: body-idle floor for Responses models (muse-spark-*). */
+  /** Watchdog: ms of body-idle floor for Responses models (muse-spark-*). */
   responsesBodyIdleMs: Schema<number, number, "plain">;
+  /**
+   * The User-Agent sent on every Zen request. Ordinary config — the card
+   * does not edit it, the profile patch does. No `.default()`: the adapter
+   * owns the built-in CLI-identical string (ids.ts `opencodeUserAgent`), and
+   * duplicating it here would be a second source of truth for one header.
+   */
+  userAgent: Schema<string, string, "plain">;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -305,8 +324,15 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   firstEventMs: Schema<number, number, "plain">;
   /** Watchdog: ms of body silence tolerated mid-stream (chat models). */
   bodyIdleMs: Schema<number, number, "plain">;
-  /** Watchdog: body-idle floor for Responses models (muse-spark-*). */
+  /** Watchdog: ms of body-idle floor for Responses models (muse-spark-*). */
   responsesBodyIdleMs: Schema<number, number, "plain">;
+  /**
+   * The User-Agent sent on every Zen request. Ordinary config — the card
+   * does not edit it, the profile patch does. No `.default()`: the adapter
+   * owns the built-in CLI-identical string (ids.ts `opencodeUserAgent`), and
+   * duplicating it here would be a second source of truth for one header.
+   */
+  userAgent: Schema<string, string, "plain">;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;

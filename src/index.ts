@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 
 import { ModelCatalog, defaultCachePath, type CatalogSnapshot } from './adapter/catalog.ts'
+import { setUserAgentOverride } from './adapter/ids.ts'
 import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { AgentProcess, type ReadyInfo } from './agent-process.ts'
 import { Config, configPaths, ensureToken, ordinaryConfig, resolveConfig, writeAgentConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
@@ -104,9 +105,14 @@ export function apply(ctx: PluginContext, config: ResolvedPluginConfig | Opencod
   // A host that predates the `Config` export hands over the raw patch object
   // (no volatile reference); readVolatile copes with both spellings.
   const resolved = config as ResolvedPluginConfig
-  const mode = resolveConfig(config as Opencode2dshConfig).mode
+  const cfg = resolveConfig(config as Opencode2dshConfig)
+  // The Zen-lane User-Agent is ordinary config, but every sender reads it at
+  // request time (chat adapter, catalog refresh, admission probes), so it is
+  // applied here — before either branch — and the first /models fetch already
+  // carries it. Empty restores the built-in CLI-identical value.
+  setUserAgentOverride(cfg.userAgent)
   // Cordis accepts disposal effects; readiness objects are invalid effects.
-  if (mode === 'sidecar') applySidecar(ctx, config as Opencode2dshConfig)
+  if (cfg.mode === 'sidecar') applySidecar(ctx, config as Opencode2dshConfig)
   else applyAdapter(ctx, resolved, () => readVolatile<IpPoolSettings>(resolved.ipPool))
 }
 

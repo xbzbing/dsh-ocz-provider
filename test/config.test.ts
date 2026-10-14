@@ -12,10 +12,12 @@ test('resolveConfig fills defaults and keeps overrides', () => {
   assert.equal(base.providerId, defaults.providerId)
   assert.equal(base.apiKeyEnv, defaults.apiKeyEnv)
   assert.equal(base.restartMaxDelayMs, 60000)
-  const custom = resolveConfig({ providerId: 'x', refreshSeconds: 60 })
+  assert.equal(base.userAgent, undefined, 'no configured UA means the adapter keeps its built-in one')
+  const custom = resolveConfig({ providerId: 'x', refreshSeconds: 60, userAgent: 'opencode/1.19.0 (darwin 27.0.0; arm64)' })
   assert.equal(custom.providerId, 'x')
   assert.equal(custom.refreshSeconds, 60)
   assert.equal(custom.apiKeyEnv, defaults.apiKeyEnv)
+  assert.equal(custom.userAgent, 'opencode/1.19.0 (darwin 27.0.0; arm64)')
 })
 
 test('ensureToken persists and reuses one token', async () => {

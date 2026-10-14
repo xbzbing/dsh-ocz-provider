@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID } from '../src/adapter/ids.ts'
+import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, setUserAgentOverride } from '../src/adapter/ids.ts'
 
 test('randomID differs per call with the requested size', () => {
   const a = randomID('req', 16)
@@ -165,4 +165,23 @@ test('disguiseHeaders carries the CLI-identical correlation set', () => {
   assert.equal(headers['x-opencode-project'], ids.project)
   assert.ok(headers['user-agent'].startsWith('opencode/'))
   assert.ok(headers['user-agent'].includes(process.platform))
+})
+
+test('the configured user-agent override moves every header set, and clearing restores the built-in value', () => {
+  const ids = deriveRequestIDs([{ role: 'user', content: 'hello' }])
+  const builtIn = opencodeUserAgent()
+  assert.match(builtIn, /^opencode\/1\.18\.31 \(/, 'the shipped value stays the CLI-identical one')
+  const desktop = 'opencode/1.19.0 (darwin 27.0.0; arm64)'
+  try {
+    setUserAgentOverride(desktop)
+    assert.equal(opencodeUserAgent(), desktop, 'the override wins')
+    assert.equal(disguiseHeaders(ids)['user-agent'], desktop, 'the wire header set follows it')
+    // whitespace-only is "unset", never a blank header on the wire
+    setUserAgentOverride('   ')
+    assert.equal(opencodeUserAgent(), builtIn)
+  } finally {
+    setUserAgentOverride('')
+  }
+  assert.equal(opencodeUserAgent(), builtIn, 'a cleared setting leaves the shipped value in force')
+  assert.equal(disguiseHeaders(ids)['user-agent'], builtIn, 'and so does every header set built after it')
 })

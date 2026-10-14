@@ -218,8 +218,43 @@ export function canonicalSessionID(signal: string): string {
   return `ses_${descendingTimePrefix(sum)}${randomPart}`
 }
 
-/** CLI-identical user agent (ids.go opencodeUserAgent, node runtime values). */
+/**
+ * The User-Agent override from plugin config (`userAgent`). Empty = the
+ * built-in value below. Module state on purpose: the three senders (the chat
+ * adapter, the model catalog and the pool's admission probes) all call
+ * {@link opencodeUserAgent} at request time, so one setting moves every wire
+ * request without threading it through four signatures.
+ */
+let userAgentOverride = ''
+
+/**
+ * Set the configured User-Agent. Empty or whitespace restores the built-in
+ * value, so a cleared field in a profile patch cannot put a blank header on
+ * the wire.
+ */
+export function setUserAgentOverride(value: string | undefined): void {
+  userAgentOverride = (value ?? '').trim()
+}
+
+/**
+ * The User-Agent every Zen request carries: CLI-identical by default (ids.go
+ * opencodeUserAgent, node runtime values), the configured `userAgent` when one
+ * is set.
+ *
+ * The anonymous lane reads a whole FINGERPRINT — this header plus the
+ * session/project/request id shapes and the tool definitions — so the two ways
+ * to change it are: move THIS string alone, or move the recipe whole. Live
+ * 2026-10-15 against /inference/v1 with this adapter's fingerprint held
+ * constant and one variable at a time, each of these answered 200: the
+ * built-in value, this machine's real desktop shape
+ * (`opencode/1.19.0 (darwin 27.0.0; arm64)`, extracted from the app's
+ * `app.asar`) and upstream's 2.x shape (`opencode/latest/2.0.29/cli`). The
+ * gate does not pin the UA string. What still 403s is mixing GENERATIONS
+ * inside one request — 2.x tool names under this header set, or upstream's
+ * header set carrying our `x-opencode-request` ({@link disguiseHeaders}).
+ */
 export function opencodeUserAgent(): string {
+  if (userAgentOverride !== '') return userAgentOverride
   return `opencode/1.18.31 (${process.platform} ${process.arch}; node${process.versions.node})`
 }
 
