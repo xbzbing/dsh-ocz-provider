@@ -712,6 +712,73 @@ test('usage view: sessions are joined to projects at read time', () => {
   ], 'rolled up per project, heaviest first')
 })
 
+test('usage view: session rows prefer the host session title over the recorded prompt label', () => {
+  // Live request 2026-10-14: the Top 会话 names read like "part of the
+  // prompt" — the ledger records the first user turn, but the session's real
+  // name is the host's title. The join happens at read time, so the same
+  // ledger serves both spellings.
+  const store = ledger()
+  store.record('a:1', { inputTokens: 100, outputTokens: 50 }, { session: 'ses_1', label: '帮我修一下弹窗的那个 bug 吧' })
+  store.record('a:1', { inputTokens: 10, outputTokens: 5 }, { session: 'ses_2', label: '另一个提示词片段' })
+
+  const titles = new Map([['ses_1', '弹窗 toast 修复']])
+  const view = buildUsageView(store, 'total', { sessionTitles: titles })
+  assert.ok(view)
+  assert.equal(view.sessions.find((row) => row.id === 'ses_1')?.label, '弹窗 toast 修复', 'the host title wins')
+  assert.equal(
+    view.sessions.find((row) => row.id === 'ses_2')?.label,
+    '另一个提示词片段',
+    'a session the host cannot title keeps the recorded label — never an empty row',
+  )
+  const plain = buildUsageView(store, 'total', {})
+  assert.equal(plain!.sessions.find((row) => row.id === 'ses_1')?.label, '帮我修一下弹窗的那个 bug 吧', 'no resolver = old behaviour')
+})
+
+test('status handler: the title prefetch asks for exactly the rows the view renders', async () => {
+  // The join lives in status(), not the view builder: /status is async, the
+  // fold is host-side, and the ids requested must be the same slice the table
+  // shows (same scope, same limit) or rows silently keep prompt labels.
+  const store = ledger()
+  store.record('a:1', { inputTokens: 100, outputTokens: 50 }, { session: 'ses_1', label: 'prompt fragment' })
+  store.record('a:1', { inputTokens: 10, outputTokens: 5 }, { session: 'ses_2', label: 'other fragment' })
+  const asked: string[][] = []
+  const handlers = makeBridgeHandlers(
+    () => null,
+    () => ({ pinnedStrict: false, proxyHosts: [], usageScope: 'total' as const }),
+    {
+      usage: store,
+      sessionTitles: async (ids) => {
+        asked.push([...ids])
+        return ids.includes('ses_1') ? new Map([['ses_1', 'host title']]) : new Map()
+      },
+    },
+  )
+
+  const result = await handlers.status()
+  assert.equal(result.ok, true)
+  const usage = (result as { value: { usage: { sessions: Array<{ id: string; label: string }> } } }).value.usage
+  assert.deepEqual(
+    usage.sessions.map((row) => [row.id, row.label]),
+    [['ses_1', 'host title'], ['ses_2', 'other fragment']],
+    'title where the host has one, recorded label otherwise',
+  )
+  assert.deepEqual(asked, [['ses_1', 'ses_2']], 'the prefetch covered both rendered rows')
+})
+
+test('status handler: a throwing title resolver never breaks /status', async () => {
+  const store = ledger()
+  store.record('a:1', { inputTokens: 100, outputTokens: 50 }, { session: 'ses_1', label: 'kept label' })
+  const handlers = makeBridgeHandlers(
+    () => null,
+    () => ({ pinnedStrict: false, proxyHosts: [] }),
+    { usage: store, sessionTitles: async () => { throw new Error('host gone') } },
+  )
+  const result = await handlers.status()
+  assert.equal(result.ok, true, 'numbers still answer without titles')
+  const usage = (result as { value: { usage: { sessions: Array<{ label: string }> } } }).value.usage
+  assert.equal(usage.sessions[0]?.label, 'kept label')
+})
+
 test('usage view: the scope switch changes the scoped numbers, never the all-time one', () => {
   const store = ledger()
   store.record('a:1', { inputTokens: 10, outputTokens: 10 }, { session: 'ses_1', label: 'x' })

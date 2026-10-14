@@ -1267,6 +1267,12 @@ const IP_POOL_BRIDGE_PREFIX = "/api/opencode2dsh/ip-pool";
 /** Cap on JSON request bodies (a probe trigger is tiny). */
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 /**
+* Sessions listed in the 流量 tab. Shared by the status prefetch and the view
+* builder so both slice the ledger to the same population — the title join
+* must ask for exactly the ids the table will render.
+*/
+const USAGE_SESSION_LIMIT = 20;
+/**
 * The four-state thresholds (docs 3.5) applied to a usable/capacity ratio.
 * An empty population reads `warning`, never `emergency`: an enabled pool
 * whose exits have not landed yet (subscription still fetching) is not the
@@ -1391,6 +1397,7 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 		local: localView(store, scope),
 		usage: buildUsageView(store, scope, {
 			projectOf: options.projectOf,
+			sessionTitles: options.sessionTitles,
 			runSince: options.runSince
 		}),
 		at: now
@@ -1433,14 +1440,17 @@ function localView(store, scope) {
 *
 * Sessions are listed heaviest-first and their projects resolved through the
 * registry seam — a session whose project cannot be resolved keeps a null
-* project rather than a fabricated one.
+* project rather than a fabricated one. The row NAME prefers the host's own
+* session title over the recorded first-prompt label (live request
+* 2026-10-14: the list "looks like part of the prompt" — the prompt fragment
+* is now only the fallback for sessions the host cannot title).
 */
 function buildUsageView(store, scope, options = {}) {
 	if (store === void 0) return null;
-	const sessionLimit = options.sessionLimit ?? 20;
+	const sessionLimit = options.sessionLimit ?? USAGE_SESSION_LIMIT;
 	const sessions = store.sessions(scope, sessionLimit).map((row) => ({
 		id: row.id,
-		label: row.label,
+		label: options.sessionTitles?.get(row.id) || row.label,
 		requests: row.totals.requests,
 		tokens: row.totals.inputTokens + row.totals.outputTokens + row.totals.cacheReadTokens + row.totals.cacheWriteTokens,
 		outputTokens: row.totals.outputTokens,
@@ -1558,6 +1568,23 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 	return {
 		async status() {
 			const current = settings();
+			/**
+			* The top-session join (live request 2026-10-14): ask the host for the
+			* titles of exactly the rows the view will render, before building it —
+			* the resolver is TTL-cached, so the modal's 2s poll mostly reads cache.
+			* A missing resolver or a failed batch just yields no map: every row
+			* keeps its recorded label and /status still answers.
+			*/
+			let sessionTitles;
+			const store = deps.usage;
+			if (deps.sessionTitles !== void 0 && store !== void 0) {
+				const scope = current.usageScope ?? "total";
+				try {
+					sessionTitles = await deps.sessionTitles(store.sessions(scope, USAGE_SESSION_LIMIT).map((row) => row.id));
+				} catch {
+					sessionTitles = void 0;
+				}
+			}
 			return {
 				ok: true,
 				value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, {
@@ -1566,6 +1593,7 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 					usage: deps.usage,
 					usageScope: current.usageScope,
 					projectOf: deps.projectOf,
+					sessionTitles,
 					runSince: deps.runSince?.()
 				})
 			};
@@ -1831,6 +1859,66 @@ function makeBridgeRoutes(handlers, deps = {}) {
 }
 
 //#endregion
+//#region src/pool/session-titles.ts
+/** Cached RESOLVED titles are reused for this long (renames show up later). */
+const TITLE_HIT_TTL_MS = 6e4;
+/** A miss (no title yet / unknown session) is retried after this long. */
+const TITLE_MISS_TTL_MS = 15e3;
+/** Bound on the cache; dropped wholesale when exceeded (like ids.ts' session cache). */
+const TITLE_CACHE_LIMIT = 2048;
+/**
+* Build a cached title resolver over one host session-query service.
+*
+* @param query - the host's `ctx.sessionQuery` (structural: any object with
+*   a compatible `readTitleSnapshots`, or none of it).
+* @param options - `now` clock seam (tests); TTLs follow the exported defaults.
+* @returns a resolver that never rejects: query failures and rejected rows
+*   resolve to "whatever was cached", so `/status` can never fail on titles.
+*/
+function makeSessionTitleResolver(query, options = {}) {
+	const now = options.now ?? Date.now;
+	const cache = /* @__PURE__ */ new Map();
+	return async (sessionIds) => {
+		const out = /* @__PURE__ */ new Map();
+		if (typeof query.readTitleSnapshots !== "function") return out;
+		const seen = /* @__PURE__ */ new Set();
+		const missing = [];
+		const stamp = now();
+		for (const id of sessionIds) {
+			if (id === "" || seen.has(id)) continue;
+			seen.add(id);
+			const hit = cache.get(id);
+			const ttl = hit !== void 0 && hit.title !== "" ? TITLE_HIT_TTL_MS : TITLE_MISS_TTL_MS;
+			if (hit !== void 0 && stamp - hit.at < ttl) {
+				if (hit.title !== "") out.set(id, hit.title);
+				continue;
+			}
+			missing.push(id);
+		}
+		if (missing.length === 0) return out;
+		let rows = [];
+		try {
+			rows = await query.readTitleSnapshots(missing);
+		} catch {
+			return out;
+		}
+		const answered = now();
+		for (const row of rows) {
+			const id = typeof row.sessionId === "string" ? row.sessionId : "";
+			if (id === "") continue;
+			const title = row.status === "fulfilled" && typeof row.value?.title?.title === "string" ? row.value.title.title : "";
+			if (cache.size >= TITLE_CACHE_LIMIT) cache.clear();
+			cache.set(id, {
+				title,
+				at: answered
+			});
+			if (title !== "") out.set(id, title);
+		}
+		return out;
+	};
+}
+
+//#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
 	const { startIpPool } = await import("./ip-pool-7gGGDMON.js");
@@ -1928,6 +2016,22 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 		};
 	}));
 	/**
+	* Session id → the HOST's session title, for the 流量 tab's Top 会话 names.
+	*
+	* The ledger records the first user turn at request time, so the list used
+	* to read like "part of the prompt" (live request 2026-10-14). The real
+	* title lives in the host's session log (`session/title` events), owned by
+	* `ctx.sessionQuery`, so it is joined READ-TIME — the same optional-service
+	* pattern as projectOf above: a composition without the service, or one
+	* whose title corpus is empty, simply keeps the recorded labels.
+	*/
+	let sessionTitles;
+	if (typeof ctx.inject === "function") Promise.resolve(ctx.inject(["sessionQuery"], (sctx) => {
+		const query = sctx.sessionQuery;
+		if (query === void 0 || typeof query.readTitleSnapshots !== "function") return;
+		sessionTitles = makeSessionTitleResolver(query);
+	}));
+	/**
 	* Persist one pin value into this plugin's own namespace. `pinnedExitId` is
 	* a volatile field of the entry's Config, so the path carries the field name
 	* in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
@@ -1962,6 +2066,7 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 			writePin,
 			usage: deps.usage,
 			projectOf: (sessionId) => projectOf?.(sessionId) ?? null,
+			sessionTitles: async (ids) => sessionTitles !== void 0 ? sessionTitles(ids) : /* @__PURE__ */ new Map(),
 			runSince: () => Date.now() - Math.round(process.uptime() * 1e3)
 		});
 		const disposers = [];

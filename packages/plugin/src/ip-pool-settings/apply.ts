@@ -22,6 +22,7 @@ import type { OrdinaryPluginConfig } from '../config.ts'
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, toIpPoolConfig, type IpPoolSettings } from './namespace.ts'
 import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type ProjectResolver, type WritePin } from './bridge.ts'
+import { makeSessionTitleResolver, type SessionTitleResolver } from '../pool/session-titles.ts'
 import type { UsageStore } from '../pool/usage-store.ts'
 
 export interface IpPoolController {
@@ -176,6 +177,25 @@ export function applyIpPoolSettings(
   }
 
   /**
+   * Session id → the HOST's session title, for the 流量 tab's Top 会话 names.
+   *
+   * The ledger records the first user turn at request time, so the list used
+   * to read like "part of the prompt" (live request 2026-10-14). The real
+   * title lives in the host's session log (`session/title` events), owned by
+   * `ctx.sessionQuery`, so it is joined READ-TIME — the same optional-service
+   * pattern as projectOf above: a composition without the service, or one
+   * whose title corpus is empty, simply keeps the recorded labels.
+   */
+  let sessionTitles: SessionTitleResolver | undefined
+  if (typeof ctx.inject === 'function') {
+    void Promise.resolve(ctx.inject(['sessionQuery'], (sctx: PluginContext) => {
+      const query = sctx.sessionQuery
+      if (query === undefined || typeof query.readTitleSnapshots !== 'function') return
+      sessionTitles = makeSessionTitleResolver(query)
+    })) as unknown as Promise<unknown>
+  }
+
+  /**
    * Persist one pin value into this plugin's own namespace. `pinnedExitId` is
    * a volatile field of the entry's Config, so the path carries the field name
    * in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
@@ -240,6 +260,13 @@ export function applyIpPoolSettings(
           // The persistent ledger + the project join for the 流量 tab.
           usage: deps.usage,
           projectOf: (sessionId: string) => projectOf?.(sessionId) ?? null,
+          // The session-title join for the same tab, read at REQUEST time
+          // (like projectOf): ctx.sessionQuery may compose after webServer, a
+          // late binding keeps the join no matter which service arrives first.
+          // A composition without it resolves to an empty map and every row
+          // keeps its recorded first-prompt label.
+          sessionTitles: async (ids: readonly string[]) =>
+            sessionTitles !== undefined ? sessionTitles(ids) : new Map<string, string>(),
           runSince: () => Date.now() - Math.round(process.uptime() * 1000),
         },
       )

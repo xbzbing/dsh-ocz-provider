@@ -635,7 +635,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 | Tab | 内容 |
 | --- | --- |
 | 出口 | 下表（每出口一行）+ 汇总 chips |
-| 流量 | 持久台账视图（`src/client/UsagePanel.tsx`）：口径 chip（总览/本次重启）+ 请求/Token/tok-s/会话数/活跃天数；**每天**（近 14 天的条形列表，按窗口内最重的一天归一，右侧带真实数字）；**Top 会话**（按 token 降序，会话名 = 首轮用户消息截断，悬停显示完整 id，带项目列与最后使用）；**项目**（按项目汇总的会话数/token/请求数）；底部脚注说明台账规模与保留天数 |
+| 流量 | 持久台账视图（`src/client/UsagePanel.tsx`）：口径 chip（总览/本次重启）+ 请求/Token/tok-s/会话数/活跃天数；**每天**（近 14 天的条形列表，按窗口内最重的一天归一，右侧带真实数字）；**Top 会话**（按 token 降序，**会话名 = 宿主会话标题**（`ctx.sessionQuery.readTitleSnapshots` 读时 join，带 TTL 缓存，2026-10-14 修复「显示的是部分提示词」），宿主无法标题的会话回退到台账记录的首轮消息截断；悬停显示完整 id，带项目列与最后使用）；**项目**（按项目汇总的会话数/token/请求数）；底部脚注说明台账规模与保留天数 |
 
 出口 tab 的列：
 
@@ -661,7 +661,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 | --- | --- | --- |
 | `totals` | 全时段累计 | **永不清零**——页脚的「总览」必须跨越保留窗口仍然诚实 |
 | `days` | 每个本地日历日一个桶（`YYYY-MM-DD`，按宿主时区） | 保留 90 天，过期在 load/prune 时丢弃 |
-| `sessions` | 按会话 id：可读 label（首轮用户消息截断 64 字）、首末时刻、token 桶 | 上限 500，按最后活动淘汰 |
+| `sessions` | 按会话 id：可读 label（首轮用户消息截断 64 字；**仅为回退**——展示时优先读时 join 的宿主会话标题，见 §5.5）、首末时刻、token 桶 | 上限 500，按最后活动淘汰 |
 | `exits` | 按出口 id：token 桶 + 最后记录时刻 | 上限 200，按最后活动淘汰 |
 
 **两个口径**（`usageScope` 设置，默认 `total`）：`run` = 本进程（store 内部持有的 `UsageTracker`），`total` = 持久台账。**写路径只有一条**：`attributeUsage()` 写「当前 recorder」，插件在 `apply()` 时用 `setUsageRecorder(usageStore)` 把它换成台账（usage.ts 因此不必 import 台账，避免循环依赖与 node:fs 泄漏进适配器图）。台账在 `record()` 里同时更新 run 与 total 两套桶，所以两个口径永远来自同一次记录。

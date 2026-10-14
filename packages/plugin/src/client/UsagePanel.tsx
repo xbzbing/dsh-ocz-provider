@@ -180,9 +180,11 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
                   {sessions.map((row) => (
                     <tr key={row.id}>
                       <td>
-                        {/* The label is the conversation's first user turn —
-                            without it the row is an opaque id. The full id
-                            rides the tooltip. */}
+                        {/* The label is the HOST's session title when the host
+                            has one (the read-time join in /status; live request
+                            2026-10-14 — it used to show part of the prompt),
+                            falling back to the recorded first user turn. The
+                            full id rides the tooltip. */}
                         <span className={styles.sessionLabel} title={row.id}>
                           {row.label !== '' ? row.label : t('usageUnlabeled')}
                         </span>

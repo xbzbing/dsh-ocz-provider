@@ -575,6 +575,23 @@ interface PluginContext {
       sessionIds?: readonly unknown[];
     }>;
   };
+  /**
+   * The host's session query engine (`@deepseek-ai/dsh-session-query`),
+   * requested on demand: its title fold is the authority on what a session is
+   * CALLED, and the usage ledger's 流量 tab joins session ids to it at read
+   * time — the recorded first-prompt label stays only as the fallback.
+   */
+  sessionQuery?: {
+    readTitleSnapshots?(sessionIds: readonly string[], signal?: AbortSignal): Promise<ReadonlyArray<{
+      sessionId?: unknown;
+      status?: unknown;
+      value?: {
+        title?: {
+          title?: unknown;
+        };
+      } | undefined;
+    }>>;
+  };
   settings?: {
     describe?(options?: {
       redactSecrets?: boolean;
