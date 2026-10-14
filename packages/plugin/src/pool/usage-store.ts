@@ -386,7 +386,24 @@ export class UsageStore {
     await this.flush()
   }
 
-  /** Test seam: drop every bucket and start over. */
+  /**
+   * Operator-facing clear (live request 2026-10-14: "总量统计保留 90 天，自然
+   * 过期，增加一个清空的功能按钮"): drop every bucket AND make the empty
+   * document the one on disk, so a restart cannot bring the numbers back.
+   *
+   * `load()` runs FIRST on purpose: a store that has not read the file yet
+   * would otherwise re-read it inside `flush()` and merge the old totals back
+   * over the clear. Both scopes go together — a cleared 总览 next to a live
+   * 本次重启 would read as a bug, not as a feature.
+   */
+  async clear(): Promise<void> {
+    this.load()
+    this.reset()
+    this.#dirty = true
+    await this.flush()
+  }
+
+  /** In-memory-only seam: drop every bucket and start over (tests). */
   reset(): void {
     this.run.reset()
     this.#totals = emptyTotals()

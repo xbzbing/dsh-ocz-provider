@@ -106,6 +106,17 @@ test('the probe-content field ships in the bundle', () => {
   assert.ok(source.includes('probeContentsHint'), 'and its hint (留空 = 默认 hello)')
 })
 
+test('the 清空 control ships in the bundle', () => {
+  const source = bundle()
+  // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空的功能按钮.
+  // The armed state is a separate control, so a stray click on the first button
+  // can never delete anything by itself.
+  assert.ok(source.includes('usage-clear'), 'the clear button is mounted in the 流量 tab')
+  assert.ok(source.includes('usage-clear-confirm'), 'with its own confirm control')
+  assert.ok(source.includes('清空统计'), 'and its zh label')
+  assert.ok(source.includes('统计已清空'), 'plus the success note')
+})
+
 test('client externals stay inside the host platform table', () => {
   const source = bundle()
   const required = [...source.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]!)

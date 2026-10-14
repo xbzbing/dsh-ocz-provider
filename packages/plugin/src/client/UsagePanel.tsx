@@ -13,7 +13,7 @@
  * heaviest day in the window — no chart dependency, and the table stays
  * readable at the modal's width.
  */
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
 import type { IpPoolCardLocale } from './IpPoolCard.tsx'
 import type { TokenTotalsView, UsageView } from './IpPoolCard.tsx'
@@ -51,6 +51,13 @@ function timeLabel(epoch: number, never: string): string {
 export interface UsagePanelProps {
   usage: UsageView
   t: IpPoolCardLocale
+  /**
+   * Clear the ledger (live request 2026-10-14: 清空功能按钮). The panel owns the
+   * two-step confirm — this is destructive and the button sits next to the
+   * numbers it deletes — and the caller owns the bridge call plus the status
+   * refresh. Resolves false when the host refused.
+   */
+  onClear: () => Promise<boolean>
   /** Days charted in the bar list (default 14). */
   windowDays?: number
 }
@@ -60,7 +67,9 @@ export interface UsagePanelProps {
  * @param props - the ledger view, the bound locale, the chart window.
  * @returns the panel body (no tab chrome of its own).
  */
-export function UsagePanel({ usage, t, windowDays = 14 }: UsagePanelProps): ReactNode {
+export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelProps): ReactNode {
+  const [confirming, setConfirming] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const days = usage.days.slice(-windowDays)
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
@@ -82,6 +91,47 @@ export function UsagePanel({ usage, t, windowDays = 14 }: UsagePanelProps): Reac
         {speed > 0 && <span className={styles.statsChip}>{t('statsSummarySpeed', { count: speed.toLocaleString() })}</span>}
         <span className={styles.statsChip}>{t('usageSummarySessions', { count: sessions.length.toLocaleString() })}</span>
         <span className={styles.statsChip}>{t('usageSummaryDays', { count: usage.days.length.toLocaleString() })}</span>
+        {/* 清空 (live request 2026-10-14). Two steps, because it is
+            destructive and irreversible: the first click only arms it, and
+            the armed state names exactly what goes away. */}
+        <span className={styles.usageClear}>
+          {confirming ? (
+            <>
+              <span className={styles.usageClearPrompt}>{t('usageClearConfirm')}</span>
+              <button
+                type="button"
+                className={styles.usageClearDanger}
+                data-testid="usage-clear-confirm"
+                disabled={clearing}
+                onClick={() => {
+                  setClearing(true)
+                  void onClear().finally(() => { setClearing(false); setConfirming(false) })
+                }}
+              >
+                {t('usageClearYes')}
+              </button>
+              <button
+                type="button"
+                className={styles.ghostButton}
+                data-testid="usage-clear-cancel"
+                disabled={clearing}
+                onClick={() => setConfirming(false)}
+              >
+                {t('usageClearCancel')}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={styles.ghostButton}
+              data-testid="usage-clear"
+              title={t('usageClearHint')}
+              onClick={() => setConfirming(true)}
+            >
+              {t('usageClear')}
+            </button>
+          )}
+        </span>
       </div>
 
       <div className={styles.usageSection}>

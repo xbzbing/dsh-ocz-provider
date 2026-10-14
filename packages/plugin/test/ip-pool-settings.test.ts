@@ -6,7 +6,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -328,6 +328,66 @@ test('probe handlers: pool-disabled refusal when no runtime', async () => {
   assert.equal((result as { code: string }).code, 'pool-disabled')
 })
 
+test('usage handler clears the ledger through the bridge, with the pool off', async () => {
+  // Live request 2026-10-14: 增加一个清空的功能按钮. It must not need a running
+  // pool: the ledger records every request with the pool off (docs §5.6).
+  const dir = mkdtempSync(join(tmpdir(), 'usage-clear-'))
+  const path = join(dir, 'usage.json')
+  try {
+    const store = new UsageStore({ path, flushMs: 0 })
+    store.record('local', { inputTokens: 10, outputTokens: 5 }, { session: 'ses_hi', label: 'hi' })
+    await store.flush()
+    assert.equal(store.totals().requests, 1)
+
+    const handlers = makeBridgeHandlers(() => null, () => ({ pinnedStrict: false, proxyHosts: [] }), { usage: store })
+    const cleared = await handlers.usage({ action: 'reset' })
+    assert.deepEqual(cleared, { ok: true, value: { cleared: true } })
+    assert.equal(store.totals().requests, 0)
+    assert.equal(store.runTotals().requests, 0)
+    assert.equal((JSON.parse(readFileSync(path, 'utf8')) as { totals: { requests: number } }).totals.requests, 0, 'the file is the empty document')
+
+    // Only 'reset' is an action; anything else is refused before touching data.
+    const bad = await handlers.usage({ action: 'nuke' })
+    assert.equal(bad.ok, false)
+    assert.equal((bad as { code: string }).code, 'settings-rejected')
+
+    // A composition without a ledger says so instead of pretending.
+    const bare = makeBridgeHandlers(() => null, () => ({ pinnedStrict: false, proxyHosts: [] }))
+    const none = await bare.usage({ action: 'reset' })
+    assert.equal(none.ok, false)
+    assert.equal((none as { code: string }).code, 'no-ledger')
+
+    // Route level: a POST with the action reaches the handler (and a bodyless
+    // one is a 400 envelope, never a thrown route).
+    const routes = makeBridgeRoutes(handlers, { guard: () => true }) as unknown as Array<{ path: string; handler: (req: unknown, res: unknown) => Promise<void> }>
+    const usageRoute = routes.find((route) => route.path === `${IP_POOL_BRIDGE_PREFIX}/usage`)!
+    assert.ok(usageRoute, 'the /usage route is registered')
+    let written: { status?: number; body?: unknown } = {}
+    const res = {
+      writeHead(status: number) { written.status = status },
+      end(body: string) { written.body = JSON.parse(body) },
+    }
+    store.record('local', { inputTokens: 1, outputTokens: 1 }, { session: 'ses_again', label: 'hi' })
+    const post = (body?: unknown): unknown => ({
+      method: 'POST',
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: { host: '127.0.0.1:3080' },
+      async *[Symbol.asyncIterator]() { if (body !== undefined) yield Buffer.from(JSON.stringify(body)) },
+    })
+    await usageRoute.handler(post({ action: 'reset' }), res)
+    assert.equal(written.status, 200)
+    assert.equal((written.body as { ok: boolean }).ok, true)
+    assert.equal(store.totals().requests, 0, 'the route cleared the ledger')
+
+    written = {}
+    await usageRoute.handler(post(), res)
+    assert.equal(written.status, 400)
+    assert.equal((written.body as { code: string }).code, 'settings-rejected')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // -- bridge: guard + routes --------------------------------------------------------
 
 function fakeRequest(overrides: Record<string, unknown> = {}): { socket: { remoteAddress: string }; headers: Record<string, string> } {
@@ -360,7 +420,7 @@ test('routes carry the exact paths and POST-only method guard', async () => {
   const routes = makeBridgeRoutes(handlers, { guard: () => true }) as unknown as Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }>
   assert.deepEqual(
     routes.map((r) => r.path),
-    [`${IP_POOL_BRIDGE_PREFIX}/status`, `${IP_POOL_BRIDGE_PREFIX}/models`, `${IP_POOL_BRIDGE_PREFIX}/probe`, `${IP_POOL_BRIDGE_PREFIX}/exit`],
+    [`${IP_POOL_BRIDGE_PREFIX}/status`, `${IP_POOL_BRIDGE_PREFIX}/models`, `${IP_POOL_BRIDGE_PREFIX}/probe`, `${IP_POOL_BRIDGE_PREFIX}/exit`, `${IP_POOL_BRIDGE_PREFIX}/usage`],
   )
   assert.ok(routes.every((r) => r.kind === 'exact'))
 

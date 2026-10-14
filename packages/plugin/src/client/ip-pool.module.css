@@ -627,6 +627,36 @@
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
+/* The 清空 control sits at the end of the chip row, away from the chips it
+   reports on, and the armed state replaces the button so a stray second click
+   cannot delete anything by itself. */
+.usageClear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.usageClearPrompt {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.usageClearDanger {
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-state-error-primary, #d1242f);
+  border-radius: 6px;
+  background: var(--dsw-alias-state-error-primary, #d1242f);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.usageClearDanger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .usageFootnote {
   margin: 0;
   font-size: 11px;
