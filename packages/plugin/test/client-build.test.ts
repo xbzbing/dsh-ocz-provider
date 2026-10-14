@@ -117,6 +117,17 @@ test('the 清空 control ships in the bundle', () => {
   assert.ok(source.includes('统计已清空'), 'plus the success note')
 })
 
+test('the summary chip row keeps one pill height', () => {
+  // Live 2026-10-14: 常态的左侧 tag 边框高度异常. Two causes, both pinned here:
+  // the row had no align-items (so the 清空 button's 32px became every chip's
+  // height via the default stretch), and a chip's line box followed whichever
+  // font rendered its label (a Chinese label fell back to a face ~3px taller
+  // than the Latin one, so a mixed row showed two pill heights).
+  const source = code(bundle())
+  assert.ok(/statsSummary\{[^}]*align-items:center/.test(source), 'the chip row centres its items instead of stretching them')
+  assert.ok(/statsChip\{[^}]*line-height:18px/.test(source), 'and every chip has the same pinned line box')
+})
+
 test('client externals stay inside the host platform table', () => {
   const source = bundle()
   const required = [...source.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]!)
