@@ -1,5 +1,5 @@
 {
-  "name": "oc2dsh",
+  "name": "dsh-opencode-zen-provider",
   "version": "0.3.11",
   "private": true,
   "type": "module",

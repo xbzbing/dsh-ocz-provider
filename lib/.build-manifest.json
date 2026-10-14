@@ -14,7 +14,7 @@
     "src/client/UsagePanel.tsx": "4adb2dd34ae757dff838c99431db3b5b9df9cbfb",
     "src/client/css-modules.d.ts": "85cce9b9e4738c6d2a180d44da700465d8392e91",
     "src/client/icons.tsx": "093a3619310d97e1dd3911e04518430585e7d7ac",
-    "src/client/index.ts": "ae14b532e4b1f883d685ba93e1ad94821ad6d93a",
+    "src/client/index.ts": "769f7de230f3043f978e651cbee6a304b2c97a5f",
     "src/client/ip-pool.module.css": "af568c3af5fea90687a239c203d1e782275c88c8",
     "src/client/locales.ts": "75aafa6db33acd7f4ce1388d963d7f642c6494d6",
     "src/client/region.ts": "e7093a748d173ba85c78ea2f83b0f55b23b9d4b9",
@@ -43,7 +43,7 @@
     "src/pool/usage-store.ts": "e0dad0ccd62141a78a321d522027976eac925f48",
     "src/pool/usage.ts": "87df858d734e53af8fd7f9807f214e7d1b1c83f5",
     "src/provider.ts": "51446c34f189e3303c6c60173fdbb43227472c7a",
-    "tsdown.client.config.ts": "59e5be9fe07172e002e15c686c17a966795dc1cf",
+    "tsdown.client.config.ts": "86f1b3ed6bcb7d8695a5f1452ca6e033c7009d63",
     "tsdown.config.ts": "922bba291206715c67fbc9c8c397ce9858c7f5ab"
   }
 }

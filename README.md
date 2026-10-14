@@ -184,11 +184,9 @@ git add lib                          # 产物是提交进仓库的，不是忽�
   Go sidecar 是其匿名通道实现的移植版，目录回退链与请求伪装细节同样源自它。
   本项目能成立，全靠它踩过的路。上游的免费通道修复（#69/#70/#83）也曾移植到
   本项目。
-- [**xbzbing/opencode2dsh**](https://github.com/xbzbing/opencode2dsh)（本仓库）
-  是 [FishBottle7/opencode2dsh](https://github.com/FishBottle7/opencode2dsh)
-  的硬分叉：包名、插件 id、设置命名空间与数据目录都已改开，上游的改动无法
-  合回（也不再有共同基线可合并），因此双方**独立演进**——本仓库跟随上游的
-  匿名通道修复，但不做 PR 互通。
+- [**FishBottle7/opencode2dsh**](https://github.com/FishBottle7/opencode2dsh)：
+  本仓库的上游仓库，因为个人的一些功能喜好导致了仓库的硬分叉：包名、插件
+  id、设置命名空间与数据目录都已错开，本仓库的所有改动可以自由合并入上游。
 - [OpenCode](https://opencode.ai)——运营免费匿名 Zen 通道。
 - [@earendil-works/pi-ai](https://www.npmjs.com/package/@earendil-works/pi-ai)——adapter 模式使用的线上协议层。
 - [DeepSeek Harness](https://www.npmjs.com/package/@deepseek-ai/dsh) 与
