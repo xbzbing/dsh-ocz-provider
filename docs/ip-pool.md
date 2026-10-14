@@ -622,7 +622,9 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 ### 5.5 左下角出口统计入口（sidebar.footer.action）
 
-设置页之外的第二张客户端面：侧边栏页脚的「◈ n/m 出口」按钮 + 点击后的「出口 IP 统计」弹窗（`src/client/ExitStatsEntry.tsx`）。它挂在 `sidebar.footer.action` 座位（与 `kenz1117/dsh-ui-usage-billing` 同一座位），**不依赖设置页是否挂载**，数据走同一个 `/status` bridge（打开时 2s 轮询、关闭 10s）。
+设置页之外的第二张客户端面：侧边栏页脚的「◈ n/m 出口」按钮 + 点击后的「数据统计」弹窗（`src/client/ExitStatsEntry.tsx`；2026-10-14 由「出口 IP 统计」改名——弹窗里还有流量 tab，出口 IP 只是其中一面）。它挂在 `sidebar.footer.action` 座位（与 `kenz1117/dsh-ui-usage-billing` 同一座位），**不依赖设置页是否挂载**，数据走同一个 `/status` bridge（打开时 2s 轮询、关闭 10s）。
+
+行内操作的结果提示是**弹窗右下角的 toast**（2026-10-14）：固定/轮换/清空的成功与失败文案浮在弹窗自己的右下角（绝对定位锚在 Modal 卡片上），约 3s 后自己淡出卸载——此前它是表格上方一行绿色「操作成功」，不会自动消失，读起来像卡死了。固定生效后，该行的图钉按钮保持填充高亮（`.rowActionActive`），从按钮本身就能看出「已固定」。
 
 页脚那行数字**固定是总览**（持久台账的全时段累计：请求 · token · tok/s），不随设置页的口径切换而变——它回答的是「我一共花了多少」，必须与弹窗上次停在哪个口径无关（2026-10-14 用户口径：左下角显示总览）。
 

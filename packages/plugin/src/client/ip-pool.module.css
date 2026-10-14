@@ -898,6 +898,19 @@
   cursor: default;
 }
 
+/* The SELECTED state (live request 2026-10-14: 固定 clicked, but the button
+   looked the same afterwards — "无法看到效果"). A pinned row's toggle paints
+   filled in the business colour with a white glyph, so "this exit is the
+   fixed one" is answerable from the button itself, not just the 主力 mark in
+   the IP cell. Declared after the hover rule so hovering an already-active
+   button does not wash the fill back out. */
+.rowActionActive,
+.rowActionActive:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: #fff;
+}
+
 /* The settings card's exit rows: the same two icon actions, sized to the text
    buttons beside them (探测). NOT .rowRemove — that one's hover turns red,
    which was right for a 删除 and is wrong for a 轮换. */
@@ -960,17 +973,62 @@
   margin-left: 4px;
 }
 
-/* The last action's outcome, above the table. A read-only profile lands in the
-   warn tone: the pin works, it just will not survive a restart. */
-.statsActionNote {
-  margin: 0 0 8px;
+/* The action outcome toast (live request 2026-10-14): docks at the modal's
+   bottom-right corner, fades itself out and unmounts on the same clock. The
+   modal card (the primitives' Modal `.dialog`, which carries statsModal) is
+   the nearest positioned ancestor, so this rides the modal — not the viewport,
+   not the scrolling content region. A read-only profile lands in the warn
+   tone: the pin works, it just will not survive a restart. */
+.statsToast {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2;
+  max-width: min(360px, calc(100% - 40px));
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--dsw-alias-toast-bg, #1f2937);
+  color: var(--dsw-alias-toast-label, #f9fafb);
   font-size: 12px;
-  color: var(--dsw-alias-state-success-primary, #1a7f37);
+  line-height: 1.5;
+  box-shadow: var(--dsw-shadow-lv3, 0 8px 24px rgba(0, 0, 0, 0.18));
+  /* The hold comes from the component as `--stats-toast-hold`, so one value
+     drives both the unmount timer and this fade delay. */
+  animation:
+    stats-toast-in 160ms ease-out,
+    stats-toast-fade 300ms ease var(--stats-toast-hold, 3000ms) forwards;
 }
 
-.statsActionNoteWarn {
-  composes: statsActionNote;
-  color: var(--dsw-alias-state-warning-primary, #9a6700);
+/* Warn tone (failure / volatile pin): the same surface, amber label. */
+.statsToastWarn {
+  color: var(--dsw-alias-state-warning-primary, #d29922);
+}
+
+@keyframes stats-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stats-toast-fade {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* Reduced motion drops the slide; the delayed fade still ends the toast
+   before the timed unmount. */
+@media (prefers-reduced-motion: reduce) {
+  .statsToast {
+    animation: stats-toast-fade 300ms ease var(--stats-toast-hold, 3000ms) forwards;
+  }
 }
 
 .statsInflight {

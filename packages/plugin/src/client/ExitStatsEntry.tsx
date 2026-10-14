@@ -13,8 +13,8 @@
  * is mounted and never touches host internals. Counters are process-lifetime:
  * they reset when the host restarts, and the modal says so.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
@@ -62,6 +62,15 @@ function compact(value: number): string {
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
   return String(value)
 }
+
+/**
+ * The outcome toast's two clocks (live request 2026-10-14: the old note above
+ * the table never disappeared on its own). HOLD is full-opacity reading time;
+ * FADE matches the stylesheet's dismiss animation so the element unmounts
+ * exactly when it stops being visible.
+ */
+const TOAST_HOLD_MS = 3_000
+const TOAST_FADE_MS = 300
 
 /** Clock label for a last-used stamp; 0 reads the never placeholder. */
 function timeLabel(epoch: number, never: string): string {
@@ -124,8 +133,29 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const [tab, setTab] = useState<'exits' | 'usage'>('exits')
   /** The row action in flight (its key), so every button disables together. */
   const [busy, setBusy] = useState('')
-  /** The last action's outcome, shown above the table until the next one. */
-  const [note, setNote] = useState<{ text: string; warn: boolean } | null>(null)
+  /**
+   * The last action's outcome, shown as a toast DOCKED at the modal's
+   * bottom-right corner (live request 2026-10-14). It used to be a note
+   * above the table that stayed until the next action — the green
+   * "操作成功" line never went away on its own. `seq` restarts the show
+   * cycle when the same text fires twice in a row.
+   */
+  const [note, setNote] = useState<{ text: string; warn: boolean; seq: number } | null>(null)
+  const noteSeq = useRef(0)
+
+  /** Show one outcome toast; every success/failure line funnels through here. */
+  const showNote = useCallback((text: string, warn: boolean): void => {
+    noteSeq.current += 1
+    setNote({ text, warn, seq: noteSeq.current })
+  }, [])
+
+  // Auto-dismiss: the toast fades out (CSS delay matches) and unmounts, so no
+  // outcome text survives into the next glance at the table.
+  useEffect(() => {
+    if (note === null) return
+    const timer = window.setTimeout(() => setNote(null), TOAST_HOLD_MS + TOAST_FADE_MS)
+    return () => window.clearTimeout(timer)
+  }, [note])
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -177,17 +207,17 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
       })
       const body = await response.json() as { ok: boolean; value?: { cleared?: boolean } }
       if (!body.ok || body.value?.cleared !== true) {
-        setNote({ text: t('statsActionFailed'), warn: true })
+        showNote(t('statsActionFailed'), true)
         return false
       }
-      setNote({ text: t('usageCleared'), warn: false })
+      showNote(t('usageCleared'), false)
       await refresh()
       return true
     } catch {
-      setNote({ text: t('statsActionFailed'), warn: true })
+      showNote(t('statsActionFailed'), true)
       return false
     }
-  }, [refresh, t])
+  }, [refresh, showNote, t])
 
   const runExitAction = useCallback(async (action: ExitAction, exitId?: string): Promise<void> => {
     setBusy(`${action}:${exitId ?? ''}`)
@@ -200,14 +230,14 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
       })
       const body = await response.json() as { ok: boolean; value?: ExitActionResult }
       if (!body.ok || body.value === undefined) {
-        setNote({ text: t('statsActionFailed'), warn: true })
+        showNote(t('statsActionFailed'), true)
         return
       }
       const value = body.value
       // A 轮换 that met a running round changed nothing: saying "rotated" there
       // would be a lie, and the operator can just click again.
       if (action === 'rotate' && value.busy === true) {
-        setNote({ text: t('statsActionBusy'), warn: true })
+        showNote(t('statsActionBusy'), true)
         return
       }
       const text = action === 'rotate'
@@ -219,16 +249,16 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             : t('statsActionPinned')
       // A read-only profile still pins live, but the click has to say so: the
       // pin would be lost on the next restart.
-      setNote(value.persisted === false
-        ? { text: `${text} · ${t('statsActionVolatile')}`, warn: true }
-        : { text, warn: false })
+      showNote(value.persisted === false
+        ? `${text} · ${t('statsActionVolatile')}`
+        : text, value.persisted === false)
     } catch {
-      setNote({ text: t('statsActionFailed'), warn: true })
+      showNote(t('statsActionFailed'), true)
     } finally {
       setBusy('')
       await refresh()
     }
-  }, [refresh, t])
+  }, [refresh, showNote, t])
 
   const totals = useMemo(() => {
     const localRequests = status?.local?.requests ?? 0
@@ -411,9 +441,6 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
         </div>
         {poolOff && <p className={styles.status}>{t('statsPoolOff')}</p>}
-        {note !== null && (
-          <p className={note.warn ? styles.statsActionNoteWarn : styles.statsActionNote} role="status">{note.text}</p>
-        )}
         {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
           <p className={styles.status}>{failed && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (
@@ -503,7 +530,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         {exit.pinned ? (
                           <button
                             type="button"
-                            className={styles.rowAction}
+                            className={`${styles.rowAction} ${styles.rowActionActive}`}
                             disabled={busy !== ''}
                             title={t('statsUnpinHint')}
                             aria-label={t('statsUnpin')}
@@ -570,7 +597,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                     {status?.pinned?.local === true ? (
                       <button
                         type="button"
-                        className={styles.rowAction}
+                        className={`${styles.rowAction} ${styles.rowActionActive}`}
                         disabled={busy !== ''}
                         title={t('statsUnpinHint')}
                         aria-label={t('statsUnpin')}
@@ -598,6 +625,24 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           </div>
         )}
         </>
+        )}
+        {/*
+          The outcome toast (live request 2026-10-14): docks at the modal's
+          own bottom-right corner and dismisses itself — the old note above
+          the table stayed green until the next click. Absolute positioning
+          anchors to the dialog card (the nearest positioned ancestor), so it
+          rides the modal even while the content region scrolls beneath it,
+          and `key` restarts the show cycle when the same text fires twice.
+        */}
+        {note !== null && (
+          <div
+            key={note.seq}
+            className={note.warn ? `${styles.statsToast} ${styles.statsToastWarn}` : styles.statsToast}
+            style={{ '--stats-toast-hold': `${TOAST_HOLD_MS}ms` } as CSSProperties}
+            role="status"
+          >
+            {note.text}
+          </div>
         )}
       </Modal>
     </>
