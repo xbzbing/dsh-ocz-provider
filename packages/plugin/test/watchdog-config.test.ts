@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { setImmediate } from 'node:timers'
 
 import { apply, Config, type PluginContext } from '../src/index.ts'
@@ -7,6 +10,42 @@ import { ModelCatalog } from '../src/adapter/catalog.ts'
 import { resolveIpPoolSettings } from '../src/ip-pool-settings/namespace.ts'
 import { WATCHDOG_FIRST_MESSAGE, WATCHDOG_IDLE_MESSAGE, type ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import type { FinishReason } from '../src/adapter/events.ts'
+import { usageStore } from '../src/pool/usage-store.ts'
+
+/**
+ * These scenarios drive the PRODUCTION entry — `apply()` registers the real
+ * adapter AND installs the real on-disk ledger — so the plugin's state root is
+ * pointed at a scratch directory first. The redirect is not cosmetic: without
+ * it every run of this file wrote three rows into the user's own 流量统计,
+ * because the sample request below is a genuine one. Label "hi" (its first
+ * user turn), no host session id (so the adapter mints the id from the
+ * conversation seed), no pool routing (本机/local), and a watchdog TIMEOUT
+ * whose zero-usage error still counts as one request — with `Date` mocked to 0
+ * the minted id reads `ses_fffffffffffe…`, i.e. the 36 phantom "hi" requests
+ * the operator found in the modal (live 2026-10-14).
+ *
+ * Imports are hoisted, so this assignment lands after `src/index.ts` was
+ * evaluated; the store resolves its path lazily for exactly this reason
+ * (src/paths.ts, UsageStore#path).
+ */
+const scratch = mkdtempSync(join(tmpdir(), 'opencode2dsh-watchdog-'))
+process.env.OPENCODE2DSH_HOME = scratch
+
+/** The scratch ledger's session rows (flush first: the debounce is 10s). */
+async function ledgerSessions(): Promise<Record<string, { label: string; totals: { requests: number; totalTokens: number } }>> {
+  await usageStore.flush()
+  try {
+    return JSON.parse(readFileSync(join(scratch, 'usage.json'), 'utf8')).sessions
+  } catch {
+    return {} // nothing recorded yet — flush() is a no-op while clean
+  }
+}
+
+/** How many "hi" requests the scratch ledger holds so far. */
+async function hiRequests(): Promise<number> {
+  const row = Object.values(await ledgerSessions()).find((entry) => entry.label === 'hi')
+  return row?.totals.requests ?? 0
+}
 
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
@@ -51,6 +90,7 @@ for (const scenario of [
       ipPool: { get: () => resolveIpPoolSettings({ enabled: false }) },
     })
     assert.ok(adapter, 'the production plugin entry must register an adapter')
+    const before = await hiRequests()
     const result: { finish?: FinishReason } = {}
     const pending = (async () => {
       for await (const chunk of adapter.stream({
@@ -77,5 +117,14 @@ for (const scenario of [
       assert.equal(finish.failure.message, scenario.headers ? WATCHDOG_IDLE_MESSAGE : WATCHDOG_FIRST_MESSAGE)
     }
     await pending
+    // The sample request above went through the real entry, so it is accounted
+    // for real — in the SCRATCH ledger. Both halves are asserted: the redirect
+    // (this file can never touch the operator's stats again) and the row shape
+    // that made the phantom "hi" session look mysterious in the modal.
+    assert.ok(usageStore.path.startsWith(scratch), 'the state root is redirected')
+    const hi = Object.values(await ledgerSessions()).find((row) => row.label === 'hi')
+    assert.ok(hi, 'the watchdog sample request is accounted in the scratch ledger')
+    assert.equal(hi.totals.requests, before + 1, 'one timed-out attempt is one request')
+    assert.equal(hi.totals.totalTokens, 0, 'a watchdog timeout carries no usage')
   })
 }

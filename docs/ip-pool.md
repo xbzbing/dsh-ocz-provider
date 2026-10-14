@@ -660,6 +660,8 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 **为什么落盘而不是每次请求写**：一次响应只有几百字节的账目，按 token 重写文档是荒唐的；崩溃最多丢最近一个去抖窗口的数据。文件损坏（手改坏、写一半断电）按「重新开始」处理，不抛异常、不影响请求，下一次 flush 会写好新文档。
 
+**状态根与 `OPENCODE2DSH_HOME`**（`src/paths.ts` 的 `stateDir()`）：台账、`adapter-status.json`、sing-box 运行目录、sidecar 配置路径全部落在 `~/.opencode2dsh`；`OPENCODE2DSH_HOME` 可整体重定向（与 `DSH_HOME` 同一套路，惰性读环境，import 之后再设也生效）。这条缝是**测试的硬要求**：`apply()` 是生产入口，会安装真实台账，而 `test/watchdog-config.test.ts` 的三个看门狗场景就是拿真实入口发一次真实请求（label `hi`、无宿主 session id、无路由 → `local`、看门狗 TIMEOUT 的零用量仍记 1 次请求，`Date` 被 mock 成 0 时铸出的 id 前缀正好是 `fffffffffffe`）——修之前每跑一次 `pnpm test` 就往用户自己的流量统计里加 3 行，线上表现就是弹窗里那条「hi / 36 次 / 0 token」的幽灵会话（2026-10-14 用户提问）。现在这两个测试文件把状态根指到临时目录，并在断言里钉住「写进 scratch 台账」这件事。
+
 ## 6. 文件落点（增量，不动现有结构）
 
 ```

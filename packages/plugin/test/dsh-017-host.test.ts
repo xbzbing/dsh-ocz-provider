@@ -13,6 +13,9 @@
  */
 import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { apply, inject, Config, type PluginContext } from '../src/index.ts'
 import { resolveIpPoolSettings, type AnyIpPoolSection, type IpPoolSettings, type VolatileRef } from '../src/ip-pool-settings/namespace.ts'
@@ -21,6 +24,12 @@ import { ModelCatalog } from '../src/adapter/catalog.ts'
 // These tests exercise registration and settings contracts, not transport or
 // the user's on-disk catalog. Real fiber startup is covered by the smoke script.
 mock.method(ModelCatalog.prototype, 'start', async () => {})
+
+// `apply()` is the production entry: it installs the real ledger and points the
+// catalog/status/sing-box paths at the plugin's state root. Keep every write of
+// this file inside a scratch root (src/paths.ts) — a test must never add rows
+// to the operator's own 流量统计 (live bug 2026-10-14, watchdog-config.test.ts).
+process.env.OPENCODE2DSH_HOME = mkdtempSync(join(tmpdir(), 'opencode2dsh-host17-'))
 
 /**
  * What cosmokit gives the plugin: a STABLE object whose `get()` returns the

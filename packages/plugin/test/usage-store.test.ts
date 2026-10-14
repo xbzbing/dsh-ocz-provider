@@ -5,11 +5,11 @@
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { UsageStore, USAGE_RETENTION_DAYS, localDay, sumTotals } from '../src/pool/usage-store.ts'
+import { UsageStore, USAGE_RETENTION_DAYS, defaultUsagePath, localDay, sumTotals } from '../src/pool/usage-store.ts'
 
 function tempPath(): { dir: string; path: string } {
   const dir = mkdtempSync(join(tmpdir(), 'usage-store-'))
@@ -71,6 +71,30 @@ test('the run scope counts this process only, the total scope counts everything'
     assert.equal(second.sessions('run', 5)[0]!.totals.requests, 1)
     assert.equal(second.sessions('total', 5)[0]!.totals.requests, 2)
   } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('OPENCODE2DSH_HOME redirects the default ledger path, and is read lazily', async () => {
+  // Regression for the live bug of 2026-10-14: the watchdog scenarios drive the
+  // real entry, whose store is built at import time — before a test body can set
+  // anything. The redirect only works because the path is resolved per use.
+  const before = process.env.OPENCODE2DSH_HOME
+  const dir = mkdtempSync(join(tmpdir(), 'opencode2dsh-home-'))
+  try {
+    delete process.env.OPENCODE2DSH_HOME
+    assert.equal(defaultUsagePath(), join(homedir(), '.opencode2dsh', 'usage.json'), 'the production default is untouched')
+    const store = new UsageStore({ flushMs: 0 }) // no injected path: follows the env
+    process.env.OPENCODE2DSH_HOME = dir
+    assert.equal(defaultUsagePath(), join(dir, 'usage.json'))
+    assert.equal(store.path, join(dir, 'usage.json'), 'the redirect applies after construction')
+    store.record('local', usage(3, 4), { session: 'ses_scratch', label: 'hi' })
+    await store.flush()
+    assert.ok(existsSync(join(dir, 'usage.json')), 'the ledger landed under the override')
+    assert.equal(JSON.parse(readFileSync(join(dir, 'usage.json'), 'utf8')).sessions.ses_scratch.label, 'hi')
+  } finally {
+    if (before === undefined) delete process.env.OPENCODE2DSH_HOME
+    else process.env.OPENCODE2DSH_HOME = before
     rmSync(dir, { recursive: true, force: true })
   }
 })

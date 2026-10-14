@@ -27,9 +27,9 @@
  * `total` (persisted).
  */
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { stateDir } from '../paths.ts'
 import { UsageTracker, emptyTotals, type TokenTotals, type TokenUsage, type UsageRecordMeta } from './usage.ts'
 
 /** How long day buckets are kept (live request: 最长 90 天). */
@@ -118,9 +118,12 @@ export function localDay(at: number): string {
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-/** The default ledger path (same data dir as the catalog cache). */
+/**
+ * The default ledger path (same data dir as the catalog cache). Resolved on
+ * every call, so `OPENCODE2DSH_HOME` set after import still redirects it.
+ */
 export function defaultUsagePath(): string {
-  return join(homedir(), '.opencode2dsh', 'usage.json')
+  return join(stateDir(), 'usage.json')
 }
 
 export interface UsageStoreOptions {
@@ -139,7 +142,7 @@ export class UsageStore {
   /** This process's buckets — the 本次重启 scope, unchanged from before. */
   readonly run = new UsageTracker()
 
-  #path: string
+  #pathOverride: string | undefined
   #retentionDays: number
   #flushMs: number
   #now: () => number
@@ -157,16 +160,21 @@ export class UsageStore {
   #runSessions = new Map<string, StoredSession>()
 
   constructor(options: UsageStoreOptions = {}) {
-    this.#path = options.path ?? defaultUsagePath()
+    this.#pathOverride = options.path
     this.#retentionDays = options.retentionDays ?? USAGE_RETENTION_DAYS
     this.#flushMs = options.flushMs ?? FLUSH_DEBOUNCE_MS
     this.#now = options.now ?? Date.now
     this.#readOnly = options.readOnly ?? false
   }
 
-  /** Where this ledger lives (diagnostics / the UI's footnote). */
+  /**
+   * Where this ledger lives (diagnostics / the UI's footnote). Without an
+   * injected path this resolves per call, so a test that drives the real entry
+   * — `apply()` installs the process-wide store at import time — can still
+   * redirect it by setting `OPENCODE2DSH_HOME` in its own body (paths.ts).
+   */
   get path(): string {
-    return this.#path
+    return this.#pathOverride ?? defaultUsagePath()
   }
 
   get retentionDays(): number {
@@ -180,7 +188,7 @@ export class UsageStore {
     if (this.#readOnly) return
     let raw: string
     try {
-      raw = readFileSync(this.#path, 'utf8')
+      raw = readFileSync(this.path, 'utf8')
     } catch {
       return // no ledger yet (first run) — not an error
     }
@@ -354,11 +362,11 @@ export class UsageStore {
       exits: Object.fromEntries(this.#exits),
       savedAt: this.#now(),
     }
-    const temp = `${this.#path}.tmp`
+    const temp = `${this.path}.tmp`
     try {
-      mkdirSync(dirname(this.#path), { recursive: true })
+      mkdirSync(dirname(this.path), { recursive: true })
       writeFileSync(temp, JSON.stringify(document), 'utf8')
-      renameSync(temp, this.#path)
+      renameSync(temp, this.path)
       this.#dirty = false
     } catch {
       // A failed write must never fail the request that triggered it; the next
