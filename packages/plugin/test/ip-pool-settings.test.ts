@@ -515,20 +515,20 @@ test('exit handler: a read-only profile still pins live, and says it did not per
   assert.equal(pool.pinnedId, '127.0.0.1:30001', 'the click is honest about being volatile, not silently dropped')
 })
 
-test('exit handler: 删除 promotes a reserve through the subscription layer', async () => {
+test('exit handler: 轮换 promotes a reserve through the subscription layer', async () => {
   const { runtime, replaced, demoted } = rowActionRuntime({ replaceExit: async () => true })
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }))
-  const result = await handlers.exit({ action: 'remove', exitId: '127.0.0.1:30001' })
-  assert.deepEqual((result as { value: unknown }).value, { removed: true, replaced: true, remaining: 2 })
+  const result = await handlers.exit({ action: 'rotate', exitId: '127.0.0.1:30001' })
+  assert.deepEqual((result as { value: unknown }).value, { rotated: true, promoted: true, remaining: 2 })
   assert.deepEqual(replaced, ['127.0.0.1:30001'])
   assert.deepEqual(demoted, [], 'a promoted reserve is the refill: nothing sinks')
 })
 
-test('exit handler: 删除 with no reserve left moves the exit to the list tail', async () => {
+test('exit handler: 轮换 with no reserve left moves the exit to the list tail', async () => {
   const { runtime, demoted, pool } = rowActionRuntime({ replaceExit: async () => false })
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }))
-  const result = await handlers.exit({ action: 'remove', exitId: '127.0.0.1:30001' })
-  assert.deepEqual((result as { value: unknown }).value, { removed: true, replaced: false, remaining: 2 })
+  const result = await handlers.exit({ action: 'rotate', exitId: '127.0.0.1:30001' })
+  assert.deepEqual((result as { value: unknown }).value, { rotated: true, promoted: false, remaining: 2 })
   assert.deepEqual(demoted, ['127.0.0.1:30001'], 'the row stays in the pool, ranked last')
   assert.equal(pool.demoted('127.0.0.1:30001'), true)
 })
@@ -536,11 +536,11 @@ test('exit handler: 删除 with no reserve left moves the exit to the list tail'
 test('exit handler: no onboarder at all still sinks the row', async () => {
   const { runtime, demoted } = rowActionRuntime()
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }))
-  await handlers.exit({ action: 'remove', exitId: '127.0.0.1:30001' })
+  await handlers.exit({ action: 'rotate', exitId: '127.0.0.1:30001' })
   assert.deepEqual(demoted, ['127.0.0.1:30001'], 'without a subscription round the row can only be demoted')
 })
 
-test('exit handler: removing the pinned exit unpins first', async () => {
+test('exit handler: rotating the pinned exit unpins first', async () => {
   // The pin lives in the settings, so a stale pinnedExitId would re-pin a row
   // that is no longer in the pool — and re-admit it as a manual row, because a
   // subscription id ("127.0.0.1:30001") parses as a manual address.
@@ -550,19 +550,19 @@ test('exit handler: removing the pinned exit unpins first', async () => {
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }), {
     writePin: async (value) => { writes.push(value); return true },
   })
-  await handlers.exit({ action: 'remove', exitId: '127.0.0.1:30001' })
+  await handlers.exit({ action: 'rotate', exitId: '127.0.0.1:30001' })
   assert.deepEqual(writes, [''], 'the pin is cleared in the settings, not just in memory')
   assert.equal(pool.pinnedId, '')
 })
 
-test('exit handler: 删除 during a replacement round reports busy instead of sinking the row', async () => {
+test('exit handler: 轮换 during a rotation round reports busy instead of sinking the row', async () => {
   // A running onboarding/trim holds the rebuild mutex and replaceExit() answers
   // false without consulting the reserve; sinking the row there would violate
   // the request ("refill first, sink only when there is nothing to promote").
   const { runtime, demoted, pool } = rowActionRuntime({ replaceExit: async () => false, busy: true })
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }))
-  const result = await handlers.exit({ action: 'remove', exitId: '127.0.0.1:30001' })
-  assert.deepEqual((result as { value: unknown }).value, { removed: false, replaced: false, busy: true, remaining: 2 })
+  const result = await handlers.exit({ action: 'rotate', exitId: '127.0.0.1:30001' })
+  assert.deepEqual((result as { value: unknown }).value, { rotated: false, promoted: false, busy: true, remaining: 2 })
   assert.deepEqual(demoted, [], 'the row is untouched: the operator can click again')
   assert.equal(pool.has('127.0.0.1:30001'), true)
 })
@@ -572,7 +572,7 @@ test('exit handler: unknown exits and unknown actions are refused', async () => 
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }))
   const unknown = await handlers.exit({ action: 'pin', exitId: '127.0.0.1:9' })
   assert.equal((unknown as { code: string }).code, 'unknown-exit')
-  const missing = await handlers.exit({ action: 'remove', exitId: '127.0.0.1:9' })
+  const missing = await handlers.exit({ action: 'rotate', exitId: '127.0.0.1:9' })
   assert.equal((missing as { code: string }).code, 'unknown-exit')
   const bad = await handlers.exit({ action: 'explode' })
   assert.equal((bad as { code: string }).code, 'settings-rejected')

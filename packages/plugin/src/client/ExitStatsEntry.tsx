@@ -20,6 +20,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPoolCard.tsx'
+import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import styles from './ip-pool.module.css'
 
@@ -81,16 +82,21 @@ type SortKey = 'requests' | 'input' | 'output' | 'cache' | 'latency'
  * One row action the modal can send. `pin-local` is the 本机 row's button:
  * the host owns the sentinel value, so the bundle names the intent, never the
  * spelling (mirrors SETTINGS_NAMESPACE's literal-only rule in client/index.ts).
+ *
+ * `rotate` was called `remove` until 2026-10-14, when the operator corrected
+ * the vocabulary: nothing is deleted — the row is rotated (a reserve takes its
+ * place, or it sinks to the pool tail).
  */
-type ExitAction = 'pin' | 'pin-local' | 'unpin' | 'remove'
+type ExitAction = 'pin' | 'pin-local' | 'unpin' | 'rotate'
 
 /** The /exit response's value shape. */
 interface ExitActionResult {
   pinned?: string
   local?: boolean
   persisted?: boolean
-  replaced?: boolean
-  /** A replacement round held the rebuild mutex: nothing was deleted. */
+  /** A reserve was promoted into the rotated row's slot. */
+  promoted?: boolean
+  /** A rotation round held the rebuild mutex: nothing moved. */
   busy?: boolean
 }
 
@@ -146,7 +152,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [open, refresh])
 
   /**
-   * One row action (固定 / 取消固定 / 删除) over the bridge. The bridge owns the
+   * One row action (固定 / 取消固定 / 轮换) over the bridge. The bridge owns the
    * settings write, the live pin and the candidate refill, so this stays a
    * POST plus a re-read — and it reports what actually happened, because
    * "deleted" means two different things (a reserve took the slot, or the row
@@ -167,14 +173,14 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         return
       }
       const value = body.value
-      // A 删除 that met a running replacement round changed nothing: saying
-      // "deleted" there would be a lie, and the operator can just click again.
-      if (action === 'remove' && value.busy === true) {
+      // A 轮换 that met a running round changed nothing: saying "rotated" there
+      // would be a lie, and the operator can just click again.
+      if (action === 'rotate' && value.busy === true) {
         setNote({ text: t('statsActionBusy'), warn: true })
         return
       }
-      const text = action === 'remove'
-        ? (value.replaced === true ? t('statsActionReplaced') : t('statsActionDemoted'))
+      const text = action === 'rotate'
+        ? (value.promoted === true ? t('statsActionReplaced') : t('statsActionDemoted'))
         : action === 'unpin'
           ? t('statsActionUnpinned')
           : action === 'pin-local'
@@ -410,38 +416,45 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         )}
                         {timeLabel(exit.lastUsedAt, t('statsNever'))}
                       </td>
-                      {/* 固定 pins the whole pool's traffic to this exit (the
-                          settings field, written through the bridge), 删除 drops
-                          it and lets the candidate list refill the slot — or
-                          sinks it to the tail when there is no reserve
-                          (live request 2026-10-14). */}
+                      {/* Two ICON actions (live request 2026-10-14): 固定 pins
+                          the whole pool's traffic to this exit (the settings
+                          field, written through the bridge) and 轮换 hands the
+                          row to the candidate list — a reserve takes the slot,
+                          or the row sinks to the tail when there is none. The
+                          words live in the tooltip and the aria-label. */}
                       <td className={styles.statsActions}>
                         {exit.pinned ? (
                           <button
                             type="button"
                             className={styles.rowAction}
                             disabled={busy !== ''}
+                            title={t('statsUnpinHint')}
+                            aria-label={t('statsUnpin')}
                             onClick={() => { void runExitAction('unpin') }}
                           >
-                            {t('statsUnpin')}
+                            <UnpinIcon />
                           </button>
                         ) : (
                           <button
                             type="button"
                             className={styles.rowAction}
                             disabled={busy !== ''}
+                            title={t('statsPinHint')}
+                            aria-label={t('statsPin')}
                             onClick={() => { void runExitAction('pin', exit.id) }}
                           >
-                            {t('statsPin')}
+                            <PinIcon />
                           </button>
                         )}
                         <button
                           type="button"
-                          className={`${styles.rowAction} ${styles.rowActionDanger}`}
+                          className={styles.rowAction}
                           disabled={busy !== ''}
-                          onClick={() => { void runExitAction('remove', exit.id) }}
+                          title={t('statsRotateHint')}
+                          aria-label={t('statsRotate')}
+                          onClick={() => { void runExitAction('rotate', exit.id) }}
                         >
-                          {t('statsRemove')}
+                          <RotateIcon />
                         </button>
                       </td>
                     </tr>
@@ -480,18 +493,22 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         type="button"
                         className={styles.rowAction}
                         disabled={busy !== ''}
+                        title={t('statsUnpinHint')}
+                        aria-label={t('statsUnpin')}
                         onClick={() => { void runExitAction('unpin') }}
                       >
-                        {t('statsUnpin')}
+                        <UnpinIcon />
                       </button>
                     ) : (
                       <button
                         type="button"
                         className={styles.rowAction}
                         disabled={busy !== ''}
+                        title={t('statsPinLocalHint')}
+                        aria-label={t('statsPin')}
                         onClick={() => { void runExitAction('pin-local') }}
                       >
-                        {t('statsPin')}
+                        <PinIcon />
                       </button>
                     )}
                   </td>

@@ -26,6 +26,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { en } from './locales.ts'
 import styles from './ip-pool.module.css'
+import { PinIcon, RotateIcon } from './icons.tsx'
 import { fieldWrite, poolWriteOps, type FieldWrite } from './settings-writes.ts'
 
 /** The reactive values and commands this page reads and writes through. */
@@ -516,8 +517,8 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
 }
 
 /** The exit table + ban list. */
-function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t']; onProbe: (exitId: string) => void; onPin: (exitId: string) => void; onRemove: (exitId: string) => void; busy: boolean }): ReactNode {
-  const { status, t, onProbe, onPin, onRemove, busy } = props
+function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t']; onProbe: (exitId: string) => void; onPin: (exitId: string) => void; onRotate: (exitId: string) => void; busy: boolean }): ReactNode {
+  const { status, t, onProbe, onPin, onRotate, busy } = props
   const [bansOpen, setBansOpen] = useState(false)
   if (status === null) return null
   const stateCell = (exit: PoolStatusView['exits'][number]): ReactNode => {
@@ -565,13 +566,32 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
                 </td>
                 <td>
                   <button type="button" className={styles.rowRemove} disabled={busy} onClick={() => onProbe(exit.id)}>{t('exitProbe')}</button>
+                  {/* Icon actions, the same pair the stats modal carries
+                      (2026-10-14): 固定 (padlock) and 轮换 (circular arrow).
+                      The word 删除 was wrong — nothing is deleted: a reserve
+                      takes the slot, or the row sinks to the tail. */}
                   {!exit.pinned && (
-                    <button type="button" className={styles.rowRemove} disabled={busy} onClick={() => onPin(exit.id)}>{t('exitPin')}</button>
+                    <button
+                      type="button"
+                      className={styles.rowIcon}
+                      disabled={busy}
+                      title={t('statsPinHint')}
+                      aria-label={t('exitPin')}
+                      onClick={() => onPin(exit.id)}
+                    >
+                      <PinIcon />
+                    </button>
                   )}
-                  {/* 删除 is the same row action the stats modal carries: drop
-                      the exit, let the candidate list refill the slot, or sink
-                      it to the tail when there is no reserve (2026-10-14). */}
-                  <button type="button" className={styles.rowRemove} disabled={busy} onClick={() => onRemove(exit.id)}>{t('statsRemove')}</button>
+                  <button
+                    type="button"
+                    className={styles.rowIcon}
+                    disabled={busy}
+                    title={t('statsRotateHint')}
+                    aria-label={t('statsRotate')}
+                    onClick={() => onRotate(exit.id)}
+                  >
+                    <RotateIcon />
+                  </button>
                 </td>
               </tr>
             ))}
@@ -779,16 +799,17 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   }
 
   /**
-   * 删除 one exit from the table. The bridge owns the whole decision (promote
-   * a reserve, or sink the row), so the card only re-reads /status after it.
+   * 轮换 one exit out of the table. The bridge owns the whole decision (promote
+   * a reserve into its slot, or sink the row to the tail), so the card only
+   * re-reads /status after it.
    */
-  const removeExit = async (exitId: string): Promise<void> => {
+  const rotateExit = async (exitId: string): Promise<void> => {
     setActionBusy(true)
     try {
       await fetch(`${BRIDGE_PREFIX}/exit`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'remove', exitId }),
+        body: JSON.stringify({ action: 'rotate', exitId }),
       })
       await refreshStatus()
     } catch {
@@ -986,7 +1007,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
             busy={actionBusy}
             onProbe={(id) => { void bridgeAction({ scope: 'exit', exitId: id }) }}
             onPin={(id) => { void pinExit(id) }}
-            onRemove={(id) => { void removeExit(id) }}
+            onRotate={(id) => { void rotateExit(id) }}
           />
         </>
       )}
