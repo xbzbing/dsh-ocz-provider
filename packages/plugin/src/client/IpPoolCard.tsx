@@ -570,28 +570,30 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
                       (2026-10-14): 固定 (padlock) and 轮换 (circular arrow).
                       The word 删除 was wrong — nothing is deleted: a reserve
                       takes the slot, or the row sinks to the tail. */}
-                  {!exit.pinned && (
+                  <span className={styles.actionGroup}>
+                    {!exit.pinned && (
+                      <button
+                        type="button"
+                        className={styles.rowIcon}
+                        disabled={busy}
+                        title={t('statsPinHint')}
+                        aria-label={t('exitPin')}
+                        onClick={() => onPin(exit.id)}
+                      >
+                        <PinIcon />
+                      </button>
+                    )}
                     <button
                       type="button"
                       className={styles.rowIcon}
                       disabled={busy}
-                      title={t('statsPinHint')}
-                      aria-label={t('exitPin')}
-                      onClick={() => onPin(exit.id)}
+                      title={t('statsRotateHint')}
+                      aria-label={t('statsRotate')}
+                      onClick={() => onRotate(exit.id)}
                     >
-                      <PinIcon />
+                      <RotateIcon />
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className={styles.rowIcon}
-                    disabled={busy}
-                    title={t('statsRotateHint')}
-                    aria-label={t('statsRotate')}
-                    onClick={() => onRotate(exit.id)}
-                  >
-                    <RotateIcon />
-                  </button>
+                  </span>
                 </td>
               </tr>
             ))}

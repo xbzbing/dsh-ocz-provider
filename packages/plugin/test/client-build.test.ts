@@ -34,6 +34,12 @@ test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
   assert.ok(source.includes('轮换'), 'the rotated-out action is named 轮换, not 删除')
   assert.ok(!source.includes('已删除'), 'no user-visible string still says 已删除')
   assert.ok(source.includes('statsRotateHint'), 'the icon buttons carry their explanation in a tooltip')
+  // 固定 + 轮换 are one segmented group, not two buttons with a gap (live
+  // request 2026-10-14): the shared edge collapses to a single border via the
+  // -1px pull, and only the group's outer corners keep their radius.
+  assert.ok(source.includes('actionGroup>button+button{margin-left:-1px'), 'the shared edge is collapsed, not gapped')
+  assert.ok(source.includes('actionGroup>button:not(:first-child){border-top-left-radius:0'), 'the inner corners are squared')
+  assert.ok(source.includes('actionGroup>button:not(:last-child){border-top-right-radius:0'), 'and the outer ones keep their radius')
 })
 
 test('client bundle is built and well-formed', () => {

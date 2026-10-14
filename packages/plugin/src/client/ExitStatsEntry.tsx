@@ -423,6 +423,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                           or the row sinks to the tail when there is none. The
                           words live in the tooltip and the aria-label. */}
                       <td className={styles.statsActions}>
+                        <span className={styles.actionGroup}>
                         {exit.pinned ? (
                           <button
                             type="button"
@@ -456,6 +457,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         >
                           <RotateIcon />
                         </button>
+                        </span>
                       </td>
                     </tr>
                   )
@@ -488,6 +490,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   {/* 固定 on the 本机 row pins local egress itself: every request
                       stays on this machine, no exit at all. */}
                   <td className={styles.statsActions}>
+                    <span className={styles.actionGroup}>
                     {status?.pinned?.local === true ? (
                       <button
                         type="button"
@@ -511,6 +514,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         <PinIcon />
                       </button>
                     )}
+                    </span>
                   </td>
                 </tr>
               </tbody>
