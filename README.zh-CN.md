@@ -180,7 +180,7 @@ git add lib                          # 产物是提交进仓库的，不是忽�
 
 `pnpm build` 是唯一受支持的构建入口：它先清空 `lib/`，再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`pnpm test` 会拿它与 `src/` 比对。两半共用 `tsdown.config.ts` / `tsdown.client.config.ts` 一对配置，chunk 文件名固定，反复重建不会留下 `admission-<hash>.js` 这类垃圾文件。
 
-旧版 Go sidecar 在 `legacy/agent`（`go test ./...`）。架构说明与移植记录见 `docs/`。
+旧版 Go sidecar 在 `legacy/agent`（`go test ./...`）。架构说明与移植记录见 `docs/`；面向 agent 的项目说明（构建命令、项目相关设置、上游闸门）见 `AGENTS.md`。
 
 打包：在仓库根目录执行 `pnpm build && pnpm pack`（根目录才是那个包；根目录**故意不放** `prepack`，因为生命周期脚本正是让 git 源安装被迫要求 `allowBuilds` 的原因）。
 

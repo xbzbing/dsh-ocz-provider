@@ -1,7 +1,7 @@
 # opencode-zen IP 池与出口路由 — 架构设计
 
 > 状态：v1 草案（2026-09-04）。实现前定稿；上游锚点在编写时逐一核实。
-> 关联：`docs/design.md`（总体架构，特别是 §9.2 多出口收缩）、`docs/ts-adapter.md`（当前 adapter 形态）。
+> 关联：`docs/design.md`（总体架构，特别是 §9.2 多出口收缩）。当前实现是 TS adapter（仓库根 `src/adapter/`）。
 > 参考项目（两个均在本地临时目录读过源码）：
 > - [isboyjc/GoProxy](https://github.com/isboyjc/GoProxy)（智能代理池：免费源抓取 + Clash/V2ray 订阅导入 + 探活 + 对外 HTTP/SOCKS5）
 > - [superfish058/dsh-llm-proxy](https://github.com/superfish058/dsh-llm-proxy)（DSH 生态插件：undici 全局 dispatcher 按 host 分流 + 设置页卡片 + 连接测试）
@@ -709,7 +709,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 zen-adapter.ts 改动极小：`stream()` 里把 pi-ai 的 `maxRetries: 0` 保持，失败语义交给 dispatcher 层；可选地把「当前请求命中哪个出口」通过事件暴露给设置页运行统计（`probe` 之外的被动数据）。
 
-## 7. 分期（plan.md 增量）
+## 7. 分期（已全部落地）
 
 **零外部依赖即可用**：免费源 + 手填代理 + 订阅明文节点进程内闭环。加密订阅节点需要 sing-box standalone（单文件，设置页给下载指引）或已有 GoProxy——二选一，都没有时加密节点灰显「待转换」，明文节点照常。GoProxy 对接（可选来源）需要用户实例在跑；未部署跳过即可。
 

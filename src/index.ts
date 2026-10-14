@@ -369,7 +369,7 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
   })
 
   // Register disposer on the plugin fiber so reload/unload/shutdown reaps the
-  // child process (plan.md Phase 1 acceptance: no orphans).
+  // child process (design.md §7 sidecar contract: no orphans).
   const maybeEffect = (ctx as { effect?: PluginContext['effect'] }).effect
   if (typeof maybeEffect === 'function') {
     maybeEffect.call(ctx, () => () => {

@@ -245,7 +245,7 @@ cordis 插件 service 工厂
 
 ### 8.2 端口与发现
 
-- 子进程 `--listen 127.0.0.1:0`（随机端口）。**采用方案**：为 agent 增加 `--print-ready` 模式 —— 监听成功后向 stdout 写一行 `READY {"port":<port>,"version":"..."}`，插件读取该行即得端口（避免轮询猜测）。这是对 opencode2api 的一处**新增**（约 20 行），在 plan.md Phase 1 验收。
+- 子进程 `--listen 127.0.0.1:0`（随机端口）。**采用方案**：为 agent 增加 `--print-ready` 模式 —— 监听成功后向 stdout 写一行 `READY {"port":<port>,"version":"..."}`，插件读取该行即得端口（避免轮询猜测）。这是对 opencode2api 的一处**新增**（约 20 行），已在 sidecar 实现中验收。
 - 插件再把 `http://127.0.0.1:<port>/v1` 写入 DSH provider 配置，模型清单经 `GET /v1/models` 拉取（插件启动时与定时刷新时各一次，向 DSH 动态注册模型）。
 
 ### 8.3 配置传递
@@ -278,7 +278,7 @@ Go 交叉编译矩阵一条命令即可产出（`GOOS=… GOARCH=… go build`�
 
 ### 8.5 为什么不在 Node 里做（tradeoff 复述）
 
-Node 方案（重写或 napi 封装）的对比已在 D1/D2 给出。补充一点：**SSE 透传**在 Node 里是 `fetch` + `ReadableStream`，实现简单，但 opencode2api 的价值在**多协议互转与池管理**；只透传的话匿名判定、冷却、错误映射都要重做。Node 方案唯一胜出场景是「绝不接受二进制分发」的约束 —— 若 DSH 插件市场禁止分发原生二进制，则降级为「要求用户自装 Go 并现场编译」，作为 plan.md 的显式风险项（R2）。
+Node 方案（重写或 napi 封装）的对比已在 D1/D2 给出。补充一点：**SSE 透传**在 Node 里是 `fetch` + `ReadableStream`，实现简单，但 opencode2api 的价值在**多协议互转与池管理**；只透传的话匿名判定、冷却、错误映射都要重做。Node 方案唯一胜出场景是「绝不接受二进制分发」的约束 —— 若 DSH 插件市场禁止分发原生二进制，则降级为「要求用户自装 Go 并现场编译」，作为 sidecar 形态的显式风险项（R2）。
 
 ## 9. 限流、配额与灰色边界（诚实声明）
 
@@ -306,7 +306,6 @@ OpenCode 官方提供匿名免费通道（`allowAnonymous` 模型 + `Bearer publ
 opencode-zen/
 ├── docs/
 │   ├── design.md                 # 本文
-│   └── plan.md                   # 实施计划
 ├── agent/                        # Go module（单 module，cmd+internal 布局）
 │   ├── go.mod                    # module opencode-zen/agent; go 1.24; 零第三方依赖
 │   ├── cmd/agent/

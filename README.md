@@ -204,7 +204,9 @@ builds the node half, the browser half, and stamps `lib/.build-manifest.json`
 rebuilds never leave `admission-<hash>.js` litter behind.
 
 The legacy Go sidecar lives in `legacy/agent` (`go test ./...`). Architecture
-notes and the porting record live in `docs/`.
+notes and the porting record live in `docs/`; agent-facing project notes
+(build commands, project-specific settings, the upstream gate) are in
+`AGENTS.md`.
 
 Packing: `pnpm build && pnpm pack` at the repository root (the root is the
 package; it carries no `prepack` on purpose, since a lifecycle script there is

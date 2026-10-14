@@ -1,6 +1,6 @@
 /**
  * Registers the local agent into DSH's llm-pi-ai provider settings and keeps
- * the model list fresh (plan.md 1.5, per Appendix A conclusion).
+ * the model list fresh (design.md Appendix A conclusion).
  *
  * Two touches, both idempotent:
  *  1. credentials: store the local token behind apiKeyEnv so the settings
