@@ -1,5 +1,5 @@
 import { d as conversationLabel, f as deriveRequestIDs, n as ModelCatalog, o as defaultCachePath, p as disguiseHeaders, r as ZEN_BASE_URL } from "./catalog-GckqcHsV.js";
-import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CSPxuQuG.js";
+import { a as GATE_TOOL_ALIASES, d as isResponsesModel, l as toPiContext, n as normalizeSmokeContents, o as ensureFreeLaneShape, s as ensureResponsesFreeLaneShape, t as DEFAULT_SMOKE_CONTENT, u as apiForModel } from "./smoke-content-DnpVb6rv.js";
 import { a as routingContext, c as UsageTracker, d as setUsageRecorder, f as usageTracker, l as attributeUsage, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as emptyTotals } from "./dispatcher-BfnX7k6I.js";
 import { c as shouldRotate, i as classifyStreamFailure, n as DEFAULT_SUBSCRIPTION_USER_AGENT, o as isRegionBlocked, t as stateDir } from "./paths-Czv1ZEwZ.js";
 import { dirname, join } from "node:path";
@@ -1027,6 +1027,7 @@ const DEFAULT_PROBE_MODEL = "big-pickle";
 const IpPoolConfigSchema = Schema.object({
 	enabled: Schema.boolean().default(false),
 	probeModels: Schema.array(Schema.string()).default([]),
+	probeContents: Schema.array(Schema.string()).default([]),
 	maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
 	poolSize: Schema.number().min(1).max(100).step(1).default(10),
 	free: Schema.object({
@@ -1059,6 +1060,15 @@ function resolveProbeModels(configured) {
 	return [DEFAULT_PROBE_MODEL];
 }
 /**
+* Resolve the probe-content pool (§4.5 step 4): trimmed and deduped, or the
+* single default when nothing is configured — the runtime always hands
+* admission a non-empty pool, so the random pick has something to choose from.
+*/
+function resolveProbeContents(configured) {
+	const pool = normalizeSmokeContents(configured);
+	return pool.length > 0 ? pool : [DEFAULT_SMOKE_CONTENT];
+}
+/**
 * Fill every default into one ip-pool value, from whichever layer produced
 * it. Deliberately schema-independent: the volatile reference is the
 * authoritative source, but a composition that predates the `Config` export
@@ -1073,6 +1083,7 @@ function resolveIpPoolSettings(value) {
 	return {
 		enabled: raw.enabled ?? false,
 		probeModels: raw.probeModels ?? [],
+		probeContents: raw.probeContents ?? [],
 		maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
 		poolSize: raw.poolSize ?? 10,
 		free: {
@@ -1120,6 +1131,7 @@ function toIpPoolConfig(value) {
 		},
 		singbox: { path: value.singbox.path },
 		probeModels: resolveProbeModels(value.probeModels),
+		probeContents: resolveProbeContents(value.probeContents),
 		maxConcurrentProbes: value.maxConcurrentProbes,
 		poolSize: value.poolSize,
 		maxRotateAttempts: value.maxRotateAttempts,
@@ -1781,7 +1793,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-1EPTlPjl.js");
+	const { startIpPool } = await import("./ip-pool-CGczuN9u.js");
 	return startIpPool(config, logger);
 };
 /**

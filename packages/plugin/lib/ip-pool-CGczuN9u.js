@@ -1,8 +1,8 @@
 import "./catalog-GckqcHsV.js";
-import "./messages-CSPxuQuG.js";
+import "./smoke-content-DnpVb6rv.js";
 import { s as LOCAL_EXIT_ID } from "./dispatcher-BfnX7k6I.js";
 import { a as createRotateDelegate, n as DEFAULT_SUBSCRIPTION_USER_AGENT, r as parseSubscription, s as setRotateDelegate, t as stateDir } from "./paths-Czv1ZEwZ.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-Cb4Pg8rM.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-BZMDcdcE.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -1850,7 +1850,8 @@ async function startIpPool(config, logger, deps = {}) {
 	const ipPool = config.ipPool ?? {};
 	const pool = buildPoolFromConfig(config);
 	let undici;
-	try {
+	if (deps.undici !== void 0) undici = deps.undici;
+	else try {
 		undici = await import("undici");
 	} catch (err) {
 		logger.warn(`opencode2dsh: undici unavailable; exit routing disabled (${err instanceof Error ? err.message : String(err)})`);
@@ -1869,9 +1870,11 @@ async function startIpPool(config, logger, deps = {}) {
 		undici,
 		logger,
 		blockedCountries: ipPool.free?.blockedCountries,
-		smokeModel: (ipPool.probeModels ?? [])[0]
+		smokeModel: (ipPool.probeModels ?? [])[0],
+		smokeContents: ipPool.probeContents ?? []
 	};
 	const probeModels = ipPool.probeModels ?? [];
+	const probeContents = ipPool.probeContents ?? [];
 	const prober = new Prober({
 		pool,
 		maxConcurrentProbes: ipPool.maxConcurrentProbes ?? 3
@@ -1908,6 +1911,7 @@ async function startIpPool(config, logger, deps = {}) {
 		pool.setPoolSize(current.poolSize ?? 20);
 		admissionDeps.blockedCountries = current.free?.blockedCountries;
 		admissionDeps.smokeModel = probeModels[0];
+		admissionDeps.smokeContents = probeContents;
 		prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3);
 		installer.setProxyHosts?.(current.proxyHosts);
 		installer.setProxyPathPrefixes?.(current.proxyPathPrefixes);
@@ -1973,7 +1977,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-BURMZnZt.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-d0PcjSDN.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
@@ -2088,6 +2092,8 @@ async function startIpPool(config, logger, deps = {}) {
 			config.ipPool = next.ipPool;
 			probeModels.length = 0;
 			probeModels.push(...next.ipPool?.probeModels ?? []);
+			probeContents.length = 0;
+			probeContents.push(...next.ipPool?.probeContents ?? []);
 			const enable = next.ipPool?.enabled !== false;
 			applyConfig();
 			setRotateDelegate(createRotateDelegate(pool, { maxAttempts: next.ipPool?.maxRotateAttempts ?? 3 }));

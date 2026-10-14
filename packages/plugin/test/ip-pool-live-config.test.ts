@@ -170,6 +170,83 @@ test('assembly: manual rows and the pin apply live through reconfigure', async (
 })
 
 /**
+ * Fake transport seam: answers the whole probe chain (ip echo → models → smoke)
+ * and records every request body, so what the probe SENDS is observable
+ * without a network.
+ */
+function fakeProbeTransport() {
+  const bodies = new Map<string, string>()
+  const echoBody = JSON.stringify({ status: 'success', query: '5.5.5.5', countryCode: 'US', city: 'city', country: 'c' })
+  return {
+    bodies,
+    undici: {
+      Agent: class {} as never,
+      ProxyAgent: class {
+        constructor(_options: { uri: string }) {}
+        close() { return Promise.resolve() }
+        destroy() { return Promise.resolve() }
+      } as never,
+      setGlobalDispatcher: (() => {}) as never,
+      getGlobalDispatcher: (() => ({})) as never,
+      request: (async (url: string, init?: { body?: string }) => {
+        if (typeof init?.body === 'string') bodies.set(url, init.body)
+        const body = url.includes('ip-api.com') ? echoBody : url.endsWith('/v1/models') ? '{"data":[]}' : '{"id":"x"}'
+        return { statusCode: 200, body: { text: async () => body } }
+      }) as never,
+    },
+  }
+}
+
+/** The smoke request's user turn, read back out of the captured chat body. */
+function smokeTurn(transport: ReturnType<typeof fakeProbeTransport>): string {
+  const entry = [...transport.bodies.entries()].find(([url]) => url.includes('/chat/completions'))
+  assert.ok(entry, 'the probe reached the anonymous-lane smoke')
+  return (JSON.parse(entry[1]) as { messages: Array<{ content: string }> }).messages[0]!.content
+}
+
+test('the probe content pool reaches the live probe, and a commit swaps it', async (t) => {
+  // Live request 2026-10-14: 增加探测文案的配置，允许自定义多个 content，
+  // 探索时随机选择 — the setting has to be live, not assembly-only.
+  const transport = fakeProbeTransport()
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'], probeContents: ['alpha', 'beta'] } },
+    quiet,
+    { makeInstaller: () => fakeInstaller(), undici: transport.undici },
+  )
+  assert.ok(runtime !== null)
+  t.after(() => { void runtime.dispose() })
+
+  // Math.random IS the production pick's source, so pinning it makes the draw
+  // observable without another seam.
+  t.mock.method(Math, 'random', () => 0)
+  await runtime.probeExit('http://127.0.0.1:7890')
+  assert.equal(smokeTurn(transport), 'alpha')
+
+  t.mock.method(Math, 'random', () => 0.99)
+  await runtime.probeExit('http://127.0.0.1:7890')
+  assert.equal(smokeTurn(transport), 'beta', 'every probe draws again from the pool')
+
+  await runtime.reconfigure({
+    ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'], probeContents: ['gamma'] },
+  })
+  await runtime.probeExit('http://127.0.0.1:7890')
+  assert.equal(smokeTurn(transport), 'gamma', 'the next probe uses the committed pool — no restart')
+})
+
+test('an unconfigured probe content pool sends the default turn', async (t) => {
+  const transport = fakeProbeTransport()
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'] } },
+    quiet,
+    { makeInstaller: () => fakeInstaller(), undici: transport.undici },
+  )
+  assert.ok(runtime !== null)
+  t.after(() => { void runtime.dispose() })
+  await runtime.probeExit('http://127.0.0.1:7890')
+  assert.equal(smokeTurn(transport), 'hello')
+})
+
+/**
  * The probe wiring itself, without a network. Live 2026-10-13: the trusted
  * fallback returns `admitted: true` (the line is kept, docs 4.5) and the
  * caller read that as "healthy", so a dead exit was revived on every probe

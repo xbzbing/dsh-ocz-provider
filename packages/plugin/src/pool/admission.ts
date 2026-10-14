@@ -23,6 +23,7 @@ import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/messages
 import { canonicalSessionID, disguiseHeaders, opencodeUserAgent, randomID, stableID } from '../adapter/ids.ts'
 import { gradeOf, UNVERIFIED_QUALITY, type ExitNode, type ExitPool } from './pool.ts'
 import { exitProxyUri } from './dispatcher.ts'
+import { pickSmokeContent } from './smoke-content.ts'
 
 export interface AdmissionDeps {
   pool: ExitPool
@@ -36,6 +37,14 @@ export interface AdmissionDeps {
   ipEchoUrl?: string
   /** chat model for the smoke request (probeModels[0] upstream). */
   smokeModel?: string
+  /**
+   * Probe-content pool (settings `probeContents`): the smoke's user turn is
+   * picked from it at RANDOM for every probe. Empty/undefined falls back to
+   * {@link DEFAULT_SMOKE_CONTENT} (smoke-content.ts).
+   */
+  smokeContents?: string[]
+  /** Injected for tests: the random pick's source. */
+  random?: () => number
   timeoutMs?: number
   blockedCountries?: string[]
   logger?: { warn(message: string): void }
@@ -279,7 +288,7 @@ export async function admitCandidate(
       },
       body: JSON.stringify({
         model: smokeModel,
-        messages: [{ role: 'user', content: 'ping' }],
+        messages: [{ role: 'user', content: pickSmokeContent(deps.smokeContents, deps.random) }],
         max_tokens: 1,
         stream: true,
         stream_options: { include_usage: true },

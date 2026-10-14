@@ -397,10 +397,14 @@ healthy ──可用数<95%──► warning ──可用数<30%──► critic
 
 ```
 POST {zen}/v1/chat/completions
-{ "model": <probeModels 中的下一个>, "messages": [{"role":"user","content":"ping"}], "max_tokens": 1 }
+{ "model": <probeModels 中的下一个>,
+  "messages": [{"role":"user","content": <probeContents 中随机一条，默认 "hello">}],
+  "max_tokens": 1, "stream": true, "stream_options": {"include_usage": true},
+  "tools": [bash, read], "tool_choice": "none" }
 ```
 
-- 1 token、非流式、timeout 8s。**明确不算「绕过付费」**：消耗的是匿名通道自己的免费配额，与正常使用同性质，只是被我们主动花掉一点点用于探测。
+- **探测文案**（live 2026-10-14 用户口径）：`probeContents` 是文案池，每次探测随机取一条；留空 = 默认 `hello`（原先写死的 `ping`）。它只影响那句话本身——判定看的是请求**形状**（流式 + gate tools + canonical `ses_*` 头，§4.5 步骤 4），所以多条文案只是让探测流量不像同一条固定合成请求，探测语义完全不变。
+- 1 token、**流式**（免费泳道自 2026-10-09 起要求流式 + gate tools，见 §4.5 步骤 4）、timeout 8s。**明确不算「绕过付费」**：消耗的是匿名通道自己的免费配额，与正常使用同性质，只是被我们主动花掉一点点用于探测。
 - 探测**必须在宿主侧**跑（走全局 dispatcher，与真实流量同路径），设置页按钮经 bridge（§5.3）触发。
 
 按响应分层判定（与 §3.4 被动信号同一张规则表）：
@@ -454,6 +458,7 @@ POST {zen}/v1/chat/completions
 | 参数 | 值 | 说明 |
 | --- | --- | --- |
 | probeModels | `[S3 首个]`（当前 `['big-pickle']`） | 探活模型集合；可加主用模型，同出口内多模型仍串行 |
+| probeContents | `['hello']` | 冒烟探测的**用户那句话**的候选池：每次探测随机取一条；留空 = `hello`（§4.2） |
 | maxConcurrentProbes | **3** | 细筛/探活全局并发上限（碰 Zen 的请求，§4.1） |
 | poolSize | **10** | **整池容量**（任何来源合计同时在线数，§4.7）。它同时是本地监听数的上限：上线时先全量转换测速，取最快的前 N 个后重建配置只保留它们 |
 | admissionFanout | **300** | 粗筛暴力并发（只打野生候选+IP 服务，不碰 Zen，§4.5；GoProxy ValidateConcurrency 同值） |
@@ -533,6 +538,7 @@ settings namespace `ip-pool`（applies: live，保存即热更新：换 pinned/�
 Config = Schema.object({
   enabled: Schema.boolean().default(false),
   probeModels: Schema.array(Schema.string()).default([]),  // 空 = [S3 首个]；可填主用模型（如 muse-…-free）
+  probeContents: Schema.array(Schema.string()).default([]),  // 探测文案池；空 = ['hello']，每次探测随机取一条（§4.2）
   maxConcurrentProbes: Schema.number().min(1).max(8).default(3),  // 跨出口并发上限（探活+准入共享）
   free: Schema.object({
     enabled: Schema.boolean().default(true),      // 免费源抓取总开关（§1.2 来源 1）
@@ -566,6 +572,7 @@ Config = Schema.object({
 | 出口来源 | 三个来源子区块：免费源（开关 + 目标容量 + 地理黑名单 + 「立即补充」）；手填代理（textarea，增删）；订阅（URL 列表脱敏回显 + 刷新间隔 + 「立即刷新」+ 转换核心状态：sing-box 检测结果/待转换节点数） |
 | 固定主力出口 | 直填地址框（placeholder：`http://127.0.0.1:7897`（Clash 混合端口）/ `http://专线:端口`，即填即 pin 为 manual 来源节点；填 `local` = 固定本机直连，§3.6）+ 当前 pinned 展示（地址/出口 IP/状态；本机固定显示「固定本机（直连）」徽章）+ strict 单选（「主力+备胎（429/断线自动切换，恢复回归）」/「绝对固定（失败也不换出口、不直连）」）+ 解除固定按钮 |
 | 探活模型 | 多选：当前免费目录（catalog.list()）+ S3 清单，默认选 S3 首个；说明文案「探测结论按出口计，建议加主用模型；同一出口内多模型串行探测」 |
+| 探测文案 | 字符串列表（增删），placeholder「例如：hello」；说明文案「冒烟探测发给上游的那句话：每次探测从列表里随机挑一条；留空 = 默认 hello」（§4.2） |
 | 并发上限 | maxConcurrentProbes 数字框（1-8，默认 3）+ 说明「不同出口并发，同一出口串行」 |
 | 池子容量 | poolSize 数字框（1-100，默认 10）+ 说明「同时在线的出口数：上线先测速取最快的前 N 个，并把 sing-box 本地监听收缩到它们，其余留作候补」（§4.7） |
 | 用量统计（持久记录） | 口径切换（分段控件：「总览（累计）」/「本次重启」，**即点即生效**，不走保存按钮）+ 该口径下的请求/token/tok-s/会话数/活跃天数 + 说明。它决定**出口列表里的用量数字**看哪个口径；左下角入口固定显示总览（§5.5/§5.6） |

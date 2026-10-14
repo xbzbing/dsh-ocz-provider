@@ -1,5 +1,5 @@
 import { g as stableID, h as randomID, m as opencodeUserAgent, p as disguiseHeaders, r as ZEN_BASE_URL, u as canonicalSessionID } from "./catalog-GckqcHsV.js";
-import { a as freeLaneGateTool, t as FREE_LANE_GATE_TOOL_NAMES } from "./messages-CSPxuQuG.js";
+import { c as freeLaneGateTool, i as FREE_LANE_GATE_TOOL_NAMES, r as pickSmokeContent } from "./smoke-content-DnpVb6rv.js";
 import { n as exitProxyUri, s as LOCAL_EXIT_ID } from "./dispatcher-BfnX7k6I.js";
 
 //#region src/pool/pool.ts
@@ -836,7 +836,7 @@ async function admitCandidate(deps, candidate, options = {}) {
 				model: smokeModel,
 				messages: [{
 					role: "user",
-					content: "ping"
+					content: pickSmokeContent(deps.smokeContents, deps.random)
 				}],
 				max_tokens: 1,
 				stream: true,
