@@ -26,6 +26,7 @@ import { RefillScheduler } from './pool/refill.ts'
 import { SubscriptionFetcher } from './pool/subscription-fetcher.ts'
 import { SingBoxSupervisor } from './pool/singbox.ts'
 import { createRotateDelegate, setRotateDelegate } from './pool/rotate.ts'
+import { pickSmokeContent } from './pool/smoke-content.ts'
 import { stateDir } from './paths.ts'
 
 /** Data dir shared with the catalog cache (config.ts convention). */
@@ -437,21 +438,26 @@ export async function startIpPool(
    */
   const probeOne = async (entry: ReturnType<ExitPool['list']>[number], models: string[]): Promise<void> => {
     const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
+    // ONE probe content per exit pass (live correction 2026-10-14): the models
+    // of a single pass are the SAME exit, so they all send the same sentence,
+    // and the next exit draws its own. The copy keeps that draw out of the
+    // shared deps the onboarding/refill/subscription smokes also read.
+    const deps: AdmissionDeps = { ...admissionDeps, smokeContent: pickSmokeContent(probeContents) }
     for (const model of models) {
-      // The smoke rides the shared admission deps; point its model at the
-      // current probe-model before each pass (per-exit serial, §4.1).
-      admissionDeps.smokeModel = model
+      // Point the smoke's model at the current probe-model before each pass
+      // (per-exit serial, §4.1).
+      deps.smokeModel = model
       // Free exits re-run the full candidate chain (echo→tunnel→smoke) —
       // their facts may have drifted; trusted exits run the smoke only
       // (docs §4.5 manual/subscription path). Pinned rides the trusted
       // path so a blocked echo endpoint never evicts the user's line.
       const verdict = entry.source === 'free'
-        ? await admitCandidate(admissionDeps, {
+        ? await admitCandidate(deps, {
           address: entry.id,
           protocol: entry.protocol,
           source: 'free',
         })
-        : await admitTrusted(admissionDeps, {
+        : await admitTrusted(deps, {
           address: entry.id,
           protocol: entry.protocol,
           source: entry.source === 'manual' ? 'manual' : 'subscription',
