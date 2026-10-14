@@ -1,5 +1,5 @@
 /**
- * Standalone tsdown config for the opencode-zen client bundle (docs/ip-pool.md
+ * Standalone tsdown config for the oc2dsh client bundle (docs/ip-pool.md
  * §5.4) — mirrors dsh-llm-proxy's validated chain, adapted to the platform
  * seeds verified on this host (web-frontend static table): react,
  * react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
@@ -18,7 +18,7 @@ import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
 import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
 
-const ID = 'dsh-opencode-zen-provider'
+const ID = 'oc2dsh'
 
 /**
  * Browser platform modules the shell seeds into the frozen module table

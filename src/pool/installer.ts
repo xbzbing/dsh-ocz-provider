@@ -119,7 +119,7 @@ export class RoutingInstaller {
     const foreign = this.#detectForeignDispatcher()
     if (foreign !== null) {
       this.#deferredReason = foreign
-      this.#deps.logger?.warn(`opencode-zen: exit routing ${foreign}`)
+      this.#deps.logger?.warn(`oc2dsh: exit routing ${foreign}`)
       return
     }
     this.#deferredReason = null
@@ -161,9 +161,9 @@ export class RoutingInstaller {
     if (typeof moduleFetch === 'function' && globalThis.fetch !== moduleFetch) {
       this.#savedGlobalFetch = globalThis.fetch
       ;(globalThis as { fetch: unknown }).fetch = moduleFetch
-      this.#deps.logger?.info('opencode-zen: globalThis.fetch -> undici module fetch (built-in fetch bypasses the pool dispatcher otherwise)')
+      this.#deps.logger?.info('oc2dsh: globalThis.fetch -> undici module fetch (built-in fetch bypasses the pool dispatcher otherwise)')
     }
-    this.#deps.logger?.info('opencode-zen: global dispatcher -> PoolRoutingDispatcher (exit routing enabled)')
+    this.#deps.logger?.info('oc2dsh: global dispatcher -> PoolRoutingDispatcher (exit routing enabled)')
   }
 
   /** Restore the pre-install dispatcher and close ours. */
@@ -203,8 +203,8 @@ export class RoutingInstaller {
     }
     this.#deps.logger?.info(
       restored
-        ? `opencode-zen: exit routing disabled; previous global dispatcher restored${restoreFetch ? ' and globalThis.fetch restored' : ''}`
-        : 'opencode-zen: exit routing disabled; no previous dispatcher to restore',
+        ? `oc2dsh: exit routing disabled; previous global dispatcher restored${restoreFetch ? ' and globalThis.fetch restored' : ''}`
+        : 'oc2dsh: exit routing disabled; no previous dispatcher to restore',
     )
   }
 

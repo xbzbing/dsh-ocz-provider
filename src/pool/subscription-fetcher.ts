@@ -199,7 +199,7 @@ export class SubscriptionFetcher {
     try {
       return await this.#onboarder.trim()
     } catch (err) {
-      this.#logger?.warn(`opencode-zen: trimming the pool to poolSize failed: ${err instanceof Error ? err.message : String(err)}`)
+      this.#logger?.warn(`oc2dsh: trimming the pool to poolSize failed: ${err instanceof Error ? err.message : String(err)}`)
       return 0
     } finally {
       this.#replacing = false
@@ -231,7 +231,7 @@ export class SubscriptionFetcher {
     try {
       return await this.#onboarder.replace(exitId)
     } catch (err) {
-      this.#logger?.warn(`opencode-zen: replacing refused exit ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`)
+      this.#logger?.warn(`oc2dsh: replacing refused exit ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`)
       return false
     } finally {
       this.#replacing = false
@@ -285,10 +285,10 @@ export class SubscriptionFetcher {
               pending.push(node)
             }
           }
-          this.#logger?.info(`opencode-zen: subscription parsed ${report.nodes.length} node(s) (${report.detected}) from ${this.#redact(url)}`)
+          this.#logger?.info(`oc2dsh: subscription parsed ${report.nodes.length} node(s) (${report.detected}) from ${this.#redact(url)}`)
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err)
-          this.#logger?.warn(`opencode-zen: subscription fetch failed for ${this.#redact(url)}: ${lastError}`)
+          this.#logger?.warn(`oc2dsh: subscription fetch failed for ${this.#redact(url)}: ${lastError}`)
         }
       }
       if (unroutable.length > 0) {
@@ -297,7 +297,7 @@ export class SubscriptionFetcher {
           .map((node) => `${node.type} ${node.server}:${node.port}`)
           .join(', ')
         this.#logger?.warn(
-          `opencode-zen: subscription carried ${unroutable.length} node(s) with an address that cannot be dialled from this machine; skipped (${sample}${unroutable.length > 5 ? ', …' : ''})`,
+          `oc2dsh: subscription carried ${unroutable.length} node(s) with an address that cannot be dialled from this machine; skipped (${sample}${unroutable.length > 5 ? ', …' : ''})`,
         )
       }
       this.#state = {
@@ -333,12 +333,12 @@ export class SubscriptionFetcher {
           // in the pool at the tail, so they are not "pending" either).
           this.#state.pendingConversion = []
           this.#logger?.info(
-            `opencode-zen: sing-box converted ${exits.length} encrypted node(s); onboarding kept ${outcome.online + outcome.admitted} of ${outcome.screened} screened (${outcome.admitted} admitted, ${outcome.promoted} promoted, ${outcome.demoted} demoted, ${outcome.reserve} reserve)`,
+            `oc2dsh: sing-box converted ${exits.length} encrypted node(s); onboarding kept ${outcome.online + outcome.admitted} of ${outcome.screened} screened (${outcome.admitted} admitted, ${outcome.promoted} promoted, ${outcome.demoted} demoted, ${outcome.reserve} reserve)`,
           )
         } catch (err) {
           const text = err instanceof Error ? err.message : String(err)
           this.#state.lastError = text
-          this.#logger?.warn(`opencode-zen: sing-box conversion failed: ${text}`)
+          this.#logger?.warn(`oc2dsh: sing-box conversion failed: ${text}`)
         }
       }
       // Plaintext nodes go through the trusted admission smoke (never the

@@ -266,7 +266,7 @@ export async function startIpPool(
     try {
       undici = (await import('undici')) as UndiciSeam
     } catch (err) {
-      logger.warn(`opencode-zen: undici unavailable; exit routing disabled (${err instanceof Error ? err.message : String(err)})`)
+      logger.warn(`oc2dsh: undici unavailable; exit routing disabled (${err instanceof Error ? err.message : String(err)})`)
       return null
     }
   }
@@ -407,7 +407,7 @@ export async function startIpPool(
     if (config.ipPool?.enabled === false) return
     if (installer.enabled || pool.snapshot().total === 0) return
     installer.install()
-    if (installer.enabled) logger.info('opencode-zen: exits admitted — exit routing engaged (live)')
+    if (installer.enabled) logger.info('oc2dsh: exits admitted — exit routing engaged (live)')
   }
   pool.onAdmitted(engageRouting)
 
@@ -428,7 +428,7 @@ export async function startIpPool(
   if (pool.snapshot().total > 0) {
     installer.install()
   } else {
-    logger.warn('opencode-zen: ipPool enabled but the pool is empty; staying direct until exits land (subscription/free admissions engage routing automatically)')
+    logger.warn('oc2dsh: ipPool enabled but the pool is empty; staying direct until exits land (subscription/free admissions engage routing automatically)')
   }
   applyConfig()
 
@@ -583,13 +583,13 @@ export async function startIpPool(
       if (enable && !installer.enabled && pool.snapshot().total > 0) {
         installer.install()
         if (installer.enabled) {
-          logger.info('opencode-zen: exit routing recovered — global dispatcher is free again (R1)')
+          logger.info('oc2dsh: exit routing recovered — global dispatcher is free again (R1)')
         }
       } else if (!enable && installer.enabled) {
         installer.disable()
       }
       if (wasEnabled !== enable) {
-        logger.info(`opencode-zen: ip pool ${enable ? 'enabled' : 'disabled'} via settings (live)`)
+        logger.info(`oc2dsh: ip pool ${enable ? 'enabled' : 'disabled'} via settings (live)`)
         // Switching on has to mean something within seconds: the periodic tick
         // is paused while disabled, so without this kick the pool would sit
         // unverified (pick() → null → direct) for up to a full probe interval

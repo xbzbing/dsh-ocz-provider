@@ -7,7 +7,7 @@
  * restarts, with three breakdowns the operator asked for: per day, per session
  * (the 流量 tab's top list), and per exit.
  *
- * Shape on disk (`~/.dsh/opencode-zen2dsh/usage.json`, one JSON document):
+ * Shape on disk (`~/.dsh/oc2dsh/usage.json`, one JSON document):
  *  - `totals`   — all-time cumulative, never trimmed: the footer's 总览 figure
  *                 has to stay honest past the retention window.
  *  - `days`     — one bucket per local calendar day, trimmed to
@@ -120,7 +120,7 @@ export function localDay(at: number): string {
 
 /**
  * The default ledger path (same data dir as the catalog cache). Resolved on
- * every call, so `OPENCODE_ZEN_HOME` set after import still redirects it.
+ * every call, so `OC2DSH_HOME` set after import still redirects it.
  */
 export function defaultUsagePath(): string {
   return join(stateDir(), 'usage.json')
@@ -171,7 +171,7 @@ export class UsageStore {
    * Where this ledger lives (diagnostics / the UI's footnote). Without an
    * injected path this resolves per call, so a test that drives the real entry
    * — `apply()` installs the process-wide store at import time — can still
-   * redirect it by setting `OPENCODE_ZEN_HOME` in its own body (paths.ts).
+   * redirect it by setting `OC2DSH_HOME` in its own body (paths.ts).
    */
   get path(): string {
     return this.#pathOverride ?? defaultUsagePath()

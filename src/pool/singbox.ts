@@ -425,7 +425,7 @@ export class SingBoxSupervisor {
         .map((node) => `${node.type} ${node.server}:${node.port}`)
         .join(', ')
       this.#options.logger?.warn(
-        `opencode-zen: sing-box conversion skipped ${unroutable.length} node(s) whose server address cannot be dialled from this machine (${sample}${unroutable.length > 5 ? ', …' : ''})`,
+        `oc2dsh: sing-box conversion skipped ${unroutable.length} node(s) whose server address cannot be dialled from this machine (${sample}${unroutable.length > 5 ? ', …' : ''})`,
       )
     }
     const nodes = input.filter((node) => isDialableServer(node.server))
@@ -492,7 +492,7 @@ export class SingBoxSupervisor {
         }
       }
     }
-    if (!ready) this.#options.logger?.warn('opencode-zen: sing-box ports not ready in time; some converted nodes may be unreachable')
+    if (!ready) this.#options.logger?.warn('oc2dsh: sing-box ports not ready in time; some converted nodes may be unreachable')
 
     const exits: ConvertedExit[] = []
     nodes.forEach((node, index) => {

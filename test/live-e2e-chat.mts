@@ -65,7 +65,7 @@ const adapter = new ZenAdapter(catalog, { firstEventMs: 20_000, bodyIdleMs: 30_0
 log('sending message to the agent')
 const stream = await adapter.stream({
   model: 'big-pickle',
-  provider: 'opencode-zen',
+  provider: 'oc2dsh',
   messages: [{ role: 'user', content: [{ type: 'text', text: '用一句话回答：你收到这条消息了吗？' }] }],
   temperature: 0,
   maxTokens: 512,

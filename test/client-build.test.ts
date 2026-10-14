@@ -45,9 +45,9 @@ test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
 test('client bundle is built and well-formed', () => {
   const source = bundle()
   assert.ok(source.includes('window.__ModuleLoader__.load'), 'loader handoff present')
-  assert.ok(source.includes('"dsh-opencode-zen-provider"'), 'scoped bundle id stamped')
+  assert.ok(source.includes('"oc2dsh"'), 'scoped bundle id stamped')
   assert.ok(source.includes('plugins.item'), 'plugins.item registration present')
-  assert.ok(source.includes('/api/opencode-zen/ip-pool'), 'bridge prefix baked in')
+  assert.ok(source.includes('/api/oc2dsh/ip-pool'), 'bridge prefix baked in')
   assert.ok(/exports\.apply\s*=/.test(source), 'apply exported')
   assert.ok(/exports\.inject\s*=/.test(source), 'inject exported')
 })
@@ -68,7 +68,7 @@ test('client mounts on the Plugins page while the Host serves the entry', () => 
   assert.ok(/whileServed\(\[SETTINGS_NAMESPACE\]/.test(source), 'gated on this entry\'s namespace')
   // The entry id is the Loader entry id (the plugin name), not the old
   // `ip-pool` namespace the Host registered.
-  assert.ok(source.includes('"opencode-zen"'), 'the served entry id is the plugin name')
+  assert.ok(source.includes('"oc2dsh"'), 'the served entry id is the plugin name')
 
   const stripped = code(source)
   assert.ok(!stripped.includes('settings.plugin.item'), 'the removed card slot is not registered')

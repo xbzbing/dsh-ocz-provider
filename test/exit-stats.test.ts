@@ -267,7 +267,7 @@ test('attributeUsage records stamped usage and passes every chunk through untouc
 // -- adapter end-to-end -------------------------------------------------------------
 
 const options: HarnessGenerateOptions = {
-  provider: 'opencode-zen',
+  provider: 'oc2dsh',
   model: 'mimo-v2.6-flash-free',
   messages: [{ role: 'user', content: [{ type: 'text', text: 'Say hi.' }] }],
   maxTokens: 64,
@@ -275,7 +275,7 @@ const options: HarnessGenerateOptions = {
 
 function doneMessage(): PiDoneMessage {
   return {
-    api: 'openai-completions', provider: 'opencode-zen', model: options.model,
+    api: 'openai-completions', provider: 'oc2dsh', model: options.model,
     content: [{ type: 'text', text: 'hi' }],
     stopReason: 'stop',
     usage: { input: 10, output: 20, cacheRead: 3, cacheWrite: 2, totalTokens: 30 },

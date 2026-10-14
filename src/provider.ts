@@ -146,7 +146,7 @@ export async function fetchHealth(port: number, timeoutMs = 3000): Promise<unkno
  * Ensure the credential and the llm-pi-ai provider route reflect the running
  * agent. Safe to call repeatedly (every refresh): writes are no-ops when the
  * stored shape already matches, and mutate keeps other namespaces/routes
- * untouched because it edits only the opencode-zen subtree.
+ * untouched because it edits only the oc2dsh subtree.
  */
 export async function registerProvider(
   seams: DshSeams,
@@ -156,12 +156,12 @@ export async function registerProvider(
 ): Promise<void> {
   await seams.credentials.set(target.apiKeyEnv, token)
   if (typeof seams.settings.mutate !== 'function') {
-    seams.logger.warn('opencode-zen: settings seam lacks mutate; the sidecar provider route cannot be published')
+    seams.logger.warn('oc2dsh: settings seam lacks mutate; the sidecar provider route cannot be published')
     return
   }
 
   const route = {
-    displayName: 'op-zen2dsh', // picker label only; the route id stays `opencode-zen`
+    displayName: 'oc2dsh', // picker label only; the route id stays `oc2dsh`
     apiKeyEnv: target.apiKeyEnv,
     api: 'openai-completions',
     baseURL: providerBaseURL(target.port),
@@ -170,5 +170,5 @@ export async function registerProvider(
   await seams.settings.mutate('llm-pi-ai', [
     { op: 'set', path: ['providers', target.providerId], value: route },
   ])
-  seams.logger.info(`opencode-zen: registered llm-pi-ai provider "${target.providerId}" with ${models.length} model(s) at ${route.baseURL}`)
+  seams.logger.info(`oc2dsh: registered llm-pi-ai provider "${target.providerId}" with ${models.length} model(s) at ${route.baseURL}`)
 }

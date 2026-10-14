@@ -1,7 +1,7 @@
 /**
  * IP 池 page body: the editable form on the Plugins page. Two mounting eras
  * share one card: the DSH 0.2 `plugins.bundle.config` slot embeds it directly
- * on the bundle's detail page (设置 → 插件 → dsh-opencode-zen-provider), and the
+ * on the bundle's detail page (设置 → 插件 → oc2dsh), and the
  * pre-0.2 `plugins.item` slot lists it as an official-plugin page. Either
  * way, configuration rides the settings provider's own ConfigForm (a
  * `ConfigFormSnapshot` plus `mutate`), so dsh-llm-proxy's loopback fallback
@@ -207,7 +207,7 @@ export interface TokenTotalsView {
 }
 
 /** The bridge prefix (same-origin, loopback-only on the host). */
-export const BRIDGE_PREFIX = '/api/opencode-zen/ip-pool'
+export const BRIDGE_PREFIX = '/api/oc2dsh/ip-pool'
 
 /**
  * The field inside the served entry that holds the editable section: the
@@ -1181,7 +1181,7 @@ export function IpPoolCard(props: IpPoolCardOwnProps): ReactNode {
 /**
  * A `plugins.bundle.config` entry bound to one settings controller: the DSH
  * 0.2 bundle page embeds the configuration directly on the bundle's detail
- * page (设置 → 插件 → dsh-opencode-zen-provider lands straight on this form),
+ * page (设置 → 插件 → oc2dsh lands straight on this form),
  * but unlike the row/item slots its render site hands over NO `form` — the
  * page draws the section and nothing else. The registration therefore closes
  * over the settings provider's own controller for the served entry and

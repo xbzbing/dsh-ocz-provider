@@ -14,7 +14,7 @@ import { stateDir } from './paths.ts'
 import { fetchHealth, fetchModels, registerProvider, removeProviderRoute } from './provider.ts'
 
 /**
- * opencode-zen DSH cordis plugin entry.
+ * oc2dsh DSH cordis plugin entry.
  *
  * Two modes (config.mode, default `adapter`):
  *  - adapter: register a DSH LlmAdapter streaming directly from the Zen
@@ -81,7 +81,7 @@ export interface PluginContext {
   on?(event: string, listener: (...args: never[]) => unknown): () => void
 }
 
-export const name = 'opencode-zen'
+export const name = 'oc2dsh'
 /**
  * The plugin's own settings schema. DSH 0.1.7 reads this export to decide
  * which fields are editable in 设置 → 插件 and under which namespace (the
@@ -129,7 +129,7 @@ function applyAdapter(
   const ready = Promise.resolve({ port: 0, version: 'adapter' })
 
   if (!ctx.llm || typeof ctx.llm.registerAdapter !== 'function') {
-    logger.error('opencode-zen: llm service unavailable; adapter mode cannot register')
+    logger.error('oc2dsh: llm service unavailable; adapter mode cannot register')
     return { ready }
   }
 
@@ -154,7 +154,7 @@ function applyAdapter(
     cachePath: defaultCachePath(dataDir),
     onRefresh: (status, lastError) => {
       writeStatus(status, lastError)
-      if (lastError) logger.warn(`opencode-zen: catalog refresh issue: ${lastError}`)
+      if (lastError) logger.warn(`oc2dsh: catalog refresh issue: ${lastError}`)
     },
   })
   const adapter = new ZenAdapter(catalog, {
@@ -185,7 +185,7 @@ function applyAdapter(
   // the ip-pool wiring, the stale-route sweep, or the refresh loop must never
   // cost the deployment its only free provider.
   ctx.llm.registerAdapter([PROVIDER_ID], adapter)
-  logger.info(`opencode-zen: adapter registered for "${PROVIDER_ID}" (catalog warms up in background)`)
+  logger.info(`oc2dsh: adapter registered for "${PROVIDER_ID}" (catalog warms up in background)`)
 
   // IP-pool exit routing (docs/ip-pool.md IP-1..IP-5): manual proxies,
   // pinned, free sources, subscriptions, and (IP-5) the volatile `ipPool`
@@ -202,14 +202,14 @@ function applyAdapter(
       usage: usageStore,
     })
   } catch (err) {
-    logger.error(`opencode-zen: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`)
+    logger.error(`oc2dsh: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   void catalog.start().catch((err) => {
-    logger.error(`opencode-zen: catalog start failed: ${err instanceof Error ? err.message : String(err)}`)
+    logger.error(`oc2dsh: catalog start failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  // A sidecar leftover (llm-pi-ai.providers.opencode-zen pointing at a dead
+  // A sidecar leftover (llm-pi-ai.providers.oc2dsh pointing at a dead
   // local port) would shadow the adapter registration and fail every dispatch
   // with a connection error. Remove it before the route can be used.
   //
@@ -222,10 +222,10 @@ function applyAdapter(
       if (!sctx.settings) return
       void removeProviderRoute({ settings: sctx.settings }, cfg.providerId)
         .then((removed) => {
-          if (removed) logger.info(`opencode-zen: removed stale sidecar route for "${cfg.providerId}" from llm-pi-ai settings`)
+          if (removed) logger.info(`oc2dsh: removed stale sidecar route for "${cfg.providerId}" from llm-pi-ai settings`)
         })
         .catch((err) => {
-          logger.warn(`opencode-zen: stale route cleanup failed: ${err instanceof Error ? err.message : String(err)}`)
+          logger.warn(`oc2dsh: stale route cleanup failed: ${err instanceof Error ? err.message : String(err)}`)
         })
     })) as unknown as Promise<unknown>
   }
@@ -301,7 +301,7 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
       }
       await new Promise((r) => setTimeout(r, 300))
     }
-    logger.warn('opencode-zen: catalog still pending after timeout; registering whatever the agent exposes now')
+    logger.warn('oc2dsh: catalog still pending after timeout; registering whatever the agent exposes now')
   }
 
   async function refreshModels(info: ReadyInfo, token: string, { waitReady = false } = {}): Promise<void> {
@@ -321,10 +321,10 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
           models,
         )
       } else {
-        logger.warn('opencode-zen: credentials/settings services unavailable; provider route not registered')
+        logger.warn('oc2dsh: credentials/settings services unavailable; provider route not registered')
       }
     } catch (err) {
-      logger.warn(`opencode-zen: model refresh failed: ${err instanceof Error ? err.message : String(err)}`)
+      logger.warn(`oc2dsh: model refresh failed: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -349,13 +349,13 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
       onLog,
     })
     agent.on('exit-restart', (delay, crashes) => {
-      logger.warn(`opencode-zen: agent exited unexpectedly; restarting in ${delay}ms (attempt ${crashes})`)
+      logger.warn(`oc2dsh: agent exited unexpectedly; restarting in ${delay}ms (attempt ${crashes})`)
     })
     agent.on('circuit-tripped', (crashes) => {
-      logger.error(`opencode-zen: agent crashed ${crashes} times consecutively; giving up`)
+      logger.error(`oc2dsh: agent crashed ${crashes} times consecutively; giving up`)
     })
     agent.on('state', (state) => {
-      if (state === 'ready') logger.info('opencode-zen: agent ready')
+      if (state === 'ready') logger.info('oc2dsh: agent ready')
     })
     const info = await agent.start()
     readyResolve(info)
@@ -365,7 +365,7 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
   }
 
   void startOnce().catch((err) => {
-    logger.error(`opencode-zen: failed to start agent: ${err instanceof Error ? err.message : String(err)}`)
+    logger.error(`oc2dsh: failed to start agent: ${err instanceof Error ? err.message : String(err)}`)
   })
 
   // Register disposer on the plugin fiber so reload/unload/shutdown reaps the
@@ -398,7 +398,7 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
  * build; then a bare name on PATH.
  */
 export function defaultAgentPath(): string {
-  const bin = 'opencode-zen-agent'
+  const bin = 'oc2dsh-agent'
   const exe = process.platform === 'win32' ? `${bin}.exe` : bin
   const here = __dirnameSafe()
   for (const sibling of [

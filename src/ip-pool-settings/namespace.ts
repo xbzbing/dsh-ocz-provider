@@ -32,7 +32,7 @@ import { DEFAULT_SUBSCRIPTION_USER_AGENT } from '../pool/subscription.ts'
  * Settings namespace owned by this plugin: the Loader entry id declared by
  * `cordis.patch.yml`. Mirrored by `SETTINGS_NAMESPACE` in src/client/index.ts.
  */
-export const IP_POOL_NAMESPACE = 'opencode-zen'
+export const IP_POOL_NAMESPACE = 'oc2dsh'
 
 /**
  * cosmokit's volatile config reference, structurally typed.

@@ -18,18 +18,18 @@ test('ZenAdapter implements the full dsh-llm adapter surface', () => {
   }
 })
 
-test('providerInfo keeps the route id and the picker label apart', () => {
+test('providerInfo names the provider for the picker', () => {
   const adapter = new ZenAdapter(new ModelCatalog())
   // the route id keys settings/adapter registration; the display name is the
-  // model picker's group label and is free to move without touching the id.
-  assert.deepEqual(adapter.providerInfo('opencode-zen'), { id: 'opencode-zen', name: PROVIDER_NAME })
-  assert.equal(PROVIDER_NAME, 'op-zen2dsh')
+  // model picker's group label and is free to move without the id.
+  assert.deepEqual(adapter.providerInfo('oc2dsh'), { id: 'oc2dsh', name: PROVIDER_NAME })
+  assert.equal(PROVIDER_NAME, 'OpenCode-Zen')
   assert.notEqual(PROVIDER_NAME, PROVIDER_ID)
 })
 
 test('providerRetryPolicy tunes the host retry for free-lane 429 bursts (issue #51)', () => {
   const adapter = new ZenAdapter(new ModelCatalog())
-  const policy = adapter.providerRetryPolicy('opencode-zen')
+  const policy = adapter.providerRetryPolicy('oc2dsh')
   assert.equal(policy.mode, 'normal')
   assert.ok(policy.maxRetries > 5, 'more retries than the host default (5)')
   assert.deepEqual([...policy.retryableCodes], ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'])
@@ -43,14 +43,14 @@ test('providerRetryPolicy tunes the host retry for free-lane 429 bursts (issue #
 test('resolveModel declares image input from models.dev, and the built-in pattern otherwise', () => {
   // No metadata loaded: the built-in live-verified family is the only source.
   const adapter = new ZenAdapter(new ModelCatalog())
-  const textOnly = adapter.resolveModel('opencode-zen', 'big-pickle')
+  const textOnly = adapter.resolveModel('oc2dsh', 'big-pickle')
   assert.deepEqual(textOnly.inputModalities, ['text'])
   assert.equal(textOnly.context.contextWindow > 0, true)
   assert.equal(textOnly.defaultMaxTokens > 0, true)
-  assert.equal(textOnly.provider, 'opencode-zen')
+  assert.equal(textOnly.provider, 'oc2dsh')
   assert.equal(textOnly.id, 'big-pickle')
   // The mimo-v2.6 family is the live-verified vision lane (2026-09-28).
-  const vision = adapter.resolveModel('opencode-zen', 'mimo-v2.6-flash-free')
+  const vision = adapter.resolveModel('oc2dsh', 'mimo-v2.6-flash-free')
   assert.deepEqual(vision.inputModalities, ['text', 'image'])
 
   // A declared `image` opens a model outside the family, and a declared
@@ -61,20 +61,20 @@ test('resolveModel declares image input from models.dev, and the built-in patter
     'mimo-v2.6-text-free': ['text'],
     'undeclared-free': undefined,
   }))
-  assert.deepEqual(declared.resolveModel('opencode-zen', 'space-bunny-free').inputModalities, ['text', 'image'])
-  assert.deepEqual(declared.resolveModel('opencode-zen', 'text-only-free').inputModalities, ['text'])
-  assert.deepEqual(declared.resolveModel('opencode-zen', 'mimo-v2.6-text-free').inputModalities, ['text'])
+  assert.deepEqual(declared.resolveModel('oc2dsh', 'space-bunny-free').inputModalities, ['text', 'image'])
+  assert.deepEqual(declared.resolveModel('oc2dsh', 'text-only-free').inputModalities, ['text'])
+  assert.deepEqual(declared.resolveModel('oc2dsh', 'mimo-v2.6-text-free').inputModalities, ['text'])
   // metadata silent for this id: the built-in pattern still decides
-  assert.deepEqual(declared.resolveModel('opencode-zen', 'undeclared-free').inputModalities, ['text'])
-  assert.deepEqual(declared.resolveModel('opencode-zen', 'mimo-v2.6-undeclared-free').inputModalities, ['text', 'image'])
+  assert.deepEqual(declared.resolveModel('oc2dsh', 'undeclared-free').inputModalities, ['text'])
+  assert.deepEqual(declared.resolveModel('oc2dsh', 'mimo-v2.6-undeclared-free').inputModalities, ['text', 'image'])
   // a catalog without a modalities() member at all (structural CatalogLike)
   const legacy = new ZenAdapter({
     list: () => ['space-bunny-free', 'mimo-v2.6-flash-free'],
     decision: () => ({ allowed: true, source: 'test', known: true }),
     reasoningCapability: () => undefined,
   })
-  assert.deepEqual(legacy.resolveModel('opencode-zen', 'space-bunny-free').inputModalities, ['text'])
-  assert.deepEqual(legacy.resolveModel('opencode-zen', 'mimo-v2.6-flash-free').inputModalities, ['text', 'image'])
+  assert.deepEqual(legacy.resolveModel('oc2dsh', 'space-bunny-free').inputModalities, ['text'])
+  assert.deepEqual(legacy.resolveModel('oc2dsh', 'mimo-v2.6-flash-free').inputModalities, ['text', 'image'])
 })
 
 /** A catalog whose models.dev `modalities.input` is `byModel` (undefined = silent). */
@@ -96,20 +96,20 @@ test('resolveModel prefers models.dev limits and keeps the defaults without them
   })
   // declared window wins over the flat host default
   const windowed = new ZenAdapter(catalog({ contextWindow: 131072, maxOutput: 16384 }))
-  assert.equal(windowed.resolveModel('opencode-zen', 'big-pickle').context.contextWindow, 131072)
-  assert.equal(windowed.resolveModel('opencode-zen', 'big-pickle').defaultMaxTokens, 16384)
+  assert.equal(windowed.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 131072)
+  assert.equal(windowed.resolveModel('oc2dsh', 'big-pickle').defaultMaxTokens, 16384)
 
   // A larger declared budget must remain available for reasoning and answers.
   const capped = new ZenAdapter(catalog({ maxOutput: 4096 }))
-  assert.equal(capped.resolveModel('opencode-zen', 'big-pickle').defaultMaxTokens, 4096)
+  assert.equal(capped.resolveModel('oc2dsh', 'big-pickle').defaultMaxTokens, 4096)
   const roomy = new ZenAdapter(catalog({ contextWindow: 1048576, maxOutput: 384000 }))
-  assert.equal(roomy.resolveModel('opencode-zen', 'big-pickle').context.contextWindow, 1048576)
-  assert.equal(roomy.resolveModel('opencode-zen', 'big-pickle').defaultMaxTokens, 384000)
+  assert.equal(roomy.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 1048576)
+  assert.equal(roomy.resolveModel('oc2dsh', 'big-pickle').defaultMaxTokens, 384000)
 
   // metadata cannot speak: flat defaults, exactly as before the fix
   const plain = new ZenAdapter(catalog())
-  assert.equal(plain.resolveModel('opencode-zen', 'ghost').context.contextWindow, 262144)
-  assert.equal(plain.resolveModel('opencode-zen', 'ghost').defaultMaxTokens, 32768)
+  assert.equal(plain.resolveModel('oc2dsh', 'ghost').context.contextWindow, 262144)
+  assert.equal(plain.resolveModel('oc2dsh', 'ghost').defaultMaxTokens, 32768)
 
   // a catalog without a limits() member at all (structural CatalogLike)
   const legacy = new ZenAdapter({
@@ -117,12 +117,12 @@ test('resolveModel prefers models.dev limits and keeps the defaults without them
     decision: () => ({ allowed: true, source: 'test', known: true }),
     reasoningCapability: () => undefined,
   })
-  assert.equal(legacy.resolveModel('opencode-zen', 'big-pickle').context.contextWindow, 262144)
+  assert.equal(legacy.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 262144)
 })
 
 test('prepareCall returns the resolved model and a stream dispatcher', async () => {
   const adapter = new ZenAdapter(new ModelCatalog())
-  const call = await adapter.prepareCall('opencode-zen', 'big-pickle')
+  const call = await adapter.prepareCall('oc2dsh', 'big-pickle')
   assert.equal(call.model.id, 'big-pickle')
   assert.equal(typeof call.stream, 'function')
 })
@@ -134,7 +134,7 @@ test('listModels mirrors the catalog without duplicates', async () => {
     reasoningCapability: () => ({ reasoning: true, effortValues: [] }),
     modalities: (model: string) => (model === 'mimo-v2.5-free' ? ['text', 'image'] : undefined),
   })
-  const models = await adapter.listModels('opencode-zen')
+  const models = await adapter.listModels('oc2dsh')
   assert.deepEqual(models.map((m) => m.id), ['big-pickle', 'mimo-v2.5-free', 'mimo-v2.6-flash-free', 'space-bunny-free'])
   // models.dev declares the modality per model; the built-in family is the fallback.
   assert.deepEqual(models.map((m) => m.inputModalities), [['text'], ['text', 'image'], ['text', 'image'], ['text']])
@@ -154,7 +154,7 @@ test('listModels awaits the catalog warm before reading (issue #45)', async () =
       warmCalls += 1
     },
   })
-  const models = await adapter.listModels('opencode-zen')
+  const models = await adapter.listModels('oc2dsh')
   assert.equal(warmCalls, 1)
   assert.ok(readAfterWarm, 'the roster was read only after warm() resolved')
   assert.deepEqual(models.map((m) => m.id), ['step-5-preview-free'])
@@ -178,7 +178,7 @@ test('listModels answers from the live roster once the first fetch lands (issue 
   const catalog = new ModelCatalog({ fetchImpl })
   const adapter = new ZenAdapter(catalog)
   try {
-    const listing = adapter.listModels('opencode-zen')
+    const listing = adapter.listModels('oc2dsh')
     queueMicrotask(() => release?.())
     const models = await listing
     assert.deepEqual(models.map((m) => m.id), ['fledge-alpha-free', 'step-5-preview-free'])
@@ -230,11 +230,11 @@ test('resolveModel advertises the thinking-level picker for reasoning models onl
       model === 'big-pickle' ? { reasoning: true, effortValues: ['low', 'high'] } : undefined,
   })
   assert.deepEqual(
-    adapter.resolveModel('opencode-zen', 'big-pickle').reasoning?.efforts.map((e) => e.id),
+    adapter.resolveModel('oc2dsh', 'big-pickle').reasoning?.efforts.map((e) => e.id),
     ['low', 'high'],
   )
   // unknown metadata: no reasoning field — dsh-llm then offers only the default
-  assert.equal(adapter.resolveModel('opencode-zen', 'ghost').reasoning, undefined)
+  assert.equal(adapter.resolveModel('oc2dsh', 'ghost').reasoning, undefined)
 })
 
 /** Scripted provider that records the streamSimple options it receives. */
@@ -273,7 +273,7 @@ async function runStream(catalogReasoning: boolean, effort?: string): Promise<Ar
     },
     { providerOverride: provider },
   )
-  const options = { provider: 'opencode-zen', model: 'big-pickle', messages: [], temperature: 0, maxTokens: 16 }
+  const options = { provider: 'oc2dsh', model: 'big-pickle', messages: [], temperature: 0, maxTokens: 16 }
   const stream = adapter.stream({ ...options, ...(effort !== undefined ? { reasoningEffort: effort } : {}) } as never)
   for await (const chunk of stream) void chunk
   return captured
@@ -331,7 +331,7 @@ test('stream builds the pi-ai wire model with the catalog limits', async () => {
     },
     { providerOverride: provider },
   )
-  for await (const chunk of adapter.stream({ provider: 'opencode-zen', model: 'big-pickle', messages: [] })) void chunk
+  for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [] })) void chunk
   assert.equal(seen?.contextWindow, 65536)
   assert.equal(seen?.maxTokens, 8192)
 })
@@ -375,7 +375,7 @@ test('responses models use the wider body-idle window, injectable for tests', as
     const began = Date.now()
     let reason: { kind: string } | undefined
     try {
-      for await (const chunk of adapter.stream({ provider: 'opencode-zen', model, messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })) {
+      for await (const chunk of adapter.stream({ provider: 'oc2dsh', model, messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })) {
         if (chunk.type === 'finish') {
           reason = chunk.reason as { kind: string }
           break
@@ -423,7 +423,7 @@ test('ZenAdapter arms the first-event window the plugin config carries, not the 
   const began = Date.now()
   let reason: { kind: string; failure?: { message: string; code: string } } | undefined
   try {
-    for await (const chunk of adapter.stream({ provider: 'opencode-zen', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })) {
+    for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] })) {
       if (chunk.type === 'finish') {
         reason = chunk.reason
         break
@@ -478,7 +478,7 @@ test('Responses streams pass a valid reasoning option and sanitize the payload',
     { providerOverride: provider },
   )
   const stream = adapter.stream({
-    provider: 'opencode-zen',
+    provider: 'oc2dsh',
     model: 'muse-spark-1.2-contributor-free',
     messages: [],
     reasoningEffort: 'high',
@@ -511,7 +511,7 @@ test('the wire request carries the correlation headers the free-lane gate requir
     },
     { providerOverride: provider },
   )
-  for await (const chunk of adapter.stream({ provider: 'opencode-zen', model: 'big-pickle', messages: [] })) void chunk
+  for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [] })) void chunk
   // live-probed 2026-10-14: a canonical ses_* id must ride x-opencode-session
   // (or x-opencode-session-id), while the client's OTHER-provider spellings —
   // x-session-affinity / X-Session-Id — are themselves a foreign-client signal
@@ -551,7 +551,7 @@ test('the tool-name alias seam passes through names unchanged on the shipped rec
     { providerOverride: provider },
   )
   const names: string[] = []
-  for await (const chunk of adapter.stream({ provider: 'opencode-zen', model: 'big-pickle', messages: [] })) {
+  for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [] })) {
     if (chunk.type === 'tool-call-delta' && chunk.name !== undefined) names.push(chunk.name)
     if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') names.push(chunk.block.name)
   }

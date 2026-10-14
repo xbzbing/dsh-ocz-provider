@@ -1,8 +1,8 @@
 /**
- * opencode-zen — browser half. Registers the IP 池 page on the Plugins page
+ * oc2dsh — browser half. Registers the IP 池 page on the Plugins page
  * (设置 → 插件) through the `plugins.bundle.config` slot, which
  * @deepseek-ai/dsh-client-ui-plugin-manager owns, while the Host serves this
- * plugin's entry settings. The bundle detail page (插件 → dsh-opencode-zen-provider) embeds the configuration directly between the description and
+ * plugin's entry settings. The bundle detail page (插件 → oc2dsh) embeds the configuration directly between the description and
  * the rows — one level up from the pre-0.2 row's own configure control, which
  * was the only mount point DSH 0.1.7 offered (that era falls back to the
  * `plugins.item` official-plugin page below).
@@ -11,8 +11,8 @@
  * hands the slot NO form — so the entry closes over the settings provider's
  * own controller (`configForms.get`) instead of a page-bound one; see
  * bundleConfigCard in IpPoolCard.tsx. Registration is gated on the Host
- * serving the `opencode-zen` namespace, so a deployment that serves no
- * opencode-zen settings shows no trace of the card.
+ * serving the `oc2dsh` namespace, so a deployment that serves no
+ * oc2dsh settings shows no trace of the card.
  *
  * The editable section is the `ipPool` volatile node, so the served form's
  * value is `{ ipPool: ... }` and every write path is `['ipPool', <field>]`.
@@ -56,7 +56,7 @@ export const NS = 'settings.ip-pool'
  * The Host settings entry this page edits: the Loader entry id, which is the
  * plugin name. The editable field inside it is `ipPool`.
  */
-export const SETTINGS_NAMESPACE = 'opencode-zen'
+export const SETTINGS_NAMESPACE = 'oc2dsh'
 
 /** Where this page sorts among the Plugins page's official entries. */
 const ORDER = 20
@@ -75,7 +75,7 @@ export const inject = ['slots', 'locale']
  */
 export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS)
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'opencode-zen: copy dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'oc2dsh: copy dictionaries')
   const slots = ctx.slots as unknown as {
     inject(name: string, callback: () => () => void): () => void
     spec(name: string): unknown
@@ -94,7 +94,7 @@ export function apply(ctx: ClientContext): void {
         // provider's controller itself (bundleConfigCard).
         const bundle = slots.inject('plugins.bundle.config', () => {
           const card = bundleConfigCard(formCtx.configForms.get(SETTINGS_NAMESPACE))
-          const disposers = ['dsh-opencode-zen-provider', 'opencode-zen'].map((pkg) => slots.register({
+          const disposers = ['oc2dsh', 'oc2dsh'].map((pkg) => slots.register({
             name: 'plugins.bundle.config',
             key: pkg,
             locale: NS,
@@ -123,6 +123,6 @@ export function apply(ctx: ClientContext): void {
         return () => { bundle(); legacy(); footer() }
       },
     ),
-    'opencode-zen: settings page',
+    'oc2dsh: settings page',
   ) })
 }

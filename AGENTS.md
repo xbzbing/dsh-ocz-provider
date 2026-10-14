@@ -6,7 +6,7 @@ this before changing anything.
 
 ## What this is
 
-`dsh-opencode-zen-provider` — a DSH (DeepSeek Harness) cordis plugin that
+`oc2dsh` — a DSH (DeepSeek Harness) cordis plugin that
 registers a native dsh-llm adapter and streams from OpenCode Zen's anonymous
 free lane (`Authorization: Bearer public`, no API key), impersonating the
 official client's wire fingerprint. The repository root IS the installable
@@ -23,7 +23,7 @@ src/adapter/    zen-adapter (dsh-llm adapter), catalog, messages (body shaping),
                 gate-tools (the captured genuine tool definitions), events, ids
 src/pool/       exit pool: admission (free-lane probing), dispatcher (routing),
                 installer, onboarding, sing-box conversion, subscription fetch,
-                usage-store (the ~/.dsh/opencode-zen2dsh/usage.json ledger)
+                usage-store (the ~/.dsh/oc2dsh/usage.json ledger)
 src/ip-pool-settings/  namespace (schema), bridge (loopback HTTP), apply (wiring)
 src/client/     browser half: IP pool settings card, exit-stats modal, locales
 src/config.ts   the whole settings schema (Config, exported for dsh-settings)
@@ -65,14 +65,14 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 
 | Setting | Value | Where |
 | --- | --- | --- |
-| Package name (installable unit) | `dsh-opencode-zen-provider` | package.json |
-| Cordis patch row | `id: opencode-zen`, `name: dsh-opencode-zen-provider` | cordis.patch.yml |
-| Loader entry id / settings namespace | `opencode-zen` | src/index.ts `name`, src/ip-pool-settings/namespace.ts `IP_POOL_NAMESPACE`, src/client/index.ts `SETTINGS_NAMESPACE` |
-| Provider route id (llm-pi-ai, request header) | `opencode-zen` | src/adapter/zen-adapter.ts `PROVIDER_ID` |
-| Provider display name (model picker group) | `op-zen2dsh` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
-| Loopback bridge prefix | `/api/opencode-zen/ip-pool` | src/ip-pool-settings/bridge.ts `IP_POOL_BRIDGE_PREFIX` (mirrored in src/client/IpPoolCard.tsx) |
-| On-disk state root | `~/.dsh/opencode-zen2dsh` (env `OPENCODE_ZEN_HOME` redirects) | src/paths.ts `stateDir()` |
-| Credential env var (sidecar only) | `OPENCODE_ZEN_TOKEN` | src/config.ts |
+| Package name (installable unit) | `oc2dsh` | package.json |
+| Cordis patch row | `id: oc2dsh`, `name: oc2dsh` | cordis.patch.yml |
+| Loader entry id / settings namespace | `oc2dsh` | src/index.ts `name`, src/ip-pool-settings/namespace.ts `IP_POOL_NAMESPACE`, src/client/index.ts `SETTINGS_NAMESPACE` |
+| Provider route id (llm-pi-ai, request header) | `oc2dsh` | src/adapter/zen-adapter.ts `PROVIDER_ID` |
+| Provider display name (model picker group) | `OpenCode-Zen` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
+| Loopback bridge prefix | `/api/oc2dsh/ip-pool` | src/ip-pool-settings/bridge.ts `IP_POOL_BRIDGE_PREFIX` (mirrored in src/client/IpPoolCard.tsx) |
+| On-disk state root | `~/.dsh/oc2dsh` (env `OC2DSH_HOME` redirects) | src/paths.ts `stateDir()` |
+| Credential env var (sidecar only) | `OC2DSH_TOKEN` | src/config.ts |
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/IpPoolCard.tsx `IP_POOL_FIELD` |
 | Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call) | src/adapter/catalog.ts `ZEN_BASE_URL` |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |

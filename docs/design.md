@@ -1,13 +1,13 @@
-# opencode-zen：DSH 免登录接入 OpenCode 免费模型 — 架构设计
+# oc2dsh：DSH 免登录接入 OpenCode 免费模型 — 架构设计
 
 > 状态：架构设计 v1（2026-02-05）。实现前定稿文档；所有 `文件:行号` 锚点均针对 opencode2api 源码（本地克隆位于 `C:\Users\FishBottle\AppData\Local\Temp\opencode\opencode2api\`，Go 1.24，`package main` 单包）逐一核实过，可直接作为移植依据。
 > 关联项目：`D:\codes\dshPlugins\cc-migrate`（同为 DSH 生态插件，本文档风格与其 `docs/design.md` 对齐）。
 
 ## 1. 定位（一句话）
 
-opencode-zen 是一个 **DSH cordis 插件**：它在 DSH 进程旁拉起一台**单租户、匿名通道专用**的本地 Go 代理（移植自 opencode2api），把 OpenCode Zen 的「匿名免费模型」（`Authorization: Bearer public`）包装成一个标准的 OpenAI 兼容 provider 端点，使 DSH 无需任何 key、无需登录即可调用 `https://opencode.ai/zen` 上标记为免费的模型。
+oc2dsh 是一个 **DSH cordis 插件**：它在 DSH 进程旁拉起一台**单租户、匿名通道专用**的本地 Go 代理（移植自 opencode2api），把 OpenCode Zen 的「匿名免费模型」（`Authorization: Bearer public`）包装成一个标准的 OpenAI 兼容 provider 端点，使 DSH 无需任何 key、无需登录即可调用 `https://opencode.ai/zen` 上标记为免费的模型。
 
-**改名/定位说明**：原项目 opencode2api 是「多租户、多 key、带 WebUI 的通用网关」；opencode-zen 取其匿名链路子集，收缩为「DSH 专用的单用户本地桥」。产品语义是"接入 OpenCode 官方提供的免费匿名通道"，不是"绕过付费"。
+**改名/定位说明**：原项目 opencode2api 是「多租户、多 key、带 WebUI 的通用网关」；oc2dsh 取其匿名链路子集，收缩为「DSH 专用的单用户本地桥」。产品语义是"接入 OpenCode 官方提供的免费匿名通道"，不是"绕过付费"。
 
 ## 2. 总体架构
 
@@ -22,7 +22,7 @@ opencode-zen 是一个 **DSH cordis 插件**：它在 DSH 进程旁拉起一台*
 │  │ (OpenAI 协议) │   Authorization: Bearer <local-token>           │
 │  └──────────────┘                              │                  │
 │  ┌──────────────────────────────┐              │                  │
-│  │ opencode-zen cordis 插件      │              │                  │
+│  │ oc2dsh cordis 插件      │              │                  │
 │  │  · 配置/端口/token 管理        │              │                  │
 │  │  · child_process 拉起/看护     │              │                  │
 │  │  · 模型清单注入 DSH provider   │              │                  │
@@ -31,7 +31,7 @@ opencode-zen 是一个 **DSH cordis 插件**：它在 DSH 进程旁拉起一台*
                   │ spawn (stdout/stderr 管道)    │ HTTP (loopback only)
                   ▼                              ▼
         ┌─────────────────────────────────────────────┐
-        │ opencode-zen-agent (Go 二进制, 独立进程)        │
+        │ oc2dsh-agent (Go 二进制, 独立进程)        │
         │  · GET /v1/models   POST /v1/chat/completions│
         │  · GET /healthz                              │
         │  · 匿名判定 (models.dev + 名称含 free)          │
@@ -85,7 +85,7 @@ opencode2api 的核心价值在于**三协议（Chat / Responses / Anthropic）�
 ### 2.4 匿名链路时序（一次 chat 请求）
 
 ```
-DSH                opencode-zen-agent (Go)                opencode.ai/zen
+DSH                oc2dsh-agent (Go)                opencode.ai/zen
  │                       │                                    │
  │ POST /v1/chat/completions                                  │
  │ Authorization: Bearer <local-token>                        │
@@ -127,7 +127,7 @@ DSH                opencode-zen-agent (Go)                opencode.ai/zen
 | 本地鉴权 | `Gateway.authenticate` | gateway.go:170-194（`x-api-key` 或 `Authorization: Bearer`，`crypto/subtle.ConstantTimeCompare`） |
 | 请求体与模型校验 | `Gateway.handleInference` | gateway.go:212-249（`maxRequestBody = 32MiB` @ gateway.go:18） |
 | id 派生 | `deriveRequestIDs` | ids.go:21-57；`conversationSeed` ids.go:59-76（首条 user 消息 JSON 作信号 → 多轮会话稳定）；`stableID`/`randomID` ids.go:78-89 |
-| 入口路由 | `modelCatalog.Route` | models.go:173-191（匿名恒走 Zen 层；被拒后进入认证 key 回退，opencode-zen 无 key 时回退为空） |
+| 入口路由 | `modelCatalog.Route` | models.go:173-191（匿名恒走 Zen 层；被拒后进入认证 key 回退，oc2dsh 无 key 时回退为空） |
 | 免费判定 | `anonymousDecision` → `modelMetadataStore.Decide` | models.go:253-258；model_metadata.go:192-237（`!deprecated && input==0 && output==0`；`isFreeModel` 名称含 `free` 兜底，models.go:303-305） |
 | 上游请求构造 | `newUpstreamRequest` | gateway.go:640-669（全部请求头注入；Chat 走 `Authorization: Bearer <key>`，key=`"public"`，常量 `anonymousZenKey` @ gateway.go:20） |
 | 匿名尝试 | `Gateway.doAnonymousUpstream` | gateway.go:424-483（逐 proxy 尝试至多一轮；仅 2xx 结束） |
@@ -141,8 +141,8 @@ DSH                opencode-zen-agent (Go)                opencode.ai/zen
 
 1. **凭证**：匿名请求使用字面量 `Authorization: Bearer public`（gateway.go:20 `anonymousZenKey = "public"`；gateway.go:448 以它构造上游请求）。无需注册、无需 key。
 2. **模型白名单**：OpenCode 服务端在模型 schema 上有 `allowAnonymous` 标记（opencode 仓库 `packages/console/core/src/model.ts:28`），仅带标记的模型能从 `Bearer public` 命中；客户端侧无法枚举该标记，只能靠 models.dev 成本数据 + 名称启发式**逼近**（§4）。
-3. **计费语义**：匿名请求的账单来源标记为 `anonymous`，不产生扣费。opencode-zen 不配置任何认证 key，因此 `doUpstream` 的认证回退分支（gateway.go:390-410）恒为空 —— 匿名失败就是失败，不做付费降级。
-4. **限流**：OpenCode 对匿名请求按**出口 IP** 限流，阈值在平台侧 Secret 配置，公开仓库不可见。表现为 401/403/429 或 5xx。opencode-zen 的应对见 §9；**必须诚实表述为「匿名配额受上游限流」，任何多 IP 轮换能力默认关闭且仅限自部署场景**（§9.2）。
+3. **计费语义**：匿名请求的账单来源标记为 `anonymous`，不产生扣费。oc2dsh 不配置任何认证 key，因此 `doUpstream` 的认证回退分支（gateway.go:390-410）恒为空 —— 匿名失败就是失败，不做付费降级。
+4. **限流**：OpenCode 对匿名请求按**出口 IP** 限流，阈值在平台侧 Secret 配置，公开仓库不可见。表现为 401/403/429 或 5xx。oc2dsh 的应对见 §9；**必须诚实表述为「匿名配额受上游限流」，任何多 IP 轮换能力默认关闭且仅限自部署场景**（§9.2）。
 
 ## 4. 免费模型列表策略
 
@@ -177,18 +177,18 @@ S3 静态清单中的每个 id 在 Phase 0 必须经过实测（匿名 chat 成�
 
 ## 5. 复用审计表（来源 → 去处）
 
-opencode-zen 的 Go 部分命名 `opencode-zen-agent`，Go module 采用 `cmd/agent` + `internal/*` 布局（见 §10），子包划分见下表「去处」列。下表「处置」列：**移植** = 拷贝后裁剪；**精简移植** = 保留骨架删分支；**不移植** = 留在上游。
+oc2dsh 的 Go 部分命名 `oc2dsh-agent`，Go module 采用 `cmd/agent` + `internal/*` 布局（见 §10），子包划分见下表「去处」列。下表「处置」列：**移植** = 拷贝后裁剪；**精简移植** = 保留骨架删分支；**不移植** = 留在上游。
 
-| 来源文件（opencode2api） | 复用内容（锚点） | 去处（opencode-zen-agent） | 处置 |
+| 来源文件（opencode2api） | 复用内容（锚点） | 去处（oc2dsh-agent） | 处置 |
 | --- | --- | --- | --- |
 | `ids.go`（102 行，整文件） | `deriveRequestIDs`/`conversationSeed`/`stableID`/`randomID`/`opencodeUserAgent` | `internal/ids` | **原样移植**（零改动；仅随包移动） |
 | `models.go` | `isFreeModel`(303-305)、`anonymousDecision`(253-258)、`fetchModels`(587-618)、`modelCatalog.Route` 匿名分支(173-191) | `internal/catalog` | **精简移植**：删 Go tier（TierGo）、docs 正则抓取（`fetchProtocolDocs`/`protocolDocEndpointPattern`，models.go:31,508-554）、认证 keyTierOrder；保留 Zen 单层 + 匿名分支 + 静态兜底清单合并 |
 | `model_metadata.go` | `modelMetadataStore` 全套：models.dev 拉取(165-183)、磁盘缓存(149-153)、`Decide`(192-237)、`AnonymousDecision` 结构(33-40) | `internal/catalog`（metadata 子模块） | **移植**（删 proxy clientProvider，直连即可） |
 | `convert.go` | `convertRequest`(95)、`prepareUpstreamRequest`(111)、bridge 中间表示(19-93) | `internal/convert` | **裁剪移植**：Phase 0-3 仅保留 Chat↔Chat 恒等路径 + 骨架；Responses/Anthropic 编解码函数(723-884, 935-1276)以接口占位，不接线 |
 | `stream.go` | `transcodeStreamWithUsage`(49)、`bridgeStreamParser`(33-42) | `internal/convert` | **裁剪移植**：同上；Chat 透传路径（gateway.go:291-295 的 `TeeReader` + observer）已覆盖 DSH 需求，互转仅保留接口 |
-| `pool.go` | `transportPool`(29-148, 150-178)、`anonymousPool`/`anonymousCursor`/`MarkFailure` 指数冷却+Retry-After(33-127)、`isProxyFailure`(244-253)、`nodePool`/`upstreamNode`（key 节点，opencode-zen 不用 key 但保留 direct 节点语义） | `internal/pool` | **精简移植**：默认 `proxies=["direct"]` 单节点；proxy 池多节点代码保留但仅在显式配置时激活（§9.2）；`nodePool` 的 key 机制删除 |
+| `pool.go` | `transportPool`(29-148, 150-178)、`anonymousPool`/`anonymousCursor`/`MarkFailure` 指数冷却+Retry-After(33-127)、`isProxyFailure`(244-253)、`nodePool`/`upstreamNode`（key 节点，oc2dsh 不用 key 但保留 direct 节点语义） | `internal/pool` | **精简移植**：默认 `proxies=["direct"]` 单节点；proxy 池多节点代码保留但仅在显式配置时激活（§9.2）；`nodePool` 的 key 机制删除 |
 | `gateway.go` | `anonymousZenKey`(20)、`Handler()` 路由(98-106)、`authenticate`(170-194)、`handleInference` 骨架(212-327)、`doAnonymousUpstream`(424-483)、`newUpstreamRequest`(640-669)、`protocolPath`(789-798)、`writeAPIError`/`copyErrorResponse`(920-943)、`recoveryMiddleware`(955-965) | `internal/gateway` | **精简移植**：删 `doKeyUpstream`(485-572) 与 KeyTiers 回退、删 zen/go 双池（保留 zen 单池语义）、删 WebUI/admin 监控钩子（`Monitor` 调用点改为 slog） |
-| `config.go` | `Config` 结构(17-34)、默认值(83-92)、`NormalizeConfig`(106-191)、`stripJSONComments`(220-283)、`SaveConfigAtomic`(311-362) | `internal/config` | **精简移植**：默认值改为 `listen=127.0.0.1:0`（随机端口，§8.2）、`anonymous=true`、无 server key 时自动生成、`prefer` 字段删除；**校验规则调整**：`NormalizeConfig` 现行校验本就允许 `anonymous=true && zen_keys=[]`（config.go:131-133），仅需把「server_keys 至少一个」保留（opencode-zen 启动时自动生成随机 token 满足） |
+| `config.go` | `Config` 结构(17-34)、默认值(83-92)、`NormalizeConfig`(106-191)、`stripJSONComments`(220-283)、`SaveConfigAtomic`(311-362) | `internal/config` | **精简移植**：默认值改为 `listen=127.0.0.1:0`（随机端口，§8.2）、`anonymous=true`、无 server key 时自动生成、`prefer` 字段删除；**校验规则调整**：`NormalizeConfig` 现行校验本就允许 `anonymous=true && zen_keys=[]`（config.go:131-133），仅需把「server_keys 至少一个」保留（oc2dsh 启动时自动生成随机 token 满足） |
 | `observability.go` | `recoveryMiddleware` 依赖、结构化 slog、SSE 编码 `encodeSSE`(903)（stream 互转用） | `internal/obs` 或并入 gateway | **精简移植**：删 LogHub/SecretRedactor 环形缓冲（子进程日志经管道交给插件）；`encodeSSE` 随 stream 移植 |
 | `main.go` | 启动/信号/优雅退出骨架(16-73) | `cmd/agent/main.go` | **重写**：删 WebUI/runtime 多实例；加 `--config` 与 `--print-ready`（见 §8.2） |
 | `runtime.go` | 热重载、多实例管理 | — | **不移植**（DSH 单实例，配置变更 = 重启子进程） |
@@ -228,7 +228,7 @@ DSH 的模型网关以 OpenAI Chat 协议请求 provider（cc-migrate 调研确�
 - **默认启用**：插件首次启动生成 32 字节随机 token（`crypto.randomBytes(32).toString('base64url')`），写入插件数据目录（0600），以 `--server-key <token>` 或配置文件传给子进程；DSH provider 配置同一 token 作为 API key。opencode2api 的 `authenticate`（gateway.go:170-194）原样提供该能力（`x-api-key` 与 `Authorization: Bearer` 双通道、常量时间比对）。
 - **理由**：监听 127.0.0.1 不等于只有 DSH 能连 —— 本机任意进程都可连回环端口。免费模型虽无资金风险，但无鉴权端口会被本机其他进程白嫖配额，把 DSH 自己挤出限流窗口。
 - **可去**：提供 `auth: false` 开关（`server_keys=[]` + 跳过鉴权），供调试；默认文档不推荐。
-- **不暴露公网**：config 校验强制 listen 地址主机部分为 `127.0.0.1`/`localhost`（移植时在 `NormalizeConfig` 加此校验；原版允许任意地址，用于容器部署，opencode-zen 不需要）。
+- **不暴露公网**：config 校验强制 listen 地址主机部分为 `127.0.0.1`/`localhost`（移植时在 `NormalizeConfig` 加此校验；原版允许任意地址，用于容器部署，oc2dsh 不需要）。
 
 ## 8. Go 二进制在 DSH（Node/cordis 插件）中的生命周期
 
@@ -257,7 +257,7 @@ cordis 插件 service 工厂
   "listen": "127.0.0.1:0",
   "server_keys": ["<random token>"],
   "anonymous": true,
-  "zen_keys": [], "go_keys": [],          // 恒空：opencode-zen 不做认证通道
+  "zen_keys": [], "go_keys": [],          // 恒空：oc2dsh 不做认证通道
   "upstream": { "zen": "https://opencode.ai/zen" },
   "models": { "refresh_seconds": 300 },
   "retry": { "max_attempts": 2, "timeout_seconds": 300 },
@@ -272,7 +272,7 @@ cordis 插件 service 工厂
 
 | 平台 | 产物 | 获取方式 |
 | --- | --- | --- |
-| windows-x64 / darwin-arm64 / darwin-x64 / linux-x64 / linux-arm64 | `opencode-zen-agent-<os>-<arch>(.exe)`，`CGO_ENABLED=0` 静态编译 | ① 预编译产物随 npm 包 `optionalDependencies` 分发（每平台一个可选子包，装包时按 `os`/`cpu` 命中）；② 兜底：本机检测到 Go ≥1.24 时 `go build` 现场编译（dev 场景） |
+| windows-x64 / darwin-arm64 / darwin-x64 / linux-x64 / linux-arm64 | `oc2dsh-agent-<os>-<arch>(.exe)`，`CGO_ENABLED=0` 静态编译 | ① 预编译产物随 npm 包 `optionalDependencies` 分发（每平台一个可选子包，装包时按 `os`/`cpu` 命中）；② 兜底：本机检测到 Go ≥1.24 时 `go build` 现场编译（dev 场景） |
 
 Go 交叉编译矩阵一条命令即可产出（`GOOS=… GOARCH=… go build`），CI 一键生成全部 5 个产物。
 
@@ -293,21 +293,21 @@ opencode2api 的 `anonymousPool` + proxy 池支持「429 → 换出口 IP 再试
 
 1. **默认关闭**：`proxies=["direct"]`，单出口；配置文件不出现任何代理 URL。
 2. **仅自部署**：多代理配置只对从源码自行构建的用户生效（npm 分发包不携带代理配置样例，README 不宣传该能力）。
-3. **代码保留但收缩**：`anonymousPool` 冷却逻辑保留（它同时是单出口下「冷却退避」的正当实现——`MarkFailure` 对 direct 节点同样生效，等价于失败退避），但删除 `doAnonymousUpstream` 中「尝试完一轮 proxy 后再进入认证 key 层」的多层语义（opencode-zen 无 key，天然只剩一层）。
-4. **文档立场**：design.md 与 README 均写明「匿名配额受上游限流；opencode-zen 不提供、不鼓励任何绕过限流的方式」。
+3. **代码保留但收缩**：`anonymousPool` 冷却逻辑保留（它同时是单出口下「冷却退避」的正当实现——`MarkFailure` 对 direct 节点同样生效，等价于失败退避），但删除 `doAnonymousUpstream` 中「尝试完一轮 proxy 后再进入认证 key 层」的多层语义（oc2dsh 无 key，天然只剩一层）。
+4. **文档立场**：design.md 与 README 均写明「匿名配额受上游限流；oc2dsh 不提供、不鼓励任何绕过限流的方式」。
 
 ### 9.3 合规口径
 
-OpenCode 官方提供匿名免费通道（`allowAnonymous` 模型 + `Bearer public`），opencode-zen 只是**以官方客户端相同的方式（CLI 同款请求头）使用官方开放通道**，无破解、无凭证伪造。风险点仅在频控，处理见 §9.1-9.2。
+OpenCode 官方提供匿名免费通道（`allowAnonymous` 模型 + `Bearer public`），oc2dsh 只是**以官方客户端相同的方式（CLI 同款请求头）使用官方开放通道**，无破解、无凭证伪造。风险点仅在频控，处理见 §9.1-9.2。
 
 ## 10. 目录结构
 
 ```
-opencode-zen/
+oc2dsh/
 ├── docs/
 │   ├── design.md                 # 本文
 ├── agent/                        # Go module（单 module，cmd+internal 布局）
-│   ├── go.mod                    # module opencode-zen/agent; go 1.24; 零第三方依赖
+│   ├── go.mod                    # module oc2dsh/agent; go 1.24; 零第三方依赖
 │   ├── cmd/agent/
 │   │   └── main.go               # 启动/信号/--listen/--print-ready（移植 main.go 骨架）
 │   └── internal/

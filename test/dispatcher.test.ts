@@ -111,7 +111,7 @@ test('dispatcher: non-pool hosts and loopback go direct; pool hosts route to pic
  * routing dragged all of them through the exits — 77 `/zen/go/v1/chat/
  * completions` calls in 6.3 minutes from the separate `opencode-go`
  * provider were counted as pool requests (with no tokens, since only our
- * adapter attributes usage) while every opencode-zen session was quiet.
+ * adapter attributes usage) while every oc2dsh session was quiet.
  */
 test('dispatcher: the path scope keeps other lanes on the host out of the pool', () => {
   const pool = new ExitPool()

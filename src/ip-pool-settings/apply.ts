@@ -95,13 +95,13 @@ export function applyIpPoolSettings(
       void ensureRuntime()
         .then(() => controller.runtime?.reconfigure(controller.asConfig(controller.settings())))
         .catch((err) => {
-          logger.warn(`opencode-zen: ip pool start failed: ${err instanceof Error ? err.message : String(err)}`)
+          logger.warn(`oc2dsh: ip pool start failed: ${err instanceof Error ? err.message : String(err)}`)
         })
       return
     }
     if (rt !== null) {
       void rt.reconfigure(controller.asConfig(value)).catch((err) => {
-        logger.warn(`opencode-zen: ip pool live re-apply failed: ${err instanceof Error ? err.message : String(err)}`)
+        logger.warn(`oc2dsh: ip pool live re-apply failed: ${err instanceof Error ? err.message : String(err)}`)
       })
     }
   }
@@ -238,7 +238,7 @@ export function applyIpPoolSettings(
           // running). Without it nothing could tell "the pool carries our
           // lane traffic" from "the pool carries whatever else lands on
           // opencode.ai" — the difference that made the request counters climb
-          // while every opencode-zen session was quiet (live 2026-10-13). The
+          // while every oc2dsh session was quiet (live 2026-10-13). The
           // fallback is the router's own default rather than a copy of it: the
           // lane moved from /zen/v1 to /inference/v1 on 2026-10-14, and two
           // spellings of one default is how a status line starts lying.
@@ -278,7 +278,7 @@ export function applyIpPoolSettings(
       for (const route of makeBridgeRoutes(handlers)) {
         disposers.push(bctx.webServer.register(route as never))
       }
-      logger.info(`opencode-zen: ip-pool bridge mounted at ${IP_POOL_BRIDGE_PREFIX} (${disposers.length} routes)`)
+      logger.info(`oc2dsh: ip-pool bridge mounted at ${IP_POOL_BRIDGE_PREFIX} (${disposers.length} routes)`)
       const maybeEffect = (bctx as { effect?: PluginContext['effect'] }).effect
       if (typeof maybeEffect === 'function') {
         maybeEffect.call(bctx, () => () => {
@@ -288,7 +288,7 @@ export function applyIpPoolSettings(
     })) as unknown as Promise<unknown>
   }
 
-  logger.info(`opencode-zen: settings namespace "${IP_POOL_NAMESPACE}" served from the plugin's volatile Config — live apply via 设置 → 插件 → IP 池`)
+  logger.info(`oc2dsh: settings namespace "${IP_POOL_NAMESPACE}" served from the plugin's volatile Config — live apply via 设置 → 插件 → IP 池`)
   const maybeEffect = (ctx as { effect?: PluginContext['effect'] }).effect
   if (typeof maybeEffect === 'function') {
     maybeEffect.call(ctx, () => () => {

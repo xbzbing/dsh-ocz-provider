@@ -28,8 +28,8 @@ import { usageStore } from '../src/pool/usage-store.ts'
  * evaluated; the store resolves its path lazily for exactly this reason
  * (src/paths.ts, UsageStore#path).
  */
-const scratch = mkdtempSync(join(tmpdir(), 'opencode-zen-watchdog-'))
-process.env.OPENCODE_ZEN_HOME = scratch
+const scratch = mkdtempSync(join(tmpdir(), 'oc2dsh-watchdog-'))
+process.env.OC2DSH_HOME = scratch
 
 /** The scratch ledger's session rows (flush first: the debounce is 10s). */
 async function ledgerSessions(): Promise<Record<string, { label: string; totals: { requests: number; totalTokens: number } }>> {
@@ -94,7 +94,7 @@ for (const scenario of [
     const result: { finish?: FinishReason } = {}
     const pending = (async () => {
       for await (const chunk of adapter.stream({
-        provider: 'opencode-zen', model: scenario.model,
+        provider: 'oc2dsh', model: scenario.model,
         messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
         signal: controller.signal,
       })) {

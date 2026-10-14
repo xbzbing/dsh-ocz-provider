@@ -92,7 +92,7 @@ function muteProvider(armed: { timer?: NodeJS.Timeout }): { streamSimple(): Asyn
 const err = (message: string): ScriptedEvent => ({
   type: 'error',
   error: {
-    api: 'openai-completions', provider: 'opencode-zen', model: 'big-pickle',
+    api: 'openai-completions', provider: 'oc2dsh', model: 'big-pickle',
     content: [], stopReason: 'error', errorMessage: message,
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
   },

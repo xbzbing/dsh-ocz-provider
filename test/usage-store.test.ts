@@ -128,17 +128,17 @@ test('clear() works on a store that has not read the file yet', async () => {
   }
 })
 
-test('OPENCODE_ZEN_HOME redirects the default ledger path, and is read lazily', async () => {
+test('OC2DSH_HOME redirects the default ledger path, and is read lazily', async () => {
   // Regression for the live bug of 2026-10-14: the watchdog scenarios drive the
   // real entry, whose store is built at import time — before a test body can set
   // anything. The redirect only works because the path is resolved per use.
-  const before = process.env.OPENCODE_ZEN_HOME
-  const dir = mkdtempSync(join(tmpdir(), 'opencode-zen-home-'))
+  const before = process.env.OC2DSH_HOME
+  const dir = mkdtempSync(join(tmpdir(), 'oc2dsh-home-'))
   try {
-    delete process.env.OPENCODE_ZEN_HOME
-    assert.equal(defaultUsagePath(), join(homedir(), '.dsh', 'opencode-zen2dsh', 'usage.json'), 'the production default is untouched')
+    delete process.env.OC2DSH_HOME
+    assert.equal(defaultUsagePath(), join(homedir(), '.dsh', 'oc2dsh', 'usage.json'), 'the production default is untouched')
     const store = new UsageStore({ flushMs: 0 }) // no injected path: follows the env
-    process.env.OPENCODE_ZEN_HOME = dir
+    process.env.OC2DSH_HOME = dir
     assert.equal(defaultUsagePath(), join(dir, 'usage.json'))
     assert.equal(store.path, join(dir, 'usage.json'), 'the redirect applies after construction')
     store.record('local', usage(3, 4), { session: 'ses_scratch', label: 'hi' })
@@ -146,8 +146,8 @@ test('OPENCODE_ZEN_HOME redirects the default ledger path, and is read lazily', 
     assert.ok(existsSync(join(dir, 'usage.json')), 'the ledger landed under the override')
     assert.equal(JSON.parse(readFileSync(join(dir, 'usage.json'), 'utf8')).sessions.ses_scratch.label, 'hi')
   } finally {
-    if (before === undefined) delete process.env.OPENCODE_ZEN_HOME
-    else process.env.OPENCODE_ZEN_HOME = before
+    if (before === undefined) delete process.env.OC2DSH_HOME
+    else process.env.OC2DSH_HOME = before
     rmSync(dir, { recursive: true, force: true })
   }
 })

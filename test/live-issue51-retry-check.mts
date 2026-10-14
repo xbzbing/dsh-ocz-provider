@@ -49,7 +49,7 @@ async function oneStream(): Promise<AttemptResult> {
   try {
     const stream = await adapter.stream({
       model: MODEL,
-      provider: 'opencode-zen',
+      provider: 'oc2dsh',
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Reply with exactly: OK' }] }],
       reasoningEffort: 'high',
       temperature: 0,

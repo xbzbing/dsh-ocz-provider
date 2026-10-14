@@ -149,7 +149,7 @@ function applyLocalOverride(model: string, price: ModelPrice | undefined): Model
 
 /**
  * decodeModelsDev (model_metadata.go:253-335): use the OpenCode provider
- * section of models.dev, preferring the exact `opencode`/`opencode-zen` key.
+ * section of models.dev, preferring the exact `opencode`/`oc2dsh` key.
  */
 export function decodeModelsDev(data: unknown): Map<string, ModelPrice> {
   const result = new Map<string, ModelPrice>()
@@ -158,7 +158,7 @@ export function decodeModelsDev(data: unknown): Map<string, ModelPrice> {
   const keys = Object.keys(providers)
   const rank = (key: string): number => {
     const lower = key.toLowerCase()
-    if (lower === 'opencode' || lower === 'opencode-zen' || lower === 'opencode_zen') return 0
+    if (lower === 'opencode' || lower === 'oc2dsh' || lower === 'opencode_zen') return 0
     if (lower.includes('opencode')) return 1
     return 2
   }

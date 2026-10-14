@@ -160,7 +160,7 @@ export class Onboarder {
         .slice(0, 3)
         .map((candidate) => `${candidate.address} (${candidate.screenRejection})`)
         .join(', ')
-      logger?.info(`opencode-zen: onboarding screened ${measured.length}/${exits.length} candidate(s); ${exits.length - measured.length} did not answer the speed pass${sample === '' ? '' : ` (${sample}…)`}`)
+      logger?.info(`oc2dsh: onboarding screened ${measured.length}/${exits.length} candidate(s); ${exits.length - measured.length} did not answer the speed pass${sample === '' ? '' : ` (${sample}…)`}`)
     }
     /**
      * Nothing answered the speed pass at all — a blocked echo endpoint (the
@@ -173,7 +173,7 @@ export class Onboarder {
      */
     let ranked = measured
     if (ranked.length === 0 && exits.length > 0) {
-      logger?.warn('opencode-zen: onboarding speed pass measured nothing; keeping candidates unranked in subscription order (they stay at the tail unless the connectivity test verifies them)')
+      logger?.warn('oc2dsh: onboarding speed pass measured nothing; keeping candidates unranked in subscription order (they stay at the tail unless the connectivity test verifies them)')
       ranked = [...this.#candidates.values()].sort((left, right) => left.slot - right.slot)
     }
 
@@ -197,7 +197,7 @@ export class Onboarder {
       try {
         await this.#deps.select([...this.#selected])
       } catch (err) {
-        logger?.warn(`opencode-zen: sing-box rebuild for the pool selection failed (${message(err)}); keeping the full conversion running`)
+        logger?.warn(`oc2dsh: sing-box rebuild for the pool selection failed (${message(err)}); keeping the full conversion running`)
       }
     }
 
@@ -243,9 +243,9 @@ export class Onboarder {
     } catch (err) {
       // The pool already dropped them; a failed rebuild only leaves their ports
       // listening, which the next round clears.
-      logger?.warn(`opencode-zen: sing-box rebuild after trimming to poolSize failed (${message(err)}); the dropped exits' ports stay open until the next round`)
+      logger?.warn(`oc2dsh: sing-box rebuild after trimming to poolSize failed (${message(err)}); the dropped exits' ports stay open until the next round`)
     }
-    logger?.info(`opencode-zen: pool trimmed to ${pool.poolSize} (dropped ${dropped.length}: ${dropped.join(', ')})`)
+    logger?.info(`oc2dsh: pool trimmed to ${pool.poolSize} (dropped ${dropped.length}: ${dropped.join(', ')})`)
     return dropped.length
   }
 
@@ -314,7 +314,7 @@ export class Onboarder {
       if (next === undefined) {
         this.#keepDemoted(current)
         result.demoted += 1
-        this.#deps.logger?.warn(`opencode-zen: exit ${current.address} refused by the upstream lane and no reserve is left; kept at the pool tail`)
+        this.#deps.logger?.warn(`oc2dsh: exit ${current.address} refused by the upstream lane and no reserve is left; kept at the pool tail`)
         return
       }
       // Build the NEXT selection and hand exactly that to the rebuild. Passing
@@ -332,7 +332,7 @@ export class Onboarder {
         this.#reserve.unshift(next)
         this.#keepDemoted(current)
         result.demoted += 1
-        this.#deps.logger?.warn(`opencode-zen: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${current.address} stays at the tail`)
+        this.#deps.logger?.warn(`oc2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${current.address} stays at the tail`)
         return
       }
       this.#selected = nextSelection

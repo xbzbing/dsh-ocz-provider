@@ -20,8 +20,8 @@ import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
 
 test('ip-pool settings are served under the Loader entry id', () => {
   // DSH 0.1.7 derives the namespace from the loader entry, so it is
-  // 'opencode-zen' — not a name the plugin registers for itself.
-  assert.equal(String(IP_POOL_NAMESPACE), 'opencode-zen')
+  // 'oc2dsh' — not a name the plugin registers for itself.
+  assert.equal(String(IP_POOL_NAMESPACE), 'oc2dsh')
 })
 
 test('schema fills every default from an empty section', () => {
@@ -698,16 +698,16 @@ test('usage view: sessions are joined to projects at read time', () => {
   store.record('a:1', { inputTokens: 10, outputTokens: 5 }, { session: 'ses_3', label: 'beta work' })
 
   const projects: Record<string, { id: string; title: string; path: string }> = {
-    ses_1: { id: 'w1', title: 'opencode-zen', path: '/Users/ankh/workspace/private/opencode2dsh' },
-    ses_2: { id: 'w1', title: 'opencode-zen', path: '/Users/ankh/workspace/private/opencode2dsh' },
+    ses_1: { id: 'w1', title: 'oc2dsh', path: '/Users/ankh/workspace/private/opencode2dsh' },
+    ses_2: { id: 'w1', title: 'oc2dsh', path: '/Users/ankh/workspace/private/opencode2dsh' },
     ses_3: { id: 'w2', title: 'other-project', path: '/tmp/other' },
   }
   const view = buildUsageView(store, 'total', { projectOf: (sessionId) => projects[sessionId] ?? null })
   assert.ok(view)
-  assert.equal(view.sessions.find((row) => row.id === 'ses_1')?.project?.title, 'opencode-zen')
+  assert.equal(view.sessions.find((row) => row.id === 'ses_1')?.project?.title, 'oc2dsh')
   assert.equal(view.sessions.find((row) => row.id === 'ses_unknown'), undefined)
   assert.deepEqual(view.projects.map((row) => [row.title, row.sessions, row.requests]), [
-    ['opencode-zen', 2, 2],
+    ['oc2dsh', 2, 2],
     ['other-project', 1, 1],
   ], 'rolled up per project, heaviest first')
 })

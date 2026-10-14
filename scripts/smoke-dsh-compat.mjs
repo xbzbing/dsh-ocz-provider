@@ -69,7 +69,7 @@ class ConfigForms extends Service {
   // site supplies no form), so the read face is part of the fixture contract.
   get(ns) { return { settings: () => ({ enabled: false }) } }
   whileServed(names, register) {
-    assert.deepEqual(Array.from(names), ['opencode-zen'])
+    assert.deepEqual(Array.from(names), ['oc2dsh'])
     return register(new Set(names))
   }
 }
@@ -119,10 +119,10 @@ const { ModelCatalog } = await import(new URL('src/adapter/catalog.ts', pluginRo
 const { applyIpPoolSettings: applyPool } = await import(new URL('src/ip-pool-settings/apply.ts', pluginRoot))
 const adapter = new Adapter(new ModelCatalog())
 const registry = { adapters: new Map() }
-const routes = LlmRuntime.prototype.prepareRoutes.call(registry, ['opencode-zen'], adapter, new Set())
-assert.equal(routes[0].provider.id, 'opencode-zen')
-registry.adapters.set('opencode-zen', { adapter })
-assert.equal(LlmRuntime.prototype.imageRequestPricing.call(registry, 'opencode-zen', 'big-pickle'), undefined)
+const routes = LlmRuntime.prototype.prepareRoutes.call(registry, ['oc2dsh'], adapter, new Set())
+assert.equal(routes[0].provider.id, 'oc2dsh')
+registry.adapters.set('oc2dsh', { adapter })
+assert.equal(LlmRuntime.prototype.imageRequestPricing.call(registry, 'oc2dsh', 'big-pickle'), undefined)
 
 // Load the actual server artifact in a real Cordis fiber, without touching
 // the user's DSH profile or making a request to the external Zen service.

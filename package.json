@@ -1,5 +1,5 @@
 {
-  "name": "dsh-opencode-zen-provider",
+  "name": "oc2dsh",
   "version": "0.3.11",
   "private": true,
   "type": "module",
@@ -54,7 +54,7 @@
     "dsh-plugin",
     "deepseek-harness",
     "opencode",
-    "opencode-zen",
+    "oc2dsh",
     "cordis",
     "cordis-plugin",
     "llm-adapter",

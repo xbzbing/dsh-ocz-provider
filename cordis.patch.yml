@@ -1,8 +1,8 @@
-# opencode-zen DSH plugin — bundle patch: insert the plugin row (deployment-global).
+# oc2dsh DSH plugin — bundle patch: insert the plugin row (deployment-global).
 #
 # The loader imports the row's `name`, so this package IS what the row points
 # at: the repository root is the installable unit and resolves to
-# `dsh-opencode-zen-provider` whether it arrived via `file:<repo>`,
+# `oc2dsh` whether it arrived via `file:<repo>`,
 # `github:<owner>/<repo>` or `pnpm pack`. Keeping the row name identical to
 # this package's own name is what makes every install path converge on one
 # package instead of a second, registry-sourced copy (and it is what the
@@ -11,6 +11,6 @@
 # Defaults need no edits: the adapter registers into llm-pi-ai with no key and
 # no extra process. Override any option via the config object (src/config.ts).
 - insert:
-    - id: opencode-zen
-      name: 'dsh-opencode-zen-provider'
+    - id: oc2dsh
+      name: 'oc2dsh'
       config: {}

@@ -520,13 +520,13 @@ declare function fetchHealth(port: number, timeoutMs?: number): Promise<unknown>
  * Ensure the credential and the llm-pi-ai provider route reflect the running
  * agent. Safe to call repeatedly (every refresh): writes are no-ops when the
  * stored shape already matches, and mutate keeps other namespaces/routes
- * untouched because it edits only the opencode-zen subtree.
+ * untouched because it edits only the oc2dsh subtree.
  */
 declare function registerProvider(seams: DshSeams, target: ProviderTarget, token: string, models: PiAiModelEntry[]): Promise<void>;
 //#endregion
 //#region src/index.d.ts
 /**
- * opencode-zen DSH cordis plugin entry.
+ * oc2dsh DSH cordis plugin entry.
  *
  * Two modes (config.mode, default `adapter`):
  *  - adapter: register a DSH LlmAdapter streaming directly from the Zen
@@ -619,7 +619,7 @@ interface PluginContext {
   effect?(fn: () => () => void): unknown;
   on?(event: string, listener: (...args: never[]) => unknown): () => void;
 }
-declare const name = "opencode-zen";
+declare const name = "oc2dsh";
 /**
  * Only `llm` gates this fiber, because adapter mode (the shipped default) uses
  * nothing else: the Zen lane's credential is the literal `'public'`, and the

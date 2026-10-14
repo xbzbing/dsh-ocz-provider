@@ -29,7 +29,7 @@ mock.method(ModelCatalog.prototype, 'start', async () => {})
 // catalog/status/sing-box paths at the plugin's state root. Keep every write of
 // this file inside a scratch root (src/paths.ts) — a test must never add rows
 // to the operator's own 流量统计 (live bug 2026-10-14, watchdog-config.test.ts).
-process.env.OPENCODE_ZEN_HOME = mkdtempSync(join(tmpdir(), 'opencode-zen-host17-'))
+process.env.OC2DSH_HOME = mkdtempSync(join(tmpdir(), 'oc2dsh-host17-'))
 
 /**
  * What cosmokit gives the plugin: a STABLE object whose `get()` returns the
@@ -116,7 +116,7 @@ test('a 0.1.7-shaped host registers the provider and claims its own settings pag
   apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
   await settle()
 
-  assert.deepEqual(h.registrations, [['opencode-zen']], 'exactly one route, and it needed no settings API')
+  assert.deepEqual(h.registrations, [['oc2dsh']], 'exactly one route, and it needed no settings API')
   assert.deepEqual(s.configureCalls.map((c) => c.presentation), [{ auto: false }], 'the IP 池 card is served by this plugin')
   assert.ok(h.injections.some((list) => list.includes('settings')), 'settings is requested on demand, not up front')
   assert.equal(h.volatileListeners.length, 1, 'one live-update listener')
@@ -146,7 +146,7 @@ test('a settings save reaches the pool through loader/volatile-update', async ()
 test('the stale sidecar route is swept through describe(), not a removed get(ns)', async () => {
   const h = host()
   const s = settings17()
-  s.namespaces.push({ ns: 'llm-pi-ai', value: { providers: { 'opencode-zen': { baseURL: 'http://127.0.0.1:1' } } } })
+  s.namespaces.push({ ns: 'llm-pi-ai', value: { providers: { 'oc2dsh': { baseURL: 'http://127.0.0.1:1' } } } })
   h.base.settings = s.service
 
   apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
@@ -154,7 +154,7 @@ test('the stale sidecar route is swept through describe(), not a removed get(ns)
 
   assert.equal(s.mutations.length, 1)
   assert.equal(s.mutations[0]!.ns, 'llm-pi-ai')
-  assert.deepEqual(s.mutations[0]!.ops, [{ op: 'unset', path: ['providers', 'opencode-zen'] }])
+  assert.deepEqual(s.mutations[0]!.ops, [{ op: 'unset', path: ['providers', 'oc2dsh'] }])
 })
 
 test('a legacy 0.1.1 host with register()/get() still gets a provider route', async () => {
@@ -169,7 +169,7 @@ test('a legacy 0.1.1 host with register()/get() still gets a provider route', as
 
   apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
   await settle()
-  assert.deepEqual(h.registrations, [['opencode-zen']])
+  assert.deepEqual(h.registrations, [['oc2dsh']])
 })
 
 test('a headless composition with no settings service at all still registers', async () => {
@@ -177,7 +177,7 @@ test('a headless composition with no settings service at all still registers', a
   delete h.base.settings
   apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
   await settle()
-  assert.deepEqual(h.registrations, [['opencode-zen']])
+  assert.deepEqual(h.registrations, [['oc2dsh']])
 })
 
 test('a host predating the Config export (plain ipPool object) still registers', async () => {
@@ -185,7 +185,7 @@ test('a host predating the Config export (plain ipPool object) still registers',
   h.base.settings = settings17().service
   apply(h.base, { mode: 'adapter', ipPool: { enabled: false, manual: [] } })
   await settle()
-  assert.deepEqual(h.registrations, [['opencode-zen']])
+  assert.deepEqual(h.registrations, [['oc2dsh']])
 })
 
 test('an inject that never fires its callback does not block the route', async () => {
@@ -193,5 +193,5 @@ test('an inject that never fires its callback does not block the route', async (
   h.base.inject = () => Promise.resolve()
   apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
   await settle()
-  assert.deepEqual(h.registrations, [['opencode-zen']])
+  assert.deepEqual(h.registrations, [['oc2dsh']])
 })

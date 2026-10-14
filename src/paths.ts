@@ -2,14 +2,14 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /**
- * The plugin's on-disk state root — `~/.dsh/opencode-zen2dsh` unless
+ * The plugin's on-disk state root — `~/.dsh/oc2dsh` unless
  * overridden. It lives INSIDE the host's own `~/.dsh` root on purpose: one
  * directory tree holds everything this install persists, and a profile
  * backup/removal takes the plugin's state with it.
  *
  * Everything the plugin persists outside the host lives under here: the usage
  * ledger (`usage.json`), the catalog status (`adapter-status.json`), the
- * sing-box runtime dir, and the sidecar's config paths. `OPENCODE_ZEN_HOME`
+ * sing-box runtime dir, and the sidecar's config paths. `OC2DSH_HOME`
  * redirects the whole root, which is what a test that drives the REAL entry
  * (`apply()`) needs: the production wiring installs the production ledger, so
  * without a redirect a test run writes the user's own 流量统计 (live bug
@@ -21,7 +21,7 @@ import { join } from 'node:path'
  * a caller that sets it after import (tests) still gets the redirect.
  */
 export function stateDir(): string {
-  const configured = process.env.OPENCODE_ZEN_HOME?.trim()
+  const configured = process.env.OC2DSH_HOME?.trim()
   if (configured) return configured
-  return join(homedir(), '.dsh', 'opencode-zen2dsh')
+  return join(homedir(), '.dsh', 'oc2dsh')
 }

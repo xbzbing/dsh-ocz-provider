@@ -106,7 +106,7 @@ const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
  * /zen/go/v1/chat/completions` in 6.3 minutes (≈12/min) were proxied through
  * the airport exits and counted as requests with zero tokens (tokens are
  * attributed only for traffic that flows through our adapter), so "I stopped
- * using opencode-zen models" and "the request count keeps climbing" were both
+ * using oc2dsh models" and "the request count keeps climbing" were both
  * true — and paid-lane traffic was egressing through free airport exits by
  * accident.
  *
@@ -332,14 +332,14 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       }
       return agent
     } catch (err) {
-      this.#logger?.warn(`opencode-zen: failed to build proxy agent for ${exitId}: ${err instanceof Error ? err.message : String(err)}`)
+      this.#logger?.warn(`oc2dsh: failed to build proxy agent for ${exitId}: ${err instanceof Error ? err.message : String(err)}`)
       return null
     }
   }
 
   dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
     if (this.#closed) {
-      handler.onResponseError?.({} as Dispatcher.DispatchController, new Error('opencode-zen: routing dispatcher closed'))
+      handler.onResponseError?.({} as Dispatcher.DispatchController, new Error('oc2dsh: routing dispatcher closed'))
       return false
     }
     const origin = String(options.origin ?? '')
@@ -458,7 +458,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // two silence windows and a real transport error mean very different
       // things, and without this line the three are indistinguishable after
       // the fact — a live profile lost all 14 exits and nothing said why.
-      this.#logger?.warn(`opencode-zen: exit ${exitId} marked dead (${why})`)
+      this.#logger?.warn(`oc2dsh: exit ${exitId} marked dead (${why})`)
       // Live-observed (2026-09-07, muse via 7897): after the tunnel stands a
       // dead-behind-the-tunnel exit answers NOTHING — no headers, no
       // onResponseError — and neither fetch nor pi-ai owns a body-silence
@@ -470,7 +470,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // response-error the handler owes, so fetch rejects at once, pi-ai
       // turns that into an error event, and the adapter's rotate loop gets
       // to move the session to a live exit.
-      const reason = new Error('opencode-zen: exit response silence')
+      const reason = new Error('oc2dsh: exit response silence')
       if (typeof handler.onResponseError === 'function') {
         ;(handler.onResponseError as (c: unknown, e: Error) => void).call(handler, liveController ?? ({} as never), reason)
       }

@@ -20,7 +20,7 @@ import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titl
 import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
-export const IP_POOL_BRIDGE_PREFIX = '/api/opencode-zen/ip-pool'
+export const IP_POOL_BRIDGE_PREFIX = '/api/oc2dsh/ip-pool'
 
 /** Cap on JSON request bodies (a probe trigger is tiny). */
 const MAX_JSON_BODY_BYTES = 16 * 1024

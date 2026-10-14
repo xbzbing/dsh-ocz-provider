@@ -127,7 +127,7 @@ test('unloading while the pool starts disposes the late runtime', async () => {
 })
 
 test('the served namespace is the Loader entry id, not a hand-registered "ip-pool"', () => {
-  assert.equal(IP_POOL_NAMESPACE, 'opencode-zen')
+  assert.equal(IP_POOL_NAMESPACE, 'oc2dsh')
 })
 
 test('disabled at boot: nothing assembles', async () => {
