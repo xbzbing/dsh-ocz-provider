@@ -38,12 +38,21 @@ export interface AdmissionDeps {
   /** chat model for the smoke request (probeModels[0] upstream). */
   smokeModel?: string
   /**
-   * Probe-content pool (settings `probeContents`): the smoke's user turn is
-   * picked from it at RANDOM for every probe. Empty/undefined falls back to
-   * {@link DEFAULT_SMOKE_CONTENT} (smoke-content.ts).
+   * Probe-content pool (settings `probeContents`): ONE entry is drawn per
+   * exit probe — i.e. once per call into this module, so a candidate's whole
+   * admission shares one turn (live correction 2026-10-14: 每个出口随机抽一个).
+   * Empty/undefined falls back to {@link DEFAULT_SMOKE_CONTENT}
+   * (smoke-content.ts).
    */
   smokeContents?: string[]
-  /** Injected for tests: the random pick's source. */
+  /**
+   * A pre-drawn turn for one exit's whole pass. Callers that probe one exit
+   * across SEVERAL models (the runtime's per-exit pass) set this once, so
+   * every model of that exit sends the same sentence and the draw stays a
+   * per-exit decision instead of a per-request one.
+   */
+  smokeContent?: string
+  /** Injected for tests: the random draw's source. */
   random?: () => number
   timeoutMs?: number
   blockedCountries?: string[]
@@ -217,6 +226,8 @@ export async function admitCandidate(
   const zenBase = deps.zenBaseUrl ?? ZEN_BASE_URL
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const smokeModel = deps.smokeModel ?? 'big-pickle'
+  // One draw per call = one draw per exit probe (a pre-drawn pass value wins).
+  const smokeContent = deps.smokeContent ?? pickSmokeContent(deps.smokeContents, deps.random)
   // Live-observed 2026-09-09: zen now REJECTS anonymous-lane chat without
   // the CLI session headers (400 MissingSessionID "can only be used in
   // OpenCode") — the smoke request must carry the same disguise set the
@@ -288,7 +299,7 @@ export async function admitCandidate(
       },
       body: JSON.stringify({
         model: smokeModel,
-        messages: [{ role: 'user', content: pickSmokeContent(deps.smokeContents, deps.random) }],
+        messages: [{ role: 'user', content: smokeContent }],
         max_tokens: 1,
         stream: true,
         stream_options: { include_usage: true },

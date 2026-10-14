@@ -7,6 +7,7 @@
  * decoration — the gate is the request SHAPE (streaming + the free-lane tools)
  * — so a pool of one-liners keeps the probe traffic from looking like one fixed
  * synthetic pattern while every other property of the probe stays identical.
+ * One exit draws one entry per pass, so the variation is across exits.
  *
  * The default lives HERE rather than in the settings schema: the settings layer
  * resolves it for the UI (`resolveProbeContents`) and the admission path keeps
@@ -26,10 +27,13 @@ export function normalizeSmokeContents(contents: readonly string[] | undefined):
 }
 
 /**
- * One probe's user turn: a random entry of the configured pool, or the default
- * when nothing is configured. `random` is a seam (tests, and any future
- * deterministic caller); the index is clamped, so a seam returning 1 — or a
- * negative, or NaN — can never read outside the pool.
+ * One EXIT PROBE's user turn: a random entry of the configured pool, or the
+ * default when nothing is configured. The draw belongs to the exit, not to the
+ * request (live correction 2026-10-14): callers that probe one exit across
+ * several models draw ONCE and reuse it for the whole pass (admission's
+ * `smokeContent`). `random` is a seam (tests, and any future deterministic
+ * caller); the index is clamped, so a seam returning 1 — or a negative, or
+ * NaN — can never read outside the pool.
  */
 export function pickSmokeContent(contents: readonly string[] | undefined, random: () => number = Math.random): string {
   const pool = normalizeSmokeContents(contents)

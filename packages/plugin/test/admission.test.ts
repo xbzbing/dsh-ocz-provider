@@ -170,6 +170,13 @@ test('admission: the probe content is drawn at random from the configured pool',
   const messy = fakeTransport(okScript())
   await admitCandidate(deps(messy, { smokeContents: ['  ', 'only'], random: () => 0.5 }), { address: 'h:3', protocol: 'http', source: 'free' })
   assert.equal(smokeContentOf(messy), 'only')
+
+  // A pre-drawn pass value wins: the caller probing ONE exit across several
+  // models draws once and hands the same turn to every model of that pass
+  // (live correction 2026-10-14: 每个出口随机抽一个探测文案).
+  const pinned = fakeTransport(okScript())
+  await admitCandidate(deps(pinned, { smokeContents: pool, smokeContent: 'drawn-once', random: () => 0.99 }), { address: 'h:4', protocol: 'http', source: 'free' })
+  assert.equal(smokeContentOf(pinned), 'drawn-once', 'the pass value is not re-drawn')
 })
 
 test('admission: latency gate (relaxed for critical/emergency states)', async () => {

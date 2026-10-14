@@ -175,10 +175,10 @@ test('assembly: manual rows and the pin apply live through reconfigure', async (
  * without a network.
  */
 function fakeProbeTransport() {
-  const bodies = new Map<string, string>()
+  const requests: Array<{ url: string; body: string }> = []
   const echoBody = JSON.stringify({ status: 'success', query: '5.5.5.5', countryCode: 'US', city: 'city', country: 'c' })
   return {
-    bodies,
+    requests,
     undici: {
       Agent: class {} as never,
       ProxyAgent: class {
@@ -189,7 +189,7 @@ function fakeProbeTransport() {
       setGlobalDispatcher: (() => {}) as never,
       getGlobalDispatcher: (() => ({})) as never,
       request: (async (url: string, init?: { body?: string }) => {
-        if (typeof init?.body === 'string') bodies.set(url, init.body)
+        requests.push({ url, body: typeof init?.body === 'string' ? init.body : '' })
         const body = url.includes('ip-api.com') ? echoBody : url.endsWith('/v1/models') ? '{"data":[]}' : '{"id":"x"}'
         return { statusCode: 200, body: { text: async () => body } }
       }) as never,
@@ -197,40 +197,60 @@ function fakeProbeTransport() {
   }
 }
 
-/** The smoke request's user turn, read back out of the captured chat body. */
-function smokeTurn(transport: ReturnType<typeof fakeProbeTransport>): string {
-  const entry = [...transport.bodies.entries()].find(([url]) => url.includes('/chat/completions'))
-  assert.ok(entry, 'the probe reached the anonymous-lane smoke')
-  return (JSON.parse(entry[1]) as { messages: Array<{ content: string }> }).messages[0]!.content
+/**
+ * Every smoke turn the probe chain sent, in order. An array rather than a
+ * per-URL map on purpose: one pass over several models hits the SAME chat URL
+ * twice, and the assertion is exactly about what those two requests carried.
+ */
+function smokeTurns(transport: ReturnType<typeof fakeProbeTransport>): string[] {
+  return transport.requests
+    .filter((request) => request.url.includes('/chat/completions'))
+    .map((request) => (JSON.parse(request.body) as { messages: Array<{ content: string }> }).messages[0]!.content)
 }
 
-test('the probe content pool reaches the live probe, and a commit swaps it', async (t) => {
-  // Live request 2026-10-14: 增加探测文案的配置，允许自定义多个 content，
-  // 探索时随机选择 — the setting has to be live, not assembly-only.
+test('one probe content is drawn per exit pass, and a commit swaps the pool', async (t) => {
+  // Live correction 2026-10-14: 每个出口随机抽一个探测文案 — a pass over
+  // several models is ONE exit, so all of its smokes share the drawn turn;
+  // the next pass draws again. The setting also has to be live, not
+  // assembly-only.
   const transport = fakeProbeTransport()
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'], probeContents: ['alpha', 'beta'] } },
+    {
+      ipPool: {
+        enabled: true,
+        free: { enabled: false },
+        manual: ['http://127.0.0.1:7890'],
+        probeModels: ['model-a', 'model-b'],
+        probeContents: ['alpha', 'beta'],
+      },
+    },
     quiet,
     { makeInstaller: () => fakeInstaller(), undici: transport.undici },
   )
   assert.ok(runtime !== null)
   t.after(() => { void runtime.dispose() })
 
-  // Math.random IS the production pick's source, so pinning it makes the draw
-  // observable without another seam.
+  // Math.random IS the production draw's source, so pinning it makes the
+  // choice observable without another seam.
   t.mock.method(Math, 'random', () => 0)
   await runtime.probeExit('http://127.0.0.1:7890')
-  assert.equal(smokeTurn(transport), 'alpha')
+  assert.deepEqual(smokeTurns(transport), ['alpha', 'alpha'], 'both models of the pass send the ONE turn drawn for this exit')
 
   t.mock.method(Math, 'random', () => 0.99)
   await runtime.probeExit('http://127.0.0.1:7890')
-  assert.equal(smokeTurn(transport), 'beta', 'every probe draws again from the pool')
+  assert.deepEqual(smokeTurns(transport), ['alpha', 'alpha', 'beta', 'beta'], 'the next pass draws for this exit again')
 
   await runtime.reconfigure({
-    ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'], probeContents: ['gamma'] },
+    ipPool: {
+      enabled: true,
+      free: { enabled: false },
+      manual: ['http://127.0.0.1:7890'],
+      probeModels: ['model-a', 'model-b'],
+      probeContents: ['gamma'],
+    },
   })
   await runtime.probeExit('http://127.0.0.1:7890')
-  assert.equal(smokeTurn(transport), 'gamma', 'the next probe uses the committed pool — no restart')
+  assert.deepEqual(smokeTurns(transport), ['alpha', 'alpha', 'beta', 'beta', 'gamma', 'gamma'], 'the next pass uses the committed pool — no restart')
 })
 
 test('an unconfigured probe content pool sends the default turn', async (t) => {
@@ -243,7 +263,7 @@ test('an unconfigured probe content pool sends the default turn', async (t) => {
   assert.ok(runtime !== null)
   t.after(() => { void runtime.dispose() })
   await runtime.probeExit('http://127.0.0.1:7890')
-  assert.equal(smokeTurn(transport), 'hello')
+  assert.deepEqual(smokeTurns(transport), ['hello'])
 })
 
 /**

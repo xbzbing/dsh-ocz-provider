@@ -1,8 +1,8 @@
 import "./catalog-GckqcHsV.js";
-import "./smoke-content-DnpVb6rv.js";
+import { r as pickSmokeContent } from "./smoke-content-CfTGy8JU.js";
 import { s as LOCAL_EXIT_ID } from "./dispatcher-BfnX7k6I.js";
 import { a as createRotateDelegate, n as DEFAULT_SUBSCRIPTION_USER_AGENT, r as parseSubscription, s as setRotateDelegate, t as stateDir } from "./paths-Czv1ZEwZ.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-BZMDcdcE.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-OYUMOlPr.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -1977,14 +1977,18 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-d0PcjSDN.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CQmU9KG6.js");
+		const deps$1 = {
+			...admissionDeps,
+			smokeContent: pickSmokeContent(probeContents)
+		};
 		for (const model of models) {
-			admissionDeps.smokeModel = model;
-			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {
+			deps$1.smokeModel = model;
+			const verdict = entry.source === "free" ? await admitCandidate$1(deps$1, {
 				address: entry.id,
 				protocol: entry.protocol,
 				source: "free"
-			}) : await admitTrusted$1(admissionDeps, {
+			}) : await admitTrusted$1(deps$1, {
 				address: entry.id,
 				protocol: entry.protocol,
 				source: entry.source === "manual" ? "manual" : "subscription"

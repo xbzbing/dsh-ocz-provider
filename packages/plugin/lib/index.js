@@ -1,5 +1,5 @@
 import { d as conversationLabel, f as deriveRequestIDs, n as ModelCatalog, o as defaultCachePath, p as disguiseHeaders, r as ZEN_BASE_URL } from "./catalog-GckqcHsV.js";
-import { a as GATE_TOOL_ALIASES, d as isResponsesModel, l as toPiContext, n as normalizeSmokeContents, o as ensureFreeLaneShape, s as ensureResponsesFreeLaneShape, t as DEFAULT_SMOKE_CONTENT, u as apiForModel } from "./smoke-content-DnpVb6rv.js";
+import { a as GATE_TOOL_ALIASES, d as isResponsesModel, l as toPiContext, n as normalizeSmokeContents, o as ensureFreeLaneShape, s as ensureResponsesFreeLaneShape, t as DEFAULT_SMOKE_CONTENT, u as apiForModel } from "./smoke-content-CfTGy8JU.js";
 import { a as routingContext, c as UsageTracker, d as setUsageRecorder, f as usageTracker, l as attributeUsage, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as emptyTotals } from "./dispatcher-BfnX7k6I.js";
 import { c as shouldRotate, i as classifyStreamFailure, n as DEFAULT_SUBSCRIPTION_USER_AGENT, o as isRegionBlocked, t as stateDir } from "./paths-Czv1ZEwZ.js";
 import { dirname, join } from "node:path";
@@ -1793,7 +1793,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-CGczuN9u.js");
+	const { startIpPool } = await import("./ip-pool-7gGGDMON.js");
 	return startIpPool(config, logger);
 };
 /**
