@@ -112,7 +112,10 @@ export interface PoolStatusView {
   targetSize: number
   /** Whole-pool capacity in force (settings `poolSize`, default 20). */
   poolSize: number
-  pinned: { id: string; strict: boolean } | null
+  /** The pin in force. `local` marks the 本机 sentinel (no exit at all);
+   *  optional so a bundle can still read a host snapshot from before the
+   *  field existed. */
+  pinned: { id: string; strict: boolean; local?: boolean } | null
   proxyHosts: string[]
   exits: Array<{
     id: string
@@ -502,7 +505,10 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
       </span>
       {status.pinned !== null && (
         <span className={`${styles.badge} ${styles.badgePinned}`}>
-          {t('pinnedBadge')}{status.pinned.strict ? ' (' + t('pinnedStrict') + ')' : ''}
+          {/* A pin to the 本机 sentinel has no exit address to show, so the
+              badge says what it does instead (2026-10-14). */}
+          {status.pinned.local === true ? t('pinnedBadgeLocal') : t('pinnedBadge')}
+          {status.pinned.strict && status.pinned.local !== true ? ' (' + t('pinnedStrict') + ')' : ''}
         </span>
       )}
     </div>
@@ -510,8 +516,8 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
 }
 
 /** The exit table + ban list. */
-function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t']; onProbe: (exitId: string) => void; onPin: (exitId: string) => void; busy: boolean }): ReactNode {
-  const { status, t, onProbe, onPin, busy } = props
+function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t']; onProbe: (exitId: string) => void; onPin: (exitId: string) => void; onRemove: (exitId: string) => void; busy: boolean }): ReactNode {
+  const { status, t, onProbe, onPin, onRemove, busy } = props
   const [bansOpen, setBansOpen] = useState(false)
   if (status === null) return null
   const stateCell = (exit: PoolStatusView['exits'][number]): ReactNode => {
@@ -562,6 +568,10 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
                   {!exit.pinned && (
                     <button type="button" className={styles.rowRemove} disabled={busy} onClick={() => onPin(exit.id)}>{t('exitPin')}</button>
                   )}
+                  {/* 删除 is the same row action the stats modal carries: drop
+                      the exit, let the candidate list refill the slot, or sink
+                      it to the tail when there is no reserve (2026-10-14). */}
+                  <button type="button" className={styles.rowRemove} disabled={busy} onClick={() => onRemove(exit.id)}>{t('statsRemove')}</button>
                 </td>
               </tr>
             ))}
@@ -768,6 +778,26 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     }
   }
 
+  /**
+   * 删除 one exit from the table. The bridge owns the whole decision (promote
+   * a reserve, or sink the row), so the card only re-reads /status after it.
+   */
+  const removeExit = async (exitId: string): Promise<void> => {
+    setActionBusy(true)
+    try {
+      await fetch(`${BRIDGE_PREFIX}/exit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'remove', exitId }),
+      })
+      await refreshStatus()
+    } catch {
+      setStatusError(t('refreshError'))
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   const probeDone = status !== null ? status.prober.completed : 0
   const probeTotal = status !== null ? status.prober.enqueued : 0
 
@@ -950,7 +980,14 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           <div className={styles.field}>
             <span className={styles.fieldLabel}>{t('sectionExits')}</span>
           </div>
-          <ExitTable status={status} t={t} busy={actionBusy} onProbe={(id) => { void bridgeAction({ scope: 'exit', exitId: id }) }} onPin={(id) => { void pinExit(id) }} />
+          <ExitTable
+            status={status}
+            t={t}
+            busy={actionBusy}
+            onProbe={(id) => { void bridgeAction({ scope: 'exit', exitId: id }) }}
+            onPin={(id) => { void pinExit(id) }}
+            onRemove={(id) => { void removeExit(id) }}
+          />
         </>
       )}
 

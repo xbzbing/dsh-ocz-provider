@@ -106,7 +106,12 @@ export interface PoolStatusView {
   targetSize: number
   /** Whole-pool capacity in force (settings `poolSize`, default 10). */
   poolSize: number
-  pinned: { id: string; strict: boolean } | null
+  /**
+   * The pin in force. `local` marks the 本机 sentinel (every request egresses
+   * from this machine), which is a pin without an exit id — the stats modal
+   * renders 取消固定 on the local row from this flag alone.
+   */
+  pinned: { id: string; strict: boolean; local: boolean } | null
   proxyHosts: string[]
   /** Path prefixes on those hosts the pool carries (default `/zen/v1`); this
    *  is the scope that decides WHICH opencode.ai traffic the exits serve. */
@@ -209,7 +214,7 @@ export function buildStatusView(
     targetSize: runtime ? runtime.pool.targetSize : 20,
     poolSize: runtime ? runtime.pool.poolSize : 10,
     pinned: snapshot.pinned !== ''
-      ? { id: snapshot.pinned, strict: pinnedStrict }
+      ? { id: snapshot.pinned, strict: pinnedStrict, local: snapshot.pinned === LOCAL_EXIT_ID }
       : null,
     proxyHosts,
     proxyPathPrefixes,
@@ -359,6 +364,16 @@ async function readJsonBody(req: AsyncIterable<Buffer> & { [Symbol.asyncIterator
 
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; code: string; message: string }
 
+/**
+ * Persist one pin value into the plugin's own settings namespace. Returns
+ * false when the profile cannot be written (read-only, or no settings service
+ * in this composition) — the caller then keeps the live-only pin, which is
+ * the honest degradation: the click works now and the modal says it is not
+ * persisted. An empty value UNSETS the field so the schema default applies
+ * instead of a stored empty string.
+ */
+export type WritePin = (value: string) => Promise<boolean>
+
 /** deps over the live runtime + the current settings value (probe model etc.). */
 export interface BridgeHandlers {
   status(): Promise<BridgeResult>
@@ -366,6 +381,13 @@ export interface BridgeHandlers {
   /** Selectable probe models (docs §5.2 探活模型 dropdown): S3 static list
    *  first, then the live Zen catalog entries the runtime resolved. */
   models(): Promise<BridgeResult>
+  /**
+   * One row action from the exit tables (live request 2026-10-14): pin,
+   * pin-local, unpin, or remove. The pin family writes `pinnedExitId` and
+   * applies live; `remove` drops the exit and promotes a reserve, or parks it
+   * at the tail when there is nothing to promote.
+   */
+  exit(body: { action?: unknown; exitId?: unknown }): Promise<BridgeResult>
 }
 
 /** Live-catalog seam for the models() dropdown rows (index.ts injects the
@@ -376,7 +398,7 @@ export type ListLiveModels = () => string[]
 export function makeBridgeHandlers(
   runtime: () => IpPoolRuntime | null,
   settings: () => { pinnedStrict: boolean; proxyHosts: string[]; proxyPathPrefixes?: string[]; freeEnabled?: boolean },
-  deps: { listLiveModels?: ListLiveModels } = {},
+  deps: { listLiveModels?: ListLiveModels; writePin?: WritePin } = {},
 ): BridgeHandlers {
   return {
     async status() {
@@ -427,6 +449,75 @@ export function makeBridgeHandlers(
         rows.push({ id, verified: false })
       }
       return { ok: true, value: { models: rows } }
+    },
+    async exit(body) {
+      const rt = runtime()
+      if (rt === null) return { ok: false, code: 'pool-disabled', message: 'ip pool is not running (enabled off)' }
+      const action = body.action
+
+      if (action === 'pin' || action === 'pin-local' || action === 'unpin') {
+        // An empty value is the unpin spelling, `pin-local` the 本机 row's
+        // button: keeping the sentinel host-side means the browser bundle never
+        // has to spell it (and cannot drift from it).
+        const raw = action === 'unpin'
+          ? ''
+          : action === 'pin-local'
+            ? LOCAL_EXIT_ID
+            : (typeof body.exitId === 'string' ? body.exitId.trim() : '')
+        if (raw !== '' && raw !== LOCAL_EXIT_ID && !rt.pool.has(raw)) {
+          return { ok: false, code: 'unknown-exit', message: `exit "${raw}" is not in the pool` }
+        }
+        // Persist first, then apply: the settings commit lands on the same
+        // pool through reconfigure(), and applying it here as well makes the
+        // click effective even when the profile is read-only (the modal then
+        // reports `persisted: false` instead of pretending).
+        let persisted = false
+        try {
+          persisted = await deps.writePin?.(raw) ?? false
+        } catch {
+          persisted = false
+        }
+        if (raw === '') rt.pool.unpin()
+        else if (raw === LOCAL_EXIT_ID) rt.pool.pinLocal()
+        else rt.pool.pin(raw)
+        return { ok: true, value: { pinned: raw, local: raw === LOCAL_EXIT_ID, persisted } }
+      }
+
+      if (action === 'remove') {
+        const exitId = typeof body.exitId === 'string' ? body.exitId : ''
+        if (!rt.pool.has(exitId)) {
+          return { ok: false, code: 'unknown-exit', message: `exit "${exitId}" is not in the pool` }
+        }
+        // Removing the pinned exit has to unpin first: the pin lives in the
+        // settings, and a later commit would otherwise re-pin a row that is no
+        // longer in the pool — and re-admit it as a manual row when the id
+        // happens to parse as an address (subscription ids do).
+        if (rt.pool.pinnedId === exitId) {
+          try {
+            await deps.writePin?.('')
+          } catch { /* live unpin below still holds */ }
+          rt.pool.unpin()
+        }
+        // The subscription layer owns the candidate list: it promotes the
+        // next-fastest reserve, or keeps the exit at the pool tail when the
+        // reserve is empty (both documented as "delete → refill, else sink").
+        const replaced = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false
+        if (!replaced && rt.pool.has(exitId)) {
+          // A running onboarding/trim holds the rebuild mutex and replaceExit()
+          // answers false without consulting the reserve. Sinking the row then
+          // would violate the request ("refill first, sink only when there is
+          // nothing to promote"), so say busy instead and leave the row alone.
+          if (rt.subscriptions?.busy === true) {
+            return { ok: true, value: { removed: false, replaced: false, busy: true, remaining: rt.pool.snapshot().total } }
+          }
+          // No onboarder at all (no subscription round ran in this process):
+          // the row still has to stop outranking live exits.
+          rt.pool.demoteToTail(exitId)
+        }
+        return { ok: true, value: { removed: true, replaced, remaining: rt.pool.snapshot().total } }
+      }
+
+      return { ok: false, code: 'settings-rejected', message: "exit action must be 'pin', 'pin-local', 'unpin' or 'remove'" }
     },
   }
 }
@@ -494,6 +585,25 @@ export function makeBridgeRoutes(
           return
         }
         const result = await handlers.probe(body as { scope?: unknown; exitId?: unknown })
+        writeJson(res as never, 200, result)
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${IP_POOL_BRIDGE_PREFIX}/exit`,
+      handler: async (req, res) => {
+        if (!check(req as never, res as never)) return
+        let body: unknown
+        try {
+          body = await readJsonBody(req as never)
+        } catch {
+          body = undefined
+        }
+        if (body === undefined || typeof body !== 'object' || body === null) {
+          writeJson(res as never, 400, { ok: false, code: 'settings-rejected', message: 'unreadable JSON body' })
+          return
+        }
+        const result = await handlers.exit(body as { action?: unknown; exitId?: unknown })
         writeJson(res as never, 200, result)
       },
     },

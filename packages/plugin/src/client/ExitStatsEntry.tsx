@@ -20,6 +20,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPoolCard.tsx'
+import { regionCode } from './region.ts'
 import styles from './ip-pool.module.css'
 
 /**
@@ -76,6 +77,23 @@ function isUsable(exit: PoolStatusView['exits'][number]): boolean {
 /** The sortable columns: request count, the three token buckets, latency. */
 type SortKey = 'requests' | 'input' | 'output' | 'cache' | 'latency'
 
+/**
+ * One row action the modal can send. `pin-local` is the 本机 row's button:
+ * the host owns the sentinel value, so the bundle names the intent, never the
+ * spelling (mirrors SETTINGS_NAMESPACE's literal-only rule in client/index.ts).
+ */
+type ExitAction = 'pin' | 'pin-local' | 'unpin' | 'remove'
+
+/** The /exit response's value shape. */
+interface ExitActionResult {
+  pinned?: string
+  local?: boolean
+  persisted?: boolean
+  replaced?: boolean
+  /** A replacement round held the rebuild mutex: nothing was deleted. */
+  busy?: boolean
+}
+
 /** One exit's value under a sort key. */
 function sortMetric(exit: PoolStatusView['exits'][number], key: SortKey): number {
   if (key === 'input') return exit.tokens.inputTokens
@@ -95,6 +113,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const [failed, setFailed] = useState(false)
   /** Headline ordering contract: newest click wins, request count is home. */
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'requests', dir: 'desc' })
+  /** The row action in flight (its key), so every button disables together. */
+  const [busy, setBusy] = useState('')
+  /** The last action's outcome, shown above the table until the next one. */
+  const [note, setNote] = useState<{ text: string; warn: boolean } | null>(null)
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -122,6 +144,54 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     const interval = setInterval(() => void refresh(), open ? 2_000 : 10_000)
     return () => clearInterval(interval)
   }, [open, refresh])
+
+  /**
+   * One row action (固定 / 取消固定 / 删除) over the bridge. The bridge owns the
+   * settings write, the live pin and the candidate refill, so this stays a
+   * POST plus a re-read — and it reports what actually happened, because
+   * "deleted" means two different things (a reserve took the slot, or the row
+   * sank to the tail).
+   */
+  const runExitAction = useCallback(async (action: ExitAction, exitId?: string): Promise<void> => {
+    setBusy(`${action}:${exitId ?? ''}`)
+    setNote(null)
+    try {
+      const response = await fetch(`${BRIDGE_PREFIX}/exit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(action === 'pin-local' || action === 'unpin' ? { action } : { action, exitId }),
+      })
+      const body = await response.json() as { ok: boolean; value?: ExitActionResult }
+      if (!body.ok || body.value === undefined) {
+        setNote({ text: t('statsActionFailed'), warn: true })
+        return
+      }
+      const value = body.value
+      // A 删除 that met a running replacement round changed nothing: saying
+      // "deleted" there would be a lie, and the operator can just click again.
+      if (action === 'remove' && value.busy === true) {
+        setNote({ text: t('statsActionBusy'), warn: true })
+        return
+      }
+      const text = action === 'remove'
+        ? (value.replaced === true ? t('statsActionReplaced') : t('statsActionDemoted'))
+        : action === 'unpin'
+          ? t('statsActionUnpinned')
+          : action === 'pin-local'
+            ? t('statsActionPinnedLocal')
+            : t('statsActionPinned')
+      // A read-only profile still pins live, but the click has to say so: the
+      // pin would be lost on the next restart.
+      setNote(value.persisted === false
+        ? { text: `${text} · ${t('statsActionVolatile')}`, warn: true }
+        : { text, warn: false })
+    } catch {
+      setNote({ text: t('statsActionFailed'), warn: true })
+    } finally {
+      setBusy('')
+      await refresh()
+    }
+  }, [refresh, t])
 
   const totals = useMemo(() => {
     const localRequests = status?.local?.requests ?? 0
@@ -213,6 +283,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               {t('footerRequests', { count: totals.requests.toLocaleString() })}
               {' · '}
               {compact(totals.tokens)} tok
+              {/* The pool's own decode speed (live request 2026-10-14). Hidden
+                  at 0 — nothing has streamed yet, and "0 tok/s" reads as a
+                  stall rather than an empty counter. */}
+              {totals.speed > 0 && <>{' · '}{t('footerSpeed', { count: totals.speed.toLocaleString() })}</>}
             </span>
           </span>
         )}
@@ -229,7 +303,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         */}
         <span
           className={wide ? styles.footerCompactOnNarrow : styles.footerCompact}
-          title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok`}
+          title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok${totals.speed > 0 ? ` · ${t('footerSpeed', { count: totals.speed.toLocaleString() })}` : ''}`}
         >
           {status === null ? '—' : `${compact(totals.tokens)} tok`}
         </span>
@@ -255,6 +329,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
         </div>
         {poolOff && <p className={styles.status}>{t('statsPoolOff')}</p>}
+        {note !== null && (
+          <p className={note.warn ? styles.statsActionNoteWarn : styles.statsActionNote} role="status">{note.text}</p>
+        )}
         {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
           <p className={styles.status}>{failed && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (
@@ -263,6 +340,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               <thead>
                 <tr>
                   <th>{t('statsColIp')}</th>
+                  <th>{t('statsColRegion')}</th>
                   <th>{t('statsColState')}</th>
                   {sortableHeader('requests', t('statsColRequests'))}
                   {sortableHeader('input', t('statsColInput'))}
@@ -270,6 +348,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   {sortableHeader('cache', t('statsColCache'))}
                   {sortableHeader('latency', t('statsColLatency'))}
                   <th>{t('statsColLastUsed')}</th>
+                  <th>{t('statsColActions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -305,6 +384,12 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         {exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}
                         {exit.exitIP === '' && <span className={styles.statsEndpoint}>{exit.id}</span>}
                       </td>
+                      {/* Region code, not the full "HK Central": that string is
+                          still one hover away on the IP cell (live request
+                          2026-10-14). */}
+                      <td className={styles.statsRegion} title={exit.exitLocation || undefined}>
+                        {regionCode(exit.exitLocation) || t('statsNever')}
+                      </td>
                       <td>
                         <span className={`${styles.statsDot} ${dotClass}`} aria-hidden="true" />
                         {stateLabel}
@@ -325,13 +410,51 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         )}
                         {timeLabel(exit.lastUsedAt, t('statsNever'))}
                       </td>
+                      {/* 固定 pins the whole pool's traffic to this exit (the
+                          settings field, written through the bridge), 删除 drops
+                          it and lets the candidate list refill the slot — or
+                          sinks it to the tail when there is no reserve
+                          (live request 2026-10-14). */}
+                      <td className={styles.statsActions}>
+                        {exit.pinned ? (
+                          <button
+                            type="button"
+                            className={styles.rowAction}
+                            disabled={busy !== ''}
+                            onClick={() => { void runExitAction('unpin') }}
+                          >
+                            {t('statsUnpin')}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className={styles.rowAction}
+                            disabled={busy !== ''}
+                            onClick={() => { void runExitAction('pin', exit.id) }}
+                          >
+                            {t('statsPin')}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={`${styles.rowAction} ${styles.rowActionDanger}`}
+                          disabled={busy !== ''}
+                          onClick={() => { void runExitAction('remove', exit.id) }}
+                        >
+                          {t('statsRemove')}
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
                 <tr className={styles.statsRowLocal} data-local-egress>
                   <td className={styles.mono}>{t('statsLocalIp')}</td>
+                  <td>{t('statsNever')}</td>
                   <td>
-                    <span className={`${styles.statsDot} ${styles.statsDotLocal}`} aria-hidden="true" />
+                    {/* Green, like a usable exit: this machine IS a working
+                        egress, and the old grey dot read as a fault (live
+                        request 2026-10-14: "本机的状态也用绿色"). */}
+                    <span className={`${styles.statsDot} ${styles.statsDotOk}`} aria-hidden="true" />
                     {t('statsLocalState')}
                   </td>
                   <td>{(status?.local?.requests ?? 0).toLocaleString()}</td>
@@ -349,6 +472,29 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   <td>{status?.local === undefined || cacheTotal(status.local.tokens) === 0 ? '—' : compact(cacheTotal(status.local.tokens))}</td>
                   <td>{t('statsNever')}</td>
                   <td>{timeLabel(status?.local?.lastUsedAt ?? 0, t('statsNever'))}</td>
+                  {/* 固定 on the 本机 row pins local egress itself: every request
+                      stays on this machine, no exit at all. */}
+                  <td className={styles.statsActions}>
+                    {status?.pinned?.local === true ? (
+                      <button
+                        type="button"
+                        className={styles.rowAction}
+                        disabled={busy !== ''}
+                        onClick={() => { void runExitAction('unpin') }}
+                      >
+                        {t('statsUnpin')}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.rowAction}
+                        disabled={busy !== ''}
+                        onClick={() => { void runExitAction('pin-local') }}
+                      >
+                        {t('statsPin')}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               </tbody>
             </table>

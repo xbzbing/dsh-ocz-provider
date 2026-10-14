@@ -18,6 +18,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
+import { LOCAL_EXIT_ID } from './pool/usage.ts'
 import type { UndiciSeam } from './pool/dispatcher.ts'
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
@@ -138,8 +139,15 @@ export function syncManualExits(pool: ExitPool, ipPool: Opencode2dshConfig['ipPo
   }
 
   const requested = (ipPool?.pinnedExitId ?? '').trim()
+  /**
+   * `local` is the 本机 sentinel (the stats modal's 固定 button on the local
+   * row): every request egresses from this machine. It is not an address, so
+   * it must be answered before the manual-row path — parseManualProxy would
+   * reject it and the pin would silently read as "nothing pinned".
+   */
+  const pinnedLocal = requested === LOCAL_EXIT_ID
   let pinned = ''
-  if (requested !== '') {
+  if (requested !== '' && !pinnedLocal) {
     if (pool.has(requested)) {
       pinned = requested
     } else {
@@ -160,7 +168,8 @@ export function syncManualExits(pool: ExitPool, ipPool: Opencode2dshConfig['ipPo
     if (node.source === 'manual' && !desired.has(node.id)) pool.remove(node.id)
   }
 
-  if (pinned === '') pool.unpin()
+  if (pinnedLocal) pool.pinLocal()
+  else if (pinned === '') pool.unpin()
   else pool.pin(pinned)
 }
 
@@ -432,8 +441,20 @@ export async function startIpPool(
           source: entry.source === 'manual' ? 'manual' : 'subscription',
         }, { pinned: entry.pinned, previous: { exitIP: entry.exitIP, exitLocation: entry.exitLocation, latencyMs: entry.latencyMs, quality: entry.quality } })
       if (verdict.admitted && verdict.node) {
-        // Refresh the node's facts (admission re-measured them).
-        pool.add({ ...entry, ...verdict.node, pinned: entry.pinned })
+        // Refresh the facts on a row that is STILL in the table. `add()` is an
+        // upsert and this probe holds a snapshot from before it ran, so writing
+        // it back used to resurrect an exit a rotation (or an operator's 删除)
+        // had removed meanwhile — as a row with no local listener, still
+        // pickable as the last resort. Measured live 2026-10-14: 11 rows against
+        // a capacity of 10, the extra one demoted, unverified, listenerless.
+        const refreshed = pool.refresh(entry.id, {
+          protocol: verdict.node.protocol,
+          exitIP: verdict.node.exitIP,
+          exitLocation: verdict.node.exitLocation,
+          latencyMs: verdict.node.latencyMs,
+          quality: verdict.node.quality,
+        })
+        if (!refreshed) break
         applyProbeVerdict(pool, entry.id, verdict, model)
         // The upstream lane refused this exit (a failed smoke / 401/403 — a 429
         // arrives as `limited`, never here): swap in the next-fastest reserve,

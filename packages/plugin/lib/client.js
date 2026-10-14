@@ -31,7 +31,7 @@ let react_jsx_runtime = require("react/jsx-runtime");
 react_jsx_runtime = __toESM(react_jsx_runtime);
 
 //#region \0dsh-css:/Users/ankh/workspace/private/opencode2dsh/packages/plugin/src/client/ip-pool.module.css.mjs
-const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:11px}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{white-space:nowrap;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:25%}.QmduLW_statsTable th:nth-child(2){width:12%}.QmduLW_statsTable th:nth-child(3),.QmduLW_statsTable th:nth-child(4){width:8%}.QmduLW_statsTable th:nth-child(5){width:11%}.QmduLW_statsTable th:nth-child(6){width:8%}.QmduLW_statsTable th:nth-child(7){width:9%}.QmduLW_statsTable th:nth-child(8){width:19%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsDotLocal{background:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
+const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_statsSummary{flex-wrap:wrap;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{white-space:nowrap;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;padding:2px 8px;font-size:11px}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:22%}.QmduLW_statsTable th:nth-child(2){width:7%}.QmduLW_statsTable th:nth-child(3){width:9%}.QmduLW_statsTable th:nth-child(4){width:8%}.QmduLW_statsTable th:nth-child(5){width:7%}.QmduLW_statsTable th:nth-child(6){width:10%}.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8){width:7%}.QmduLW_statsTable th:nth-child(9){width:11%}.QmduLW_statsTable th:nth-child(10){width:12%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsRegion{font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap}.QmduLW_statsActions{white-space:nowrap}.QmduLW_rowAction{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:5px;padding:2px 6px;font-size:11px;line-height:1.6}.QmduLW_rowAction+.QmduLW_rowAction{margin-left:4px}.QmduLW_rowAction:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowAction:disabled{opacity:.5;cursor:default}.QmduLW_rowActionDanger:hover:not(:disabled){border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsActionNote{color:var(--dsw-alias-state-success-primary,#1a7f37);margin:0 0 8px;font-size:12px}.QmduLW_statsActionNoteWarn{color:var(--dsw-alias-state-warning-primary,#9a6700);}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
 const tagId = "@opencode2dsh/dsh-plugin/ip-pool.module.css";
 if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 	const tag = document.createElement("style");
@@ -41,70 +41,75 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"status": "QmduLW_status",
-	"badge": "QmduLW_badge",
-	"footerText": "QmduLW_footerText",
-	"select": "QmduLW_select",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"rowLabel": "QmduLW_rowLabel",
-	"statsDot": "QmduLW_statsDot",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"statsInflight": "QmduLW_statsInflight",
-	"field": "QmduLW_field",
-	"overviewBar": "QmduLW_overviewBar",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"rowInput": "QmduLW_rowInput",
-	"section": "QmduLW_section",
-	"fieldRow": "QmduLW_fieldRow",
-	"badgePinned": "QmduLW_badgePinned",
-	"compliance": "QmduLW_compliance",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"row": "QmduLW_row",
-	"tableGrid": "QmduLW_tableGrid",
-	"saveStatus": "QmduLW_saveStatus",
-	"stateOk": "QmduLW_stateOk",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"fieldHint": "QmduLW_fieldHint",
-	"rowList": "QmduLW_rowList",
-	"statsContent": "QmduLW_statsContent",
-	"statsWrap": "QmduLW_statsWrap",
-	"statsModal": "QmduLW_statsModal",
-	"statsSortArrow": "QmduLW_statsSortArrow",
-	"rowAdd": "QmduLW_rowAdd",
-	"statsDotLocal": "QmduLW_statsDotLocal",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"ghostButton": "QmduLW_ghostButton",
-	"footerIcon": "QmduLW_footerIcon",
 	"statsTable": "QmduLW_statsTable",
-	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"footerUnit": "QmduLW_footerUnit",
+	"overviewBar": "QmduLW_overviewBar",
 	"statsChip": "QmduLW_statsChip",
-	"footerCompact": "QmduLW_footerCompact",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"radio": "QmduLW_radio",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"textarea": "QmduLW_textarea",
-	"stateCooling": "QmduLW_stateCooling",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"mono": "QmduLW_mono",
-	"footerMain": "QmduLW_footerMain",
-	"badgeHealthy": "QmduLW_badgeHealthy",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"statsSummary": "QmduLW_statsSummary",
-	"input": "QmduLW_input",
-	"statsDotBad": "QmduLW_statsDotBad",
 	"statsRowLocal": "QmduLW_statsRowLocal",
-	"stateDead": "QmduLW_stateDead",
-	"statsSortButton": "QmduLW_statsSortButton",
-	"footerEntry": "QmduLW_footerEntry",
+	"rowAdd": "QmduLW_rowAdd",
 	"table": "QmduLW_table",
-	"body": "QmduLW_body",
-	"footerSub": "QmduLW_footerSub",
+	"statsEndpoint": "QmduLW_statsEndpoint",
 	"rowRemove": "QmduLW_rowRemove",
-	"saveStatusOk": "QmduLW_saveStatusOk"
+	"collapseToggle": "QmduLW_collapseToggle",
+	"statsSummary": "QmduLW_statsSummary",
+	"rowList": "QmduLW_rowList",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"badgeHealthy": "QmduLW_badgeHealthy",
+	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"rowActionDanger": "QmduLW_rowActionDanger",
+	"fieldHint": "QmduLW_fieldHint",
+	"mono": "QmduLW_mono",
+	"ghostButton": "QmduLW_ghostButton",
+	"footerUnit": "QmduLW_footerUnit",
+	"status": "QmduLW_status",
+	"footerIcon": "QmduLW_footerIcon",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"statsDot": "QmduLW_statsDot",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"statsSortButton": "QmduLW_statsSortButton",
+	"compliance": "QmduLW_compliance",
+	"input": "QmduLW_input",
+	"stateCooling": "QmduLW_stateCooling",
+	"statsWrap": "QmduLW_statsWrap",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"statsActionNoteWarn": "QmduLW_statsActionNoteWarn",
+	"field": "QmduLW_field",
+	"body": "QmduLW_body",
+	"row": "QmduLW_row",
+	"rowInput": "QmduLW_rowInput",
+	"saveStatusError": "QmduLW_saveStatusError",
+	"footerEntry": "QmduLW_footerEntry",
+	"statsRegion": "QmduLW_statsRegion",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"stateOk": "QmduLW_stateOk",
+	"badge": "QmduLW_badge",
+	"statsActionNote": "QmduLW_statsActionNote",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"rowAction": "QmduLW_rowAction",
+	"radio": "QmduLW_radio",
+	"badgePinned": "QmduLW_badgePinned",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"rowLabel": "QmduLW_rowLabel",
+	"textarea": "QmduLW_textarea",
+	"stateDead": "QmduLW_stateDead",
+	"footerCompact": "QmduLW_footerCompact",
+	"statsInflight": "QmduLW_statsInflight",
+	"footerText": "QmduLW_footerText",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"statsModal": "QmduLW_statsModal",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"statsActions": "QmduLW_statsActions",
+	"saveStatus": "QmduLW_saveStatus",
+	"tableGrid": "QmduLW_tableGrid",
+	"footerSub": "QmduLW_footerSub",
+	"statsContent": "QmduLW_statsContent",
+	"section": "QmduLW_section",
+	"footerMain": "QmduLW_footerMain",
+	"fieldRow": "QmduLW_fieldRow",
+	"statsSortArrow": "QmduLW_statsSortArrow",
+	"select": "QmduLW_select"
 };
 
 //#endregion
@@ -461,14 +466,14 @@ function OverviewBar(props) {
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { children: t("poolSources").replace("{free}", String(status.bySource.free)).replace("{manual}", String(status.bySource.manual)).replace("{subscription}", String(status.bySource.subscription)) }),
 			status.pinned !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
 				className: `${ip_pool_module_css_default.badge} ${ip_pool_module_css_default.badgePinned}`,
-				children: [t("pinnedBadge"), status.pinned.strict ? " (" + t("pinnedStrict") + ")" : ""]
+				children: [status.pinned.local === true ? t("pinnedBadgeLocal") : t("pinnedBadge"), status.pinned.strict && status.pinned.local !== true ? " (" + t("pinnedStrict") + ")" : ""]
 			})
 		]
 	});
 }
 /** The exit table + ban list. */
 function ExitTable(props) {
-	const { status, t, onProbe, onPin, busy } = props;
+	const { status, t, onProbe, onPin, onRemove, busy } = props;
 	const [bansOpen, setBansOpen] = (0, react.useState)(false);
 	if (status === null) return null;
 	const stateCell = (exit) => {
@@ -529,19 +534,29 @@ function ExitTable(props) {
 					className: ip_pool_module_css_default.mono,
 					children: exit.passive.ok > 0 || exit.passive.limited > 0 || exit.passive.refused > 0 || exit.passive.dead > 0 || exit.passive.transport > 0 ? `✓${exit.passive.ok} 429:${exit.passive.limited} 401/403:${exit.passive.refused} ✗:${exit.passive.dead + exit.passive.transport}` : "—"
 				}),
-				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ip_pool_module_css_default.rowRemove,
-					disabled: busy,
-					onClick: () => onProbe(exit.id),
-					children: t("exitProbe")
-				}), !exit.pinned && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-					type: "button",
-					className: ip_pool_module_css_default.rowRemove,
-					disabled: busy,
-					onClick: () => onPin(exit.id),
-					children: t("exitPin")
-				})] })
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ip_pool_module_css_default.rowRemove,
+						disabled: busy,
+						onClick: () => onProbe(exit.id),
+						children: t("exitProbe")
+					}),
+					!exit.pinned && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ip_pool_module_css_default.rowRemove,
+						disabled: busy,
+						onClick: () => onPin(exit.id),
+						children: t("exitPin")
+					}),
+					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: ip_pool_module_css_default.rowRemove,
+						disabled: busy,
+						onClick: () => onRemove(exit.id),
+						children: t("statsRemove")
+					})
+				] })
 			] }, exit.id)), status.exits.length === 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 				colSpan: 8,
 				className: ip_pool_module_css_default.status,
@@ -752,6 +767,28 @@ function CardBody(props) {
 			}));
 		} catch (err) {
 			setError(err instanceof Error ? err.message : t("saveError"));
+		} finally {
+			setActionBusy(false);
+		}
+	};
+	/**
+	* 删除 one exit from the table. The bridge owns the whole decision (promote
+	* a reserve, or sink the row), so the card only re-reads /status after it.
+	*/
+	const removeExit = async (exitId) => {
+		setActionBusy(true);
+		try {
+			await fetch(`${BRIDGE_PREFIX}/exit`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({
+					action: "remove",
+					exitId
+				})
+			});
+			await refreshStatus();
+		} catch {
+			setStatusError(t("refreshError"));
 		} finally {
 			setActionBusy(false);
 		}
@@ -1072,6 +1109,9 @@ function CardBody(props) {
 					},
 					onPin: (id) => {
 						pinExit(id);
+					},
+					onRemove: (id) => {
+						removeExit(id);
 					}
 				})] }),
 				statusError !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
@@ -1131,6 +1171,114 @@ function bundleConfigCard(controller) {
 			t
 		});
 	};
+}
+
+//#endregion
+//#region src/client/region.ts
+/**
+* The stats modal's 地区 column (live request 2026-10-14): one short region
+* code per exit row instead of the full "HK Central" the IP tooltip already
+* carries.
+*
+* Input is the exit's `exitLocation`, which admission.ts builds as
+* `${countryCode} ${city}` from the ip-api echo (`HK Central`, `SG Singapore`,
+* `DE Frankfurt am Main`), so the first whitespace-separated token IS the
+* ISO-3166-1 alpha-2 country code. The table below widens the codes the
+* operator reads at a glance into the region labels they asked for — the two
+* anchors are their own examples (香港 → HK, 新加坡 → SGP) — and anything
+* unmapped falls back to the raw alpha-2 code rather than a blank, so a new
+* airport location is still readable the day it appears.
+*
+* Deliberately a browser-side module with no host imports (the bundle must
+* not drag the YAML parser in), hence the plain object.
+*/
+/** Country code → the region label shown in the 地区 column. */
+const REGION_CODES = {
+	HK: "HK",
+	TW: "TW",
+	MO: "MO",
+	CN: "CHN",
+	SG: "SGP",
+	JP: "JPN",
+	KR: "KOR",
+	US: "USA",
+	CA: "CAN",
+	MX: "MEX",
+	BR: "BRA",
+	AR: "ARG",
+	CL: "CHL",
+	GB: "GBR",
+	IE: "IRL",
+	FR: "FRA",
+	DE: "DEU",
+	NL: "NLD",
+	BE: "BEL",
+	LU: "LUX",
+	CH: "CHE",
+	AT: "AUT",
+	IT: "ITA",
+	ES: "ESP",
+	PT: "PRT",
+	SE: "SWE",
+	NO: "NOR",
+	DK: "DNK",
+	FI: "FIN",
+	IS: "ISL",
+	PL: "POL",
+	CZ: "CZE",
+	SK: "SVK",
+	HU: "HUN",
+	RO: "ROU",
+	BG: "BGR",
+	GR: "GRC",
+	HR: "HRV",
+	SI: "SVN",
+	RS: "SRB",
+	LT: "LTU",
+	LV: "LVA",
+	EE: "EST",
+	UA: "UKR",
+	MD: "MDA",
+	RU: "RUS",
+	TR: "TUR",
+	IL: "ISR",
+	AE: "ARE",
+	SA: "SAU",
+	QA: "QAT",
+	KW: "KWT",
+	EG: "EGY",
+	MA: "MAR",
+	ZA: "ZAF",
+	NG: "NGA",
+	KE: "KEN",
+	IN: "IND",
+	PK: "PAK",
+	BD: "BGD",
+	LK: "LKA",
+	NP: "NPL",
+	MM: "MMR",
+	TH: "THA",
+	VN: "VNM",
+	MY: "MYS",
+	ID: "IDN",
+	PH: "PHL",
+	KH: "KHM",
+	MN: "MNG",
+	KZ: "KAZ",
+	UZ: "UZB",
+	AU: "AUS",
+	NZ: "NZL"
+};
+/**
+* The 地区 code for one `exitLocation`, or an empty string when the value
+* carries no country code at all (an unprobed exit, or a source that reports
+* a bare city) — the caller renders its own placeholder for that case.
+*/
+function regionCode(location) {
+	const token = location.trim().split(/\s+/)[0] ?? "";
+	if (!/^[A-Za-z]{2}$/.test(token)) return "";
+	const code = token.toUpperCase();
+	return REGION_CODES[code] ?? code;
 }
 
 //#endregion
@@ -1197,6 +1345,10 @@ function ExitStatsEntry({ wide, t }) {
 		key: "requests",
 		dir: "desc"
 	});
+	/** The row action in flight (its key), so every button disables together. */
+	const [busy, setBusy] = (0, react.useState)("");
+	/** The last action's outcome, shown above the table until the next one. */
+	const [note, setNote] = (0, react.useState)(null);
 	const refresh = (0, react.useCallback)(async () => {
 		try {
 			const body = await (await fetch(`${BRIDGE_PREFIX}/status`, {
@@ -1217,6 +1369,58 @@ function ExitStatsEntry({ wide, t }) {
 		const interval = setInterval(() => void refresh(), open ? 2e3 : 1e4);
 		return () => clearInterval(interval);
 	}, [open, refresh]);
+	/**
+	* One row action (固定 / 取消固定 / 删除) over the bridge. The bridge owns the
+	* settings write, the live pin and the candidate refill, so this stays a
+	* POST plus a re-read — and it reports what actually happened, because
+	* "deleted" means two different things (a reserve took the slot, or the row
+	* sank to the tail).
+	*/
+	const runExitAction = (0, react.useCallback)(async (action, exitId) => {
+		setBusy(`${action}:${exitId ?? ""}`);
+		setNote(null);
+		try {
+			const body = await (await fetch(`${BRIDGE_PREFIX}/exit`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(action === "pin-local" || action === "unpin" ? { action } : {
+					action,
+					exitId
+				})
+			})).json();
+			if (!body.ok || body.value === void 0) {
+				setNote({
+					text: t("statsActionFailed"),
+					warn: true
+				});
+				return;
+			}
+			const value = body.value;
+			if (action === "remove" && value.busy === true) {
+				setNote({
+					text: t("statsActionBusy"),
+					warn: true
+				});
+				return;
+			}
+			const text = action === "remove" ? value.replaced === true ? t("statsActionReplaced") : t("statsActionDemoted") : action === "unpin" ? t("statsActionUnpinned") : action === "pin-local" ? t("statsActionPinnedLocal") : t("statsActionPinned");
+			setNote(value.persisted === false ? {
+				text: `${text} · ${t("statsActionVolatile")}`,
+				warn: true
+			} : {
+				text,
+				warn: false
+			});
+		} catch {
+			setNote({
+				text: t("statsActionFailed"),
+				warn: true
+			});
+		} finally {
+			setBusy("");
+			await refresh();
+		}
+	}, [refresh, t]);
 	const totals = (0, react.useMemo)(() => {
 		const localRequests = status?.local?.requests ?? 0;
 		const localTokens = status?.local?.tokens;
@@ -1311,13 +1515,14 @@ function ExitStatsEntry({ wide, t }) {
 						t("footerRequests", { count: totals.requests.toLocaleString() }),
 						" · ",
 						compact(totals.tokens),
-						" tok"
+						" tok",
+						totals.speed > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [" · ", t("footerSpeed", { count: totals.speed.toLocaleString() })] })
 					]
 				})]
 			}),
 			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 				className: wide ? ip_pool_module_css_default.footerCompactOnNarrow : ip_pool_module_css_default.footerCompact,
-				title: `${t("footerRequests", { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok`,
+				title: `${t("footerRequests", { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok${totals.speed > 0 ? ` · ${t("footerSpeed", { count: totals.speed.toLocaleString() })}` : ""}`,
 				children: status === null ? "—" : `${compact(totals.tokens)} tok`
 			})
 		]
@@ -1370,6 +1575,11 @@ function ExitStatsEntry({ wide, t }) {
 				className: ip_pool_module_css_default.status,
 				children: t("statsPoolOff")
 			}),
+			note !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: note.warn ? ip_pool_module_css_default.statsActionNoteWarn : ip_pool_module_css_default.statsActionNote,
+				role: "status",
+				children: note.text
+			}),
 			!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
 				className: ip_pool_module_css_default.status,
 				children: failed && status === null ? t("statsError") : t("statsEmpty")
@@ -1379,13 +1589,15 @@ function ExitStatsEntry({ wide, t }) {
 					className: ip_pool_module_css_default.statsTable,
 					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColRegion") }),
 						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
 						sortableHeader("requests", t("statsColRequests")),
 						sortableHeader("input", t("statsColInput")),
 						sortableHeader("output", t("statsColOutput")),
 						sortableHeader("cache", t("statsColCache")),
 						sortableHeader("latency", t("statsColLatency")),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") })
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") }),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColActions") })
 					] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [rows.map((exit) => {
 						const usableRow = isUsable(exit) && exit.demoted !== true;
 						const dotClass = usableRow ? ip_pool_module_css_default.statsDotOk : exit.state === "dead" ? ip_pool_module_css_default.statsDotBad : ip_pool_module_css_default.statsDotWarn;
@@ -1405,6 +1617,11 @@ function ExitStatsEntry({ wide, t }) {
 										})
 									]
 								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+									className: ip_pool_module_css_default.statsRegion,
+									title: exit.exitLocation || void 0,
+									children: regionCode(exit.exitLocation) || t("statsNever")
+								}),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: `${ip_pool_module_css_default.statsDot} ${dotClass}`,
 									"aria-hidden": "true"
@@ -1420,7 +1637,35 @@ function ExitStatsEntry({ wide, t }) {
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: ip_pool_module_css_default.statsInflight,
 									children: t("statsInflight", { count: exit.inFlight })
-								}), timeLabel(exit.lastUsedAt, t("statsNever"))] })
+								}), timeLabel(exit.lastUsedAt, t("statsNever"))] }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+									className: ip_pool_module_css_default.statsActions,
+									children: [exit.pinned ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ip_pool_module_css_default.rowAction,
+										disabled: busy !== "",
+										onClick: () => {
+											runExitAction("unpin");
+										},
+										children: t("statsUnpin")
+									}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: ip_pool_module_css_default.rowAction,
+										disabled: busy !== "",
+										onClick: () => {
+											runExitAction("pin", exit.id);
+										},
+										children: t("statsPin")
+									}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: `${ip_pool_module_css_default.rowAction} ${ip_pool_module_css_default.rowActionDanger}`,
+										disabled: busy !== "",
+										onClick: () => {
+											runExitAction("remove", exit.id);
+										},
+										children: t("statsRemove")
+									})]
+								})
 							]
 						}, exit.id);
 					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
@@ -1431,8 +1676,9 @@ function ExitStatsEntry({ wide, t }) {
 								className: ip_pool_module_css_default.mono,
 								children: t("statsLocalIp")
 							}),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: `${ip_pool_module_css_default.statsDot} ${ip_pool_module_css_default.statsDotLocal}`,
+								className: `${ip_pool_module_css_default.statsDot} ${ip_pool_module_css_default.statsDotOk}`,
 								"aria-hidden": "true"
 							}), t("statsLocalState")] }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
@@ -1443,7 +1689,27 @@ function ExitStatsEntry({ wide, t }) {
 							})] }) }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 || cacheTotal(status.local.tokens) === 0 ? "—" : compact(cacheTotal(status.local.tokens)) }),
 							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) })
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+								className: ip_pool_module_css_default.statsActions,
+								children: status?.pinned?.local === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ip_pool_module_css_default.rowAction,
+									disabled: busy !== "",
+									onClick: () => {
+										runExitAction("unpin");
+									},
+									children: t("statsUnpin")
+								}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: ip_pool_module_css_default.rowAction,
+									disabled: busy !== "",
+									onClick: () => {
+										runExitAction("pin-local");
+									},
+									children: t("statsPin")
+								})
+							})
 						]
 					})] })]
 				})
@@ -1477,6 +1743,7 @@ const zh = {
 	poolAvailable: "池可用 {available}/{total}（容量 {poolSize}；其中免费源 {freeAvailable}/{capacity}）",
 	poolSources: "出口来源：免费 {free} · 手填 {manual} · 订阅 {subscription}",
 	pinnedBadge: "固定主力",
+	pinnedBadgeLocal: "固定本机（直连）",
 	deferredNotice: "路由已退避：{reason}",
 	sectionManual: "手填代理（manual）",
 	manualHint: "一行一个：http://host:port 或 socks5://host:port。适合自备节点/专线。",
@@ -1495,7 +1762,7 @@ const zh = {
 	singboxPathHint: "加密节点的转换核心：PATH 名或绝对路径。未装则加密节点停在「待转换」。",
 	sectionPinned: "固定主力出口（pinned）",
 	pinnedAddress: "主力出口地址",
-	pinnedAddressHint: "例如 Clash 混合端口 http://127.0.0.1:7897，或专线 http://host:port。即填即固定。",
+	pinnedAddressHint: "例如 Clash 混合端口 http://127.0.0.1:7897，或专线 http://host:port。即填即固定；填 local = 固定本机（直连，不走任何出口）。",
 	pinnedStrict: "绝对固定（pinnedStrict）",
 	pinnedStrictHint: "开启后失败原样透传：不换出口、不直连。适合「这个出口必须用」的场景。",
 	pinnedStrictOn: "绝对固定：失败也不换、不直连",
@@ -1538,6 +1805,7 @@ const zh = {
 	footerTitle: "IP 池出口统计",
 	footerUsable: "可用 {usable}/{total}",
 	footerRequests: "{count} 请求",
+	footerSpeed: "{count} tok/s",
 	footerDisabled: "IP 池未启用",
 	footerLocal: "本地直连",
 	statsTitle: "出口 IP 统计",
@@ -1551,6 +1819,7 @@ const zh = {
 	statsSummaryLocal: "本机 {count}",
 	statsSummaryDirect: "直连兜底 {count} 次",
 	statsColIp: "出口 IP",
+	statsColRegion: "地区",
 	statsColState: "状态",
 	statsColRequests: "请求数",
 	statsColInput: "输入",
@@ -1558,10 +1827,22 @@ const zh = {
 	statsColCache: "缓存",
 	statsColLatency: "延迟",
 	statsColLastUsed: "最后使用",
+	statsColActions: "操作",
 	statsStateUsable: "可用",
 	statsStateUnverified: "未验证",
 	statsLocalIp: "本机",
-	statsLocalState: "未走出口",
+	statsLocalState: "直连",
+	statsPin: "固定",
+	statsUnpin: "取消固定",
+	statsRemove: "删除",
+	statsActionPinned: "已固定到该出口",
+	statsActionPinnedLocal: "已固定到本机（直连）",
+	statsActionUnpinned: "已取消固定",
+	statsActionReplaced: "已删除，候补已补位",
+	statsActionDemoted: "已删除：暂无候补，已移到列表末尾",
+	statsActionBusy: "替换进行中，请稍后重试",
+	statsActionVolatile: "已生效，但未写入配置（重启后失效）",
+	statsActionFailed: "操作失败",
 	statsInflight: "在途×{count}",
 	statsNever: "—",
 	statsEmpty: "暂无出口数据：IP 池未启用或尚未准入出口。",
@@ -1597,6 +1878,7 @@ const en = {
 	poolAvailable: "{available}/{total} usable (capacity {poolSize}; free sources {freeAvailable}/{capacity})",
 	poolSources: "Sources: free {free} · manual {manual} · subscription {subscription}",
 	pinnedBadge: "pinned",
+	pinnedBadgeLocal: "pinned to this machine (direct)",
 	deferredNotice: "Routing deferred: {reason}",
 	sectionManual: "Manual proxies (manual)",
 	manualHint: "One per line: http://host:port or socks5://host:port. For your own nodes.",
@@ -1615,7 +1897,7 @@ const en = {
 	singboxPathHint: "Conversion core for encrypted nodes: PATH name or absolute path. Without it they stay \"pending conversion\".",
 	sectionPinned: "Pinned primary exit (pinned)",
 	pinnedAddress: "Primary exit address",
-	pinnedAddressHint: "e.g. a Clash mixed port http://127.0.0.1:7897, or a leased line. Pins on save.",
+	pinnedAddressHint: "e.g. a Clash mixed port http://127.0.0.1:7897, or a leased line. Pins on save; `local` pins this machine (direct, no exit).",
 	pinnedStrict: "Absolute pinning (pinnedStrict)",
 	pinnedStrictHint: "Failures pass through verbatim: no rotation, no direct fallback. For \"this exit must be used\".",
 	pinnedStrictOn: "Absolute: never rotate, never direct",
@@ -1658,6 +1940,7 @@ const en = {
 	footerTitle: "IP pool exit stats",
 	footerUsable: "{usable}/{total} usable",
 	footerRequests: "{count} requests",
+	footerSpeed: "{count} tok/s",
 	footerDisabled: "IP pool off",
 	footerLocal: "Local direct",
 	statsTitle: "Exit IP stats",
@@ -1671,6 +1954,7 @@ const en = {
 	statsSummaryLocal: "{count} local",
 	statsSummaryDirect: "{count} direct fallbacks",
 	statsColIp: "Exit IP",
+	statsColRegion: "Region",
 	statsColState: "State",
 	statsColRequests: "Requests",
 	statsColInput: "Input",
@@ -1678,10 +1962,22 @@ const en = {
 	statsColCache: "Cache",
 	statsColLatency: "Latency",
 	statsColLastUsed: "Last used",
+	statsColActions: "Actions",
 	statsStateUsable: "usable",
 	statsStateUnverified: "unverified",
 	statsLocalIp: "This machine",
-	statsLocalState: "no exit used",
+	statsLocalState: "direct",
+	statsPin: "Pin",
+	statsUnpin: "Unpin",
+	statsRemove: "Remove",
+	statsActionPinned: "Pinned to this exit",
+	statsActionPinnedLocal: "Pinned to this machine (direct)",
+	statsActionUnpinned: "Unpinned",
+	statsActionReplaced: "Removed; a reserve took its place",
+	statsActionDemoted: "Removed: no reserve left, moved to the end of the list",
+	statsActionBusy: "A replacement round is running; try again in a moment",
+	statsActionVolatile: "Applied live but not persisted (lost on restart)",
+	statsActionFailed: "Action failed",
 	statsInflight: "{count} in flight",
 	statsNever: "—",
 	statsEmpty: "No exit data yet: the pool is off or has admitted no exits.",

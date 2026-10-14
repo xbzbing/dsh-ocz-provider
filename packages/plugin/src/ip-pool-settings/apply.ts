@@ -21,7 +21,7 @@ import type { PluginContext } from '../index.ts'
 import type { OrdinaryPluginConfig } from '../config.ts'
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, toIpPoolConfig, type IpPoolSettings } from './namespace.ts'
-import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes } from './bridge.ts'
+import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type WritePin } from './bridge.ts'
 
 export interface IpPoolController {
   /** The live runtime (null until enabled and assembled). */
@@ -118,10 +118,19 @@ export function applyIpPoolSettings(
   // that does not compose it would never activate the provider route.
   // Same shape as dsh-llm-deepseek's host.ts — `configure` returns the undo, so
   // the claim is scoped to our fiber and released on unload.
+  //
+  // The same handle is the write face for the stats modal's 固定 button: that
+  // entry is mounted outside any settings form (the sidebar footer), so it has
+  // no ConfigForm to mutate through and rides the bridge instead. Captured at
+  // request time, never at mount time — a host that composes settings after
+  // the bridge is still served.
+  let settingsHandle: PluginContext['settings']
   if (typeof ctx.inject === 'function') {
     void Promise.resolve(ctx.inject(['settings'], (sctx: PluginContext) => {
       const settings = sctx.settings
-      if (typeof settings?.configure !== 'function') return
+      if (settings === undefined) return
+      settingsHandle = settings
+      if (typeof settings.configure !== 'function') return
       const fiber = (ctx as { fiber?: unknown }).fiber
       const claim = () => settings.configure!({ auto: false }, fiber)
       const maybeFiberEffect = (sctx as { effect?: PluginContext['effect'] }).effect
@@ -132,6 +141,27 @@ export function applyIpPoolSettings(
       }
       void claim()
     })) as unknown as Promise<unknown>
+  }
+
+  /**
+   * Persist one pin value into this plugin's own namespace. `pinnedExitId` is
+   * a volatile field of the entry's Config, so the path carries the field name
+   * in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
+   * an empty value unsets it so the schema default applies rather than a stored
+   * empty string. No expectedRevision: this is a single-field path op from a
+   * surface that never read the descriptor (the same tolerance
+   * provider.ts::removeProviderRoute uses for the sidecar route).
+   */
+  const writePin: WritePin = async (value) => {
+    const settings = settingsHandle
+    if (typeof settings?.mutate !== 'function') return false
+    await settings.mutate(
+      IP_POOL_NAMESPACE,
+      [value === ''
+        ? { op: 'unset', path: ['ipPool', 'pinnedExitId'] }
+        : { op: 'set', path: ['ipPool', 'pinnedExitId'], value }],
+    )
+    return true
   }
 
   // Bridge: mount once webServer is up. The handlers read the live runtime
@@ -169,6 +199,8 @@ export function applyIpPoolSettings(
           // Probe-model dropdown rows: the plugin's live Zen catalog when one
           // is running (adapter mode), static S3 list only otherwise.
           listLiveModels: deps.listLiveModels,
+          // The modal's 固定 button persists `pinnedExitId` here.
+          writePin,
         },
       )
       const disposers: Array<() => void> = []

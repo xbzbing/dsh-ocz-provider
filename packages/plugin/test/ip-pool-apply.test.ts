@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 
 import { applyIpPoolSettings, type AssembleIpPool } from '../src/ip-pool-settings/apply.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, type AnyIpPoolSection, type IpPoolSettings, type VolatileRef } from '../src/ip-pool-settings/namespace.ts'
+import { IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
 import { resolveConfig, type OrdinaryPluginConfig } from '../src/config.ts'
 import type { PluginContext } from '../src/index.ts'
 
@@ -247,4 +248,93 @@ test('the settings page is claimed lazily and never gates the fiber', async () =
   assert.ok(injections.some((list) => list.includes('settings')), 'settings is requested on demand')
   assert.equal(injections.some((list) => list.includes('webServer')), true, 'webServer is still requested for the bridge')
   assert.deepEqual(configureCalls, [{ auto: false }], 'the plugin serves its own IP 池 card')
+})
+
+test('the bridge wires the modal 固定 button into the plugin\'s own settings namespace', async () => {
+  // The stats modal is mounted on the sidebar footer, outside any settings
+  // form, so it has no ConfigForm to mutate through: its 固定 button rides the
+  // bridge, and the host side of that route has to write `pinnedExitId` into
+  // THIS plugin's namespace with the field-name-prefixed path the card uses.
+  resetCalls()
+  const mutations: Array<{ ns: string; ops: unknown }> = []
+  const pinCalls: string[] = []
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }> = []
+  const host = makeVolatileHost({ enabled: true })
+  const runtimeAssemble: AssembleIpPool = async () => ({
+    pool: {
+      snapshot: () => ({ total: 2, pinned: '' }),
+      targetSize: 20,
+      list: () => [],
+      has: () => true,
+      pinnedId: '',
+      pin: (id: string) => { pinCalls.push(id); return true },
+      unpin: () => { pinCalls.push('') },
+      pinLocal: () => { pinCalls.push('local') },
+      demoteToTail: () => true,
+    },
+    installer: { enabled: true, install() {}, disable() {}, dispose() {} },
+    prober: { stats: { queued: 0, inFlight: 0, enqueued: 0, completed: 0 }, setMaxConcurrent() {} },
+    refill: null,
+    subscriptions: null,
+    reconfigure: async () => {},
+    probeAll: async () => 0,
+    probeExit: async () => 1,
+    refillNow: async () => {},
+    refreshSubscriptions: async () => {},
+    dispose: async () => {},
+  }) as never
+  const ctx: PluginContext = {
+    logger: { info() {}, warn() {}, error() {} },
+    on: host.ctx.on,
+    inject(services, callback) {
+      const logger = { info() {}, warn() {}, error() {} }
+      if (services.includes('settings')) {
+        callback({
+          logger,
+          settings: {
+            configure: () => () => {},
+            mutate: async (ns: string, ops: unknown) => { mutations.push({ ns, ops }) },
+          },
+        })
+      }
+      if (services.includes('webServer')) {
+        callback({
+          logger,
+          webServer: { register: (route: never) => { routes.push(route); return () => {} } },
+        })
+      }
+    },
+  }
+  applyIpPoolSettings(ctx, ordinary(), () => host.ref.get(), ctx.logger, { assemble: runtimeAssemble })
+  await tick(30)
+
+  const exitRoute = routes.find((route) => route.path === `${IP_POOL_BRIDGE_PREFIX}/exit`)
+  assert.ok(exitRoute, 'the /exit route is mounted with the rest of the bridge')
+
+  let written: { status?: number; body?: unknown } = {}
+  const res = {
+    writeHead(status: number) { written.status = status },
+    end(body: string) { written.body = JSON.parse(body) },
+  }
+  const post = (body: unknown): unknown => ({
+    method: 'POST',
+    socket: { remoteAddress: '127.0.0.1' },
+    headers: { host: '127.0.0.1:3080' },
+    async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify(body)) },
+  })
+  await exitRoute.handler(post({ action: 'pin', exitId: '127.0.0.1:30033' }), res)
+  assert.equal(written.status, 200)
+  assert.equal((written.body as { ok: boolean }).ok, true)
+  assert.deepEqual(mutations, [
+    { ns: IP_POOL_NAMESPACE, ops: [{ op: 'set', path: ['ipPool', 'pinnedExitId'], value: '127.0.0.1:30033' }] },
+  ], 'the write lands in this entry, on the same path the settings card writes')
+  assert.deepEqual(pinCalls, ['127.0.0.1:30033'], 'and the live pool is pinned in the same request')
+
+  // Unpin is the unset spelling, so no stored empty string shadows the default.
+  written = {}
+  await exitRoute.handler(post({ action: 'unpin' }), res)
+  assert.deepEqual(mutations[1], {
+    ns: IP_POOL_NAMESPACE,
+    ops: [{ op: 'unset', path: ['ipPool', 'pinnedExitId'] }],
+  })
 })

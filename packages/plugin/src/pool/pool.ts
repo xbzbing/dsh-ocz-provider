@@ -16,6 +16,8 @@
  * unit-testable.
  */
 
+import { LOCAL_EXIT_ID } from './usage.ts'
+
 export type ExitSource = 'free' | 'manual' | 'subscription' | 'goproxy'
 
 export interface ExitNode {
@@ -290,6 +292,35 @@ export class ExitPool {
     }
   }
 
+  /**
+   * Refresh one row's measured facts IN PLACE. Returns false when the row is
+   * no longer in the table.
+   *
+   * A probe holds an `entry` snapshot taken before it ran, and the exit can
+   * leave the table while the probe is in flight (a dead rotation, a refusal
+   * replacement, an operator's 删除). `add()` is an upsert, so writing that
+   * snapshot back RESURRECTS the removed row — and a resurrected row has no
+   * local listener, while `isUsable()` still hands it out as the last resort.
+   * Measured live 2026-10-14: 11 rows against a capacity of 10, the extra one
+   * demoted, unverified and listenerless. Facts for a row that left the table
+   * are dropped instead: the probe measured an exit the pool already gave up on.
+   *
+   * Only the admission-measured fields are writable here — identity, source and
+   * the pin flag belong to whoever put the row in the table.
+   */
+  refresh(id: string, facts: Partial<Pick<ExitNode, 'protocol' | 'exitIP' | 'exitLocation' | 'latencyMs' | 'quality'>>): boolean {
+    const node = this.#nodes.get(id)
+    if (node === undefined) return false
+    // Mutated in place on purpose: `add()`'s Map insertion order IS the pool
+    // order, so a delete + re-insert would silently sink the row to the tail.
+    if (facts.protocol !== undefined) node.protocol = facts.protocol
+    if (facts.exitIP !== undefined) node.exitIP = facts.exitIP
+    if (facts.exitLocation !== undefined) node.exitLocation = facts.exitLocation
+    if (facts.latencyMs !== undefined) node.latencyMs = facts.latencyMs
+    if (facts.quality !== undefined) node.quality = facts.quality
+    return true
+  }
+
   /** Upsert a node (admission wrote its details); returns false on duplicate
    *  exit IP for a different address — two addresses sharing one exit IP are
    *  one quota bucket and must not both live in the pool (3.1). */
@@ -395,6 +426,29 @@ export class ExitPool {
   unpin(): void {
     this.pinnedId = ''
     for (const node of this.#nodes.values()) node.pinned = false
+  }
+
+  /**
+   * Pin every request to THIS machine: the 本机 row's 固定 button
+   * (live request 2026-10-14). The sentinel is {@link LOCAL_EXIT_ID}, which
+   * can never collide with a real exit id (those are `host:port` or
+   * `scheme://host:port`), so `pick()` can tell "no exit at all" from "the
+   * pinned exit is unusable" and return null instead of falling through to
+   * the rotation pool. Traffic then egresses locally — the same path a pool
+   * with no usable exit takes (3.3 never fails closed).
+   *
+   * No row carries the `pinned` flag here: there is no primary exit, and
+   * leaving a stale flag behind would keep routing a row down the pinned
+   * admission path after the switch (the same trap `pin()` documents).
+   */
+  pinLocal(): void {
+    this.pinnedId = LOCAL_EXIT_ID
+    for (const node of this.#nodes.values()) node.pinned = false
+  }
+
+  /** Whether the pin is currently the local-egress sentinel (status view). */
+  get pinnedLocal(): boolean {
+    return this.pinnedId === LOCAL_EXIT_ID
   }
 
   // -- probe locking (4.1: serial per exit) -----------------------------------
@@ -651,8 +705,14 @@ export class ExitPool {
    * Pick the exit for one upstream request. Pinned wins while usable (3.6);
    * the rotation pool then prefers session stickiness, health, fewer
    * cooldowns and lower latency with a same-tier shuffle. Pure; no IO.
+   *
+   * A pin to the local sentinel is answered BEFORE the rotation: "固定本机"
+   * means every request egresses from this machine, so falling through to the
+   * pool would silently ignore the operator's click. Null is the dispatcher's
+   * documented direct path (3.3), not an error.
    */
   pick(session: string, model: string): string | null {
+    if (this.pinnedId === LOCAL_EXIT_ID) return null
     if (this.pinnedId !== '' && this.isUsable(this.pinnedId, model)) return this.pinnedId
 
     const last = this.#sessionExit.get(session)

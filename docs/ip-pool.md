@@ -355,6 +355,7 @@ healthy ──可用数<95%──► warning ──可用数<30%──► critic
 | 直接代理地址 | `http://1.2.3.4:8080` 或 `socks5://h:p` | 原样入表（manual 来源） |
 | **Clash/mihomo 端口**（最常见：用户本机已经跑着 Clash，混合端口 7897/7890） | `http://127.0.0.1:7897` | 同上——**对路由层而言它就是一个本地明文代理**，Clash 在后面怎么选节点是 Clash 的事；我们的探活照常穿透它测「这个出口对匿名通道可用吗」，出口 IP 反映 Clash 当前命中的节点。Clash 换节点时出口 IP 变了，下一轮探活自动刷新（§4.3 周期 + 被动信号兜底）。**这是 pinned 最推荐的形态**：零订阅解析、零 sing-box，还白得 Clash 自己的故障切换/规则分流。**适用边界（§1.2.2）**：Clash 端口只配 pinned——它无法按节点寻址，自动路由/轮换机场 IP 用不了它，轮换需求走自托管 sing-box |
 | 订阅/GoProxy 里的某个节点 | 出口列表行内「固定为主力」 | 该节点转 pinned（§3.6 来源标记不变） |
+| **本机（直连）** | 统计弹窗本机行的「固定」按钮，或设置页直接填 `local` | `pinnedExitId: 'local'` —— 一个**哨兵**，不是地址（2026-10-14 新增） |
 
 **两种固定强度**（`pinnedStrict`，设置页单选）：
 
@@ -373,6 +374,7 @@ healthy ──可用数<95%──► warning ──可用数<30%──► critic
 - pinned 是 **ExitNode 上的标记**而非独立来源：manual 手填的专线/Clash 端口、订阅里的稳定节点、GoProxy 里的节点都可以 pin。
 - **Clash 端口形态的诚实边界**：出口 IP 由 Clash 决定且随时可能变（它有自己的负载均衡/自动切换），所以该形态下「按 exitIP 冷却」语义退化为「按本地端口冷却」——Clash 换了节点后 429 可能已不成立，冷却到期自然重试即可，不需要我们去感知 Clash 内部状态。文档与设置页说明这一点。
 - **strict 的存在理由**：不是所有限流规避都该自动兜底——有的用户出口选择是**安全/合规要求**（公司专线、只信任特定司法区出口），静默换到免费公共代理反而违背用户意图。strict 把「换不换」的决定权还给用户，代价是失败可见（这是 feature 不是 bug：诚实报错优于静默走未授权出口）。
+- **固定本机（`local` 哨兵）**：`pinnedExitId: 'local'` 表示「所有流量都从本机出口走」，一个出口都不用。`pick()` 见到哨兵直接返回 `null`（§3.3 的直连路径），**不**回落到轮换池——否则用户点下「固定」却看到流量照旧走出口，等于这个按钮没接上。它不与任何真实出口 id 冲突：出口 id 是 `host:port` 或 `scheme://host:port`，`local` 两者都不是；`syncManualExits()` 因此必须在 manual 解析**之前**识别它（`parseManualProxy('local')` 会拒绝，静默退化成「没有固定」）。语义上它是「绝对固定」的极端形态（不换、不兜底），设置页填 `local` 与弹窗点按钮等价。
 - **只 pin 一个**（MVP）：多 pinned 策略是 backlog（见 §8）。
 - pinned 节点**永不淘汰**、不占 poolTargetSize 配额（§3.5 豁免）。
 - 语义 honesty：`strict: false` 不是「绕过限流」——专线 429 一样冷却换路。文案：「固定主力出口，其余来源作为备胎」/「绝对固定：失败也不切换出口」。
@@ -497,6 +499,11 @@ POST {zen}/v1/chat/completions
 
 **端口与选择集必须严格一致**：换人时传给重建的选择集是「删掉被拒槽位 + 加入候补」之后的**新集合**，绝不能是「旧集合 + 候补」——后者会让被拒槽位的 inbound 留在配置里，池子丢了这个出口但 sing-box 还在监听它的端口（2026-10-14 实测：16 个池内出口对应 21 个本地监听，5 个孤儿端口）。
 
+**容量是双向的（2026-10-14 追加）**：容量既不能被超过，也不能被绕过。两条守卫：
+
+- **探测回写不得复活已离场出口**：一次探测持有的是探测前的 `entry` 快照，而它跑的这段时间里出口可能已经离开表（dead 轮换、被拒换人、操作者点「删除」）。`ExitPool.add()` 是 upsert，把快照写回去就会把已删除的行**复活**——复活的行没有本地监听，却仍会被 `pick()` 当兜底交出去。因此探测回写改走 `ExitPool.refresh()`（只更新探测可测的字段，行不在表里就返回 false 并丢弃结论）。实测 2026-10-14：池内 11 行、监听 10 个，多出来那行 demoted、unknown、无监听。
+- **迟到的换人请求不得加槽**：同一个出口可能被两个调用者同时要求换人（dead 轮换 + 当时在飞的探测）。第一次换人已经把该行**和它的槽位**一起拿掉；第二次再算 `selected − 槽位 + 新槽位` 时槽位已不在集合里，结果会比选择集**多一个槽位**——即多一个本地监听。`Onboarder.replace()` 因此先判断「表里没有它、选择集里也没有它的槽位」＝迟到的重复请求，直接返回 false。注意上线第 4 步的候选此时还没入表（先冒烟后入表），但它的槽位在选择集里，这种情况仍必须正常换人。
+
 **安全网**：若测速**一个都没测出来**（echo 端点被专线屏蔽、瞬时网络故障），不按「44 个全死」处理——候选按订阅顺序保持未排名，池子仍占满容量并把它们放在池尾，避免测量失败把付费线路清空。
 
 **容量口径**：`poolSize` 是**整池**上限（订阅+手填+免费合计）。免费重填的准入额度 = `min(targetSize - 可用免费数, poolSize - 池内总数)`；上线需要槽位时淘汰最差的可淘汰出口（`evictWorst`：按质量等级→延迟→最旧），**pinned 与手填行是用户显式配置，永不淘汰**。
@@ -556,11 +563,11 @@ Config = Schema.object({
 | --- | --- |
 | 总开关 | enabled 开关；「池状态」概览条（四态徽章 + 可用/容量 + 来源计数 free/manual/subscription + pinned 主力徽章） |
 | 出口来源 | 三个来源子区块：免费源（开关 + 目标容量 + 地理黑名单 + 「立即补充」）；手填代理（textarea，增删）；订阅（URL 列表脱敏回显 + 刷新间隔 + 「立即刷新」+ 转换核心状态：sing-box 检测结果/待转换节点数） |
-| 固定主力出口 | 直填地址框（placeholder：`http://127.0.0.1:7897`（Clash 混合端口）/ `http://专线:端口`，即填即 pin 为 manual 来源节点）+ 当前 pinned 展示（地址/出口 IP/状态）+ strict 单选（「主力+备胎（429/断线自动切换，恢复回归）」/「绝对固定（失败也不换出口、不直连）」）+ 解除固定按钮 |
+| 固定主力出口 | 直填地址框（placeholder：`http://127.0.0.1:7897`（Clash 混合端口）/ `http://专线:端口`，即填即 pin 为 manual 来源节点；填 `local` = 固定本机直连，§3.6）+ 当前 pinned 展示（地址/出口 IP/状态；本机固定显示「固定本机（直连）」徽章）+ strict 单选（「主力+备胎（429/断线自动切换，恢复回归）」/「绝对固定（失败也不换出口、不直连）」）+ 解除固定按钮 |
 | 探活模型 | 多选：当前免费目录（catalog.list()）+ S3 清单，默认选 S3 首个；说明文案「探测结论按出口计，建议加主用模型；同一出口内多模型串行探测」 |
 | 并发上限 | maxConcurrentProbes 数字框（1-8，默认 3）+ 说明「不同出口并发，同一出口串行」 |
 | 池子容量 | poolSize 数字框（1-100，默认 10）+ 说明「同时在线的出口数：上线先测速取最快的前 N 个，并把 sing-box 本地监听收缩到它们，其余留作候补」（§4.7） |
-| 出口列表 | 每行：地址、来源、位置、延迟、质量级、出口 IP、状态徽章（ok/冷却中/dead/pinned）、单出口「探测」与「固定为主力」按钮；顶部「批量探活」按钮（两级调度跑，显示队列进度 x/y） |
+| 出口列表 | 每行：地址、来源、延迟、质量级、出口 IP（悬停显示位置）、状态徽章（ok/冷却中/dead/已降级）、真实流量计数、单出口「探测」「固定为主力」「删除」按钮；顶部「批量探活」按钮（两级调度跑，显示队列进度 x/y） |
 | 模型封禁列表 | 折叠区：被 banned 的 (出口, 模型) 对及原因（403 region-blocked 等），供用户理解为什么某出口不服务某模型 |
 | 探活参数 | §4.6 表格的可调项 |
 | 文案 | 「匿名配额受上游限流；多出口不绕过配额，只在出口间调度。固定/订阅节点优先；公共免费代理有安全与合规风险。」 |
@@ -570,6 +577,7 @@ Config = Schema.object({
 dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两个是 rc.6 allowlist 逼出来的 settings 兜底。rc.2 宿主无 allowlist，我们只保留后两类面的思路：
 
 - `POST /status`：池状态机快照——四态徽章 + 可用/容量 + 来源计数（free/manual/subscription）+ 两级健康（出口表：地址/来源/位置/延迟/质量/出口 IP/状态/冷却到期时刻 + 封禁表：(出口, 模型, bannedAt)）+ Prober 队列进度（enqueued/completed/inFlight/queued）+ refill 上轮摘要 + 订阅层状态（pendingConversion 数、convertedAdmitted、lastFetch、lastError——**不含 URL 明文**）。返回结构化 JSON，卡片 3s 轮询（探活进行中 1s）。
+- `POST /exit`：`{action: 'pin'|'pin-local'|'unpin'|'remove', exitId?}` —— 两张出口表的行内动作（2026-10-14 新增）。`pin` 把 `pinnedExitId` 写进本插件的设置命名空间（`ctx.settings.mutate('opencode2dsh', [{op:'set', path:['ipPool','pinnedExitId'], value}])`，与卡片自己的写路径同形；空值走 `unset`，让 schema 默认值生效）并即时 `pool.pin()`；`pin-local` 是弹窗本机行的按钮——**哨兵值由宿主侧拼**，前端只表达意图（`pin-local`），这样浏览器半永远不需要拼写 `local`；`unpin` 清空。只读配置下写失败不阻断：点击仍然即时生效（live pin），响应里 `persisted: false`，弹窗据此显示「已生效，但未写入配置（重启后失效）」。`remove` = 用户主动删除一行：交给订阅层的候选表 `replaceExit()`——有候补就补位（`replaced: true`），候补用尽就把该出口沉到池尾（§4.7），没有 onboarder（本进程还没跑过订阅轮）时退化为 `demoteToTail()`；若正好有上线/裁剪轮占着重建互斥量，`replaceExit()` 会在**没查候补**的情况下返回 false，这时回 `busy: true` 而**不**沉底（弹窗提示「替换进行中，请稍后重试」）——否则「先补位、无候补才沉底」的约定会在这一窗口被违反；若被删的正是当前 pinned，先解除固定再删（否则下一次提交会把一个已不在池里的 id 重新 pin 回来，而订阅出口 id `127.0.0.1:30001` 恰好能通过 manual 地址解析，会被当成手填节点重新入池）。
 - `POST /probe`：`{scope: 'all'|'exit'|'refill', exitId?}`。`all`：全池出口 × probeModels 的周期探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`exit`：单出口插队探测；`refill`：手动触发一次状态机 refill 轮（免费源抓取+准入）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
 - 路由护栏照抄 dsh-llm-proxy settings.js：loopback socket + 规范 Host + same-origin 三重校验、JSON body 上限、`{ok, code, message}` 信封。**不做 settings 代理面**（官方通道在）。
 - 页面注册进 `plugins.item`（`@deepseek-ai/dsh-client-ui-plugin-manager` 拥有的 list slot，`id: 'opencode2dsh'`）；插件页拥有卡片外框、标题、one-liner 与保存按钮，`view:'summary'` 返回描述、`view:'page'` 返回表单，保存走共享 `SettingsForm` 外框。挂载门控 `ctx.configForms.whileServed(['opencode2dsh'], …)`，官方 form ready 之前不渲染。0.1.7 之前的 keyed `settings.plugin.item` 与双形态兼容分支都已删除。
@@ -601,6 +609,22 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 构建链随版本走：tsdown 0.15（仓库现有 devDep）+ lightningcss 1.32（dsh-llm-proxy 同版）+ client devDependencies 钉在 `0.1.7-rc.2`：`dsh-client-{locale,ui-slots,ui-primitives,ui-settings,ui-plugin-manager,ui-renderer}` + `@deepseek-ai/cordis ~4.0.4`（跟随 cordis-peer 一并对齐，`pnpm peers check` 干净）。`@deepseek-ai/dsh-client-runtime` 保留 `0.1.1-rc.2`：registry 上没有 0.1.7 发布，且客户端半已不再引用它（Context 类型直接取自 `@deepseek-ai/cordis`）。旧的 `dsh-client-ui-settings-plugins` 已删除——0.1.7 用 plugin-manager 的 `plugins.item` 取代了它。类型与构建期 externals 对齐宿主；运行时由宿主 seeds 提供，不进生产依赖。`build:client` 独立 script，`build`（宿主半）+ `build:client` 都进 `prepack`。
 
 > **版本注意**：`ConfigForm` / `ConfigFormSnapshot` 从 0.1.7-alpha.1 才出现，0.1.1-rc.2 那版导出的是被移除的 `settingsScope`。但 `ConfigForm` 在 0.1.7 仍然保留，所以卡片只是**换了承载面**（`plugins.item` + 页给我们的 `ConfigPageForm`），内部 `ConfigFormModel`/`SettingsFormModel` 那套通用表单层不必引入——复杂的探活/出口表控件继续自己写，保存与丢弃交给共享 `SettingsForm` 外框。
+
+### 5.5 左下角出口统计入口（sidebar.footer.action）
+
+设置页之外的第二张客户端面：侧边栏页脚的「◈ n/m 出口」按钮 + 点击后的「出口 IP 统计」弹窗（`src/client/ExitStatsEntry.tsx`）。它挂在 `sidebar.footer.action` 座位（与 `kenz1117/dsh-ui-usage-billing` 同一座位），**不依赖设置页是否挂载**，数据走同一个 `/status` bridge（打开时 2s 轮询、关闭 10s）。
+
+| 列 | 内容 |
+| --- | --- |
+| 出口 IP | 出口 IP；未验证的出口显示 `— 127.0.0.1:30xxx`（本地端点，弱化）；悬停显示完整位置（`HK Central`）；已固定的行带「主力」标记 |
+| 地区 | 国家/地区代码：由 `exitLocation` 的**首个 token**（ip-api 的 `countryCode`，admission.ts 拼的就是 `${countryCode} ${city}`）映射而来。口径以用户给的两个例子为锚：香港 → `HK`、新加坡 → `SGP`；大中华区保持两字母（`HK`/`TW`/`MO`），其余用三字母（`JPN`/`KOR`/`USA`/`DEU`…），未收录的国家回落成它自己的两字母代码而不是留空（新机场位置当天也能读）。映射表在 `src/client/region.ts`，有单测 |
+| 状态 | 可用（绿）/ 冷却中 / 已降级 / dead（红）/ 未验证 |
+| 请求数·输入·输出·缓存·延迟 | 按出口的进程内累计；输出列附带 `N tok/s`（解码窗口口径）；表头可点排序 |
+| 最后使用 | 该出口最近一次派发时刻；在途请求带徽章 |
+| 操作 | 「固定」/「取消固定」+「删除」（2026-10-14 新增，走 `/exit` bridge）：固定 = 后续流量固定走该出口；删除 = 从候选表补一个新地址，没有候补则移到列表末尾（§4.7 的降级语义），两种结果文案不同 |
+| 本机行 | 本机出口（`direct` + `local` 两个桶合并）：状态绿点 + 「直连」，同样带「固定」按钮 = 固定本机（`local` 哨兵，§3.6） |
+
+要点：**弹窗没有 settings 表单**（它不在设置页的插槽里），所以固定/删除不能像卡片那样走 `ConfigForm.mutate`，而是走 bridge 的 `/exit`（§5.3）——写设置的那一半由宿主侧完成，浏览器半只发意图。
 
 ## 6. 文件落点（增量，不动现有结构）
 
