@@ -666,19 +666,32 @@
 .statsSummary {
   display: flex;
   flex-wrap: wrap;
+  /* A row of pills, not a stretch contest. Without this the 清空 button's own
+     height (its padding + 13px label ≈ 32px) became the row's cross size and
+     every chip inherited it — the pills rendered 32px tall instead of 22px,
+     and the blue scope pill made it look like one broken border (live
+     2026-10-14: 常态的左侧 tag 边框高度异常). */
+  align-items: center;
   gap: 6px;
   margin-bottom: 10px;
 }
 
 .statsChip {
+  /* One pill height for EVERY chip. The line box follows the font that renders
+     the label, and a Chinese label falls back to a face ~3px taller than the
+     Latin one — so a mixed row rendered two pill heights side by side and the
+     odd one out read as a broken border (live 2026-10-14: 常态的左侧 tag 边框
+     高度异常). Pinning the line box and centring the text makes them equal. */
+  display: inline-flex;
+  align-items: center;
+  line-height: 18px;
   padding: 2px 8px;
-  /* Summary chips carry "输出 704 tok/s" too — same nowrap rule. */
-  white-space: nowrap;
   border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
   border-radius: 999px;
   background: var(--dsw-alias-bg-layer-2, #f6f8fa);
   font-size: 11px;
   color: var(--dsw-alias-label-secondary, #4b5563);
+  /* Summary chips carry "输出 704 tok/s" too — same nowrap rule. */
   white-space: nowrap;
 }
 
