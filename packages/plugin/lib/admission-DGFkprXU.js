@@ -1,6 +1,6 @@
-import { g as stableID, h as randomID, m as opencodeUserAgent, p as disguiseHeaders, r as ZEN_BASE_URL, u as canonicalSessionID } from "./catalog-GckqcHsV.js";
-import { c as freeLaneGateTool, i as FREE_LANE_GATE_TOOL_NAMES, r as pickSmokeContent } from "./smoke-content-CfTGy8JU.js";
-import { n as exitProxyUri, s as LOCAL_EXIT_ID } from "./dispatcher-BfnX7k6I.js";
+import { d as canonicalSessionID, g as opencodeUserAgent, h as mintedMessageID, m as disguiseHeaders, r as ZEN_BASE_URL, u as DEFAULT_PROJECT_ID } from "./catalog-BNFQ3XW4.js";
+import { i as FREE_LANE_GATE_TOOL_NAMES, o as freeLaneGateTool, r as pickSmokeContent } from "./smoke-content-3O2qKne8.js";
+import { c as LOCAL_EXIT_ID, r as exitProxyUri } from "./dispatcher-CuJu-myX.js";
 
 //#region src/pool/pool.ts
 /** Quality grade from admission latency (GoProxy thresholds). */
@@ -781,8 +781,8 @@ async function admitCandidate(deps, candidate, options = {}) {
 	const smokeContent = deps.smokeContent ?? pickSmokeContent(deps.smokeContents, deps.random);
 	const probeHeaders = disguiseHeaders({
 		session: canonicalSessionID(`admission:${candidate.address}`),
-		request: randomID("req", 16),
-		project: stableID("prj", "opencode2dsh:default-project"),
+		request: mintedMessageID(),
+		project: DEFAULT_PROJECT_ID,
 		parentSession: ""
 	});
 	let agent = null;
@@ -825,12 +825,6 @@ async function admitCandidate(deps, candidate, options = {}) {
 			headers: {
 				authorization: "Bearer public",
 				"content-type": "application/json",
-				...disguiseHeaders({
-					session: canonicalSessionID("opencode2dsh:admission-smoke"),
-					request: randomID("req", 16),
-					project: stableID("prj", "opencode2dsh:admission"),
-					parentSession: ""
-				}),
 				...probeHeaders
 			},
 			body: JSON.stringify({
@@ -842,8 +836,7 @@ async function admitCandidate(deps, candidate, options = {}) {
 				max_tokens: 1,
 				stream: true,
 				stream_options: { include_usage: true },
-				tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
-				tool_choice: "none"
+				tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name))
 			})
 		});
 		if (smoke.statusCode !== 200) {

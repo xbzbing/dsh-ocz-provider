@@ -23,6 +23,7 @@ import type { IpPoolRuntime } from '../ip-pool.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, toIpPoolConfig, type IpPoolSettings } from './namespace.ts'
 import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type ProjectResolver, type WritePin } from './bridge.ts'
 import { makeSessionTitleResolver, type SessionTitleResolver } from '../pool/session-titles.ts'
+import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
 import type { UsageStore } from '../pool/usage-store.ts'
 
 export interface IpPoolController {
@@ -235,12 +236,15 @@ export function applyIpPoolSettings(
             : (controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ['opencode.ai']),
           // The path scope, reported the same way (router's answer when one is
           // running). Without it nothing could tell "the pool carries our
-          // /zen/v1 traffic" from "the pool carries whatever else lands on
+          // lane traffic" from "the pool carries whatever else lands on
           // opencode.ai" — the difference that made the request counters climb
-          // while every opencode2dsh session was quiet (live 2026-10-13).
+          // while every opencode2dsh session was quiet (live 2026-10-13). The
+          // fallback is the router's own default rather than a copy of it: the
+          // lane moved from /zen/v1 to /inference/v1 on 2026-10-14, and two
+          // spellings of one default is how a status line starts lying.
           proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== undefined
             ? [...controller.runtime.installer.proxyPathPrefixes]
-            : (controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : ['/zen/v1']),
+            : (controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : [...DEFAULT_PROXY_PATH_PREFIXES]),
           // The card's state badge follows the free-source machine only while
           // that source is on; with free disabled the same thresholds apply
           // to the whole pool (a subscription-only profile used to sit on

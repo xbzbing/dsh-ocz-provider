@@ -19,8 +19,8 @@
 import type { Dispatcher } from 'undici'
 
 import { ZEN_BASE_URL } from '../adapter/catalog.ts'
-import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/messages.ts'
-import { canonicalSessionID, disguiseHeaders, opencodeUserAgent, randomID, stableID } from '../adapter/ids.ts'
+import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/gate-tools.ts'
+import { canonicalSessionID, DEFAULT_PROJECT_ID, disguiseHeaders, mintedMessageID, opencodeUserAgent } from '../adapter/ids.ts'
 import { gradeOf, UNVERIFIED_QUALITY, type ExitNode, type ExitPool } from './pool.ts'
 import { exitProxyUri } from './dispatcher.ts'
 import { pickSmokeContent } from './smoke-content.ts'
@@ -239,8 +239,8 @@ export async function admitCandidate(
   // drew 403 FreeTierError on the free lane like every other foreign shape.
   const probeHeaders = disguiseHeaders({
     session: canonicalSessionID(`admission:${candidate.address}`),
-    request: randomID('req', 16),
-    project: stableID('prj', 'opencode2dsh:default-project'),
+    request: mintedMessageID(),
+    project: DEFAULT_PROJECT_ID,
     parentSession: '',
   })
 
@@ -280,21 +280,16 @@ export async function admitCandidate(
     }
 
     // Step 4: anonymous-lane smoke (streaming, 1 token). The free lane
-    // rejects non-streaming bodies outright and wants the agent-shape gate
-    // tools in the body; since ~2026-10-09 (issue #56) it additionally
-    // requires a canonical ses_* session header — the same disguise the
-    // adapter sends on every chat request (adapter/ids.ts).
+    // rejects non-streaming bodies outright and wants the gate tools in the
+    // body — now with the GENUINE definitions (2026-10-14) — plus a canonical
+    // `ses_*` session header and the request/project id shapes the adapter
+    // sends (adapter/ids.ts). `tool_choice` is left to the model: the gate
+    // rejects `'none'` outright (403), and a 200 is all this step reads.
     const smoke = await request(`${zenBase.replace(/\/+$/, '')}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         authorization: 'Bearer public',
         'content-type': 'application/json',
-        ...disguiseHeaders({
-          session: canonicalSessionID('opencode2dsh:admission-smoke'),
-          request: randomID('req', 16),
-          project: stableID('prj', 'opencode2dsh:admission'),
-          parentSession: '',
-        }),
         ...probeHeaders,
       },
       body: JSON.stringify({
@@ -304,7 +299,6 @@ export async function admitCandidate(
         stream: true,
         stream_options: { include_usage: true },
         tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
-        tool_choice: 'none',
       }),
     })
     if (smoke.statusCode !== 200) {
