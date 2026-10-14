@@ -659,6 +659,14 @@
    contract (consumers cap with max-height, never viewport calc). */
 .statsModal.statsModal {
   width: min(1040px, 100%);
+  /* One FIXED box for both tabs (live request 2026-10-14: "切换 tab 保持窗口
+     大小不变"). Height used to be content-driven, so switching between the
+     exit table and the traffic breakdown resized the dialog — and the mouse
+     ended up somewhere else than where the tab button had been. The content
+     region below scrolls instead, which is what its flex/overflow pair was
+     already built for. 100% (never a viewport calc) keeps it inside the root's
+     padding on a short window, per the Modal contract. */
+  height: min(640px, 100%);
   max-height: 100%;
 }
 
