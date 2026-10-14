@@ -31,7 +31,7 @@ let react_jsx_runtime = require("react/jsx-runtime");
 react_jsx_runtime = __toESM(react_jsx_runtime);
 
 //#region \0dsh-css:/Users/ankh/workspace/private/opencode2dsh/packages/plugin/src/client/ip-pool.module.css.mjs
-const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_tabBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:7px;margin-bottom:10px;display:inline-flex;overflow:hidden}.QmduLW_tab{background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border:none;padding:4px 14px;font-size:12px}.QmduLW_tab+.QmduLW_tab{border-left:1px solid var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_tab:hover{color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_tabActive{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2329);font-weight:600}.QmduLW_scopeSwitch{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:7px;align-self:flex-start;display:inline-flex;overflow:hidden}.QmduLW_scopeOption{background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border:none;padding:4px 12px;font-size:12px}.QmduLW_scopeOption+.QmduLW_scopeOption{border-left:1px solid var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_scopeOption:hover:not(:disabled){color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_scopeOptionActive{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2329);font-weight:600}.QmduLW_scopeOption:disabled{opacity:.5;cursor:default}.QmduLW_usagePanel{flex-direction:column;gap:14px;display:flex}.QmduLW_usageScopeChip{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff);font-weight:600}.QmduLW_usageSection{flex-direction:column;gap:6px;display:flex}.QmduLW_usageSectionTitle{color:var(--dsw-alias-label-secondary,#4b5563);font-size:12px;font-weight:600}.QmduLW_dayList{flex-direction:column;gap:3px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_dayRow{grid-template-columns:44px 1fr 76px 60px;align-items:center;gap:8px;font-size:12px;display:grid}.QmduLW_dayLabel{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_dayTrack{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-radius:5px;height:10px;overflow:hidden}.QmduLW_dayBar{background:var(--dsw-alias-state-business-primary,#4f8cff);border-radius:5px;height:100%;display:block}.QmduLW_dayValue{text-align:right;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_dayRequests{text-align:right;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_usageTableWrap{overflow-x:hidden}.QmduLW_usageTable{border-collapse:collapse;table-layout:fixed;width:100%;font-size:12px}.QmduLW_usageTable th:first-child{width:40%}.QmduLW_usageTable th:nth-child(2){width:18%}.QmduLW_usageTable th:nth-child(3),.QmduLW_usageTable th:nth-child(4){width:12%}.QmduLW_usageTable th:nth-child(5){width:18%}.QmduLW_usageTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);padding:5px 8px;font-weight:600}.QmduLW_usageTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);text-overflow:ellipsis;white-space:nowrap;padding:5px 8px;overflow:hidden}.QmduLW_usageTable tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_sessionLabel,.QmduLW_projectLabel{text-overflow:ellipsis;vertical-align:bottom;max-width:100%;display:inline-block;overflow:hidden}.QmduLW_projectList{flex-direction:column;gap:4px;margin:0;padding:0;font-size:12px;list-style:none;display:flex}.QmduLW_projectRow{align-items:baseline;gap:10px;display:flex}.QmduLW_projectMeta{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_usageClear{align-items:center;gap:6px;margin-left:auto;display:inline-flex}.QmduLW_usageClearPrompt{color:var(--dsw-alias-label-secondary,#4b5563);font-size:12px}.QmduLW_usageClearDanger{border:1px solid var(--dsw-alias-state-error-primary,#d1242f);background:var(--dsw-alias-state-error-primary,#d1242f);color:#fff;cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_usageClearDanger:disabled{opacity:.6;cursor:default}.QmduLW_usageFootnote{color:var(--dsw-alias-label-tertiary,#6b7280);margin:0;font-size:11px}.QmduLW_statsSummary{flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;padding:2px 8px;font-size:11px;line-height:18px;display:inline-flex}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);height:min(640px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:22%}.QmduLW_statsTable th:nth-child(2){width:7%}.QmduLW_statsTable th:nth-child(3){width:9%}.QmduLW_statsTable th:nth-child(4){width:8%}.QmduLW_statsTable th:nth-child(5){width:7%}.QmduLW_statsTable th:nth-child(6){width:10%}.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8){width:7%}.QmduLW_statsTable th:nth-child(9){width:11%}.QmduLW_statsTable th:nth-child(10){width:12%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsRegion{font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap}.QmduLW_statsActions{white-space:nowrap}.QmduLW_rowAction{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:5px;justify-content:center;align-items:center;padding:3px 5px;line-height:0;display:inline-flex}.QmduLW_rowAction:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowAction:disabled{opacity:.5;cursor:default}.QmduLW_rowIcon{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;align-items:center;padding:4px 7px;line-height:0;display:inline-flex}.QmduLW_rowIcon:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowIcon:disabled{opacity:.5;cursor:default}.QmduLW_actionGroup{vertical-align:middle;display:inline-flex}.QmduLW_actionGroup>button+button{margin-left:-1px}.QmduLW_actionGroup>button:not(:first-child){border-top-left-radius:0;border-bottom-left-radius:0}.QmduLW_actionGroup>button:not(:last-child){border-top-right-radius:0;border-bottom-right-radius:0}.QmduLW_actionGroup>button:hover:not(:disabled),.QmduLW_actionGroup>button:focus-visible{z-index:1;position:relative}.QmduLW_tableGrid td>*+*{margin-left:4px}.QmduLW_statsActionNote{color:var(--dsw-alias-state-success-primary,#1a7f37);margin:0 0 8px;font-size:12px}.QmduLW_statsActionNoteWarn{color:var(--dsw-alias-state-warning-primary,#9a6700);}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
+const css = ".QmduLW_body{flex-direction:column;gap:14px;display:flex}.QmduLW_status{color:var(--dsw-alias-label-tertiary,#6b7280);margin:4px 0;font-size:13px;line-height:1.5}.QmduLW_field{flex-direction:column;gap:4px;display:flex}.QmduLW_fieldRow{gap:10px;display:flex}.QmduLW_fieldRow>.QmduLW_field{flex:1 1 0;min-width:0}.QmduLW_fieldLabel{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:500}.QmduLW_fieldHint{color:var(--dsw-alias-label-tertiary,#6b7280);font-size:12px;line-height:1.45}.QmduLW_input{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);width:100%;color:var(--dsw-alias-label-primary,#1f2329);color-scheme:light;border-radius:6px;padding:6px 8px;font-size:13px}.QmduLW_input:focus{outline:2px solid var(--dsw-alias-state-business-primary,#4f8cff);outline-offset:-1px}body[data-ds-dark-theme] .QmduLW_input,body[data-ds-dark-theme] .QmduLW_select{color-scheme:dark}.QmduLW_textarea{resize:vertical;min-height:56px;font-family:inherit;}.QmduLW_rowList{flex-direction:column;gap:6px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_row{align-items:center;gap:6px;display:flex}.QmduLW_rowLabel{text-overflow:ellipsis;white-space:nowrap;min-width:0;color:var(--dsw-alias-label-primary,#1f2329);flex:1 1 0;font-size:13px;overflow:hidden}.QmduLW_rowInput{flex:1 1 0;}.QmduLW_rowRemove{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;flex:none;padding:4px 8px;font-size:12px}.QmduLW_rowRemove:hover{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_rowAdd{border:1px dashed var(--dsw-alias-border-l3,#a6adb4);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;background:0 0;border-radius:6px;align-self:flex-start;padding:4px 10px;font-size:12px}.QmduLW_rowAdd:hover{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_ghostButton{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_ghostButton:hover{border-color:var(--dsw-alias-border-l3,#a6adb4)}.QmduLW_saveStatus{font-size:12px;line-height:1.4}.QmduLW_saveStatusOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_saveStatusError{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_overviewBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);border-radius:8px;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:8px 10px;font-size:12px;display:flex}.QmduLW_badge{border:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;gap:4px;padding:2px 8px;font-size:11px;line-height:1.5;display:inline-flex}.QmduLW_badgeHealthy{border-color:var(--dsw-alias-state-success-primary,#1a7f37);color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_badgeWarning{border-color:var(--dsw-alias-state-warning-primary,#9a6700);color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_badgeCritical,.QmduLW_badgeEmergency{border-color:var(--dsw-alias-state-error-primary,#d1242f);color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_badgePinned{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_table{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:8px;display:block;overflow-x:auto}.QmduLW_tableGrid{border-collapse:collapse;width:100%;font-size:12px}.QmduLW_tableGrid th,.QmduLW_tableGrid td{border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);text-align:left;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;padding:6px 8px}.QmduLW_tableGrid th{color:var(--dsw-alias-label-primary,#1f2329);background:var(--dsw-alias-bg-layer-2,#f6f8fa);font-weight:600}.QmduLW_tableGrid tr:last-child td{border-bottom:none}.QmduLW_mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.QmduLW_stateOk{color:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_stateCooling{color:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_stateDead{color:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_stateUnknown{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_section{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fe80);border-radius:8px;flex-direction:column;gap:8px;padding:10px 12px;display:flex}.QmduLW_sectionTitle{color:var(--dsw-alias-label-primary,#1f2329);font-size:13px;font-weight:600}.QmduLW_radio{color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;align-items:center;gap:6px;font-size:13px;display:flex}.QmduLW_compliance{color:var(--dsw-alias-label-tertiary,#6b7280);border-top:1px dashed var(--dsw-alias-border-l2,#d0d7de);padding-top:10px;font-size:11px;line-height:1.5}.QmduLW_collapseToggle{color:var(--dsw-alias-state-business-primary,#4f8cff);cursor:pointer;background:0 0;border:none;align-self:flex-start;padding:2px 8px;font-size:12px}.QmduLW_footerEntry{width:100%;color:var(--dsw-alias-label-primary,#1f2329);text-align:left;cursor:pointer;background:0 0;border:1px solid #0000;border-radius:8px;align-items:center;gap:8px;padding:6px 8px;font-size:12px;display:flex;container-type:inline-size}.QmduLW_footerEntry:hover{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-color:var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_footerIcon{color:var(--dsw-alias-state-business-primary,#4f8cff);font-size:14px;line-height:1}.QmduLW_footerText{flex-direction:column;min-width:0;display:flex}.QmduLW_footerMain{white-space:nowrap;text-overflow:ellipsis;font-size:13px;font-weight:600;line-height:1.25;overflow:hidden}.QmduLW_footerUnit{color:var(--dsw-alias-label-secondary,#4b5563);font-weight:400}.QmduLW_footerSub{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerEntryCompact{justify-content:center;gap:4px;padding:6px 4px}.QmduLW_footerCompact{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;overflow:hidden}.QmduLW_footerCompactOnNarrow{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;text-overflow:ellipsis;font-size:11px;display:none;overflow:hidden}@container (width<=180px){.QmduLW_footerText{display:none}.QmduLW_footerCompactOnNarrow{display:inline}}.QmduLW_tabBar{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:7px;margin-bottom:10px;display:inline-flex;overflow:hidden}.QmduLW_tab{background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border:none;padding:4px 14px;font-size:12px}.QmduLW_tab+.QmduLW_tab{border-left:1px solid var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_tab:hover{color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_tabActive{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2329);font-weight:600}.QmduLW_scopeSwitch{border:1px solid var(--dsw-alias-border-l2,#d0d7de);border-radius:7px;align-self:flex-start;display:inline-flex;overflow:hidden}.QmduLW_scopeOption{background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border:none;padding:4px 12px;font-size:12px}.QmduLW_scopeOption+.QmduLW_scopeOption{border-left:1px solid var(--dsw-alias-border-l2,#d0d7de)}.QmduLW_scopeOption:hover:not(:disabled){color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_scopeOptionActive{background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f2329);font-weight:600}.QmduLW_scopeOption:disabled{opacity:.5;cursor:default}.QmduLW_usagePanel{flex-direction:column;gap:14px;display:flex}.QmduLW_usageScopeChip{border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff);font-weight:600}.QmduLW_usageSection{flex-direction:column;gap:6px;display:flex}.QmduLW_usageSectionTitle{color:var(--dsw-alias-label-secondary,#4b5563);font-size:12px;font-weight:600}.QmduLW_dayList{flex-direction:column;gap:3px;margin:0;padding:0;list-style:none;display:flex}.QmduLW_dayRow{grid-template-columns:44px 1fr 76px 60px;align-items:center;gap:8px;font-size:12px;display:grid}.QmduLW_dayLabel{font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_dayTrack{background:var(--dsw-alias-bg-layer-2,#f6f8fa);border-radius:5px;height:10px;overflow:hidden}.QmduLW_dayBar{background:var(--dsw-alias-state-business-primary,#4f8cff);border-radius:5px;height:100%;display:block}.QmduLW_dayValue{text-align:right;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_dayRequests{text-align:right;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_usageTableWrap{overflow-x:hidden}.QmduLW_usageTable{border-collapse:collapse;table-layout:fixed;width:100%;font-size:12px}.QmduLW_usageTable th:first-child{width:40%}.QmduLW_usageTable th:nth-child(2){width:18%}.QmduLW_usageTable th:nth-child(3),.QmduLW_usageTable th:nth-child(4){width:12%}.QmduLW_usageTable th:nth-child(5){width:18%}.QmduLW_usageTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);padding:5px 8px;font-weight:600}.QmduLW_usageTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);text-overflow:ellipsis;white-space:nowrap;padding:5px 8px;overflow:hidden}.QmduLW_usageTable tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_sessionLabel,.QmduLW_projectLabel{text-overflow:ellipsis;vertical-align:bottom;max-width:100%;display:inline-block;overflow:hidden}.QmduLW_projectList{flex-direction:column;gap:4px;margin:0;padding:0;font-size:12px;list-style:none;display:flex}.QmduLW_projectRow{align-items:baseline;gap:10px;display:flex}.QmduLW_projectMeta{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_usageClear{align-items:center;gap:6px;margin-left:auto;display:inline-flex}.QmduLW_usageClearPrompt{color:var(--dsw-alias-label-secondary,#4b5563);font-size:12px}.QmduLW_usageClearDanger{border:1px solid var(--dsw-alias-state-error-primary,#d1242f);background:var(--dsw-alias-state-error-primary,#d1242f);color:#fff;cursor:pointer;border-radius:6px;padding:6px 12px;font-size:13px}.QmduLW_usageClearDanger:disabled{opacity:.6;cursor:default}.QmduLW_usageFootnote{color:var(--dsw-alias-label-tertiary,#6b7280);margin:0;font-size:11px}.QmduLW_statsSummary{flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px;display:flex}.QmduLW_statsChip{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);white-space:nowrap;border-radius:999px;align-items:center;padding:2px 8px;font-size:11px;line-height:18px;display:inline-flex}.QmduLW_statsModal.QmduLW_statsModal{width:min(1040px,100%);height:min(640px,100%);max-height:100%}.QmduLW_statsContent{flex:auto;min-height:0;overflow-y:auto}.QmduLW_statsWrap{overflow-x:hidden}.QmduLW_statsTable{table-layout:fixed;border-collapse:collapse;width:100%;font-size:12px}.QmduLW_statsTable th:first-child{width:22%}.QmduLW_statsTable th:nth-child(2){width:7%}.QmduLW_statsTable th:nth-child(3){width:9%}.QmduLW_statsTable th:nth-child(4){width:8%}.QmduLW_statsTable th:nth-child(5){width:7%}.QmduLW_statsTable th:nth-child(6){width:10%}.QmduLW_statsTable th:nth-child(7),.QmduLW_statsTable th:nth-child(8){width:7%}.QmduLW_statsTable th:nth-child(9){width:11%}.QmduLW_statsTable th:nth-child(10){width:12%}.QmduLW_statsTable th{text-align:left;color:var(--dsw-alias-label-tertiary,#6b7280);border-bottom:1px solid var(--dsw-alias-border-l2,#d0d7de);white-space:normal;padding:6px 8px;font-weight:600}.QmduLW_statsSortButton{font:inherit;color:inherit;cursor:pointer;background:0 0;border:0;align-items:center;gap:3px;padding:0;display:inline-flex}.QmduLW_statsSortButton:hover{color:var(--dsw-alias-label-primary,#1f2329)}.QmduLW_statsSortButton:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,#4f8cff);outline-offset:1px;border-radius:3px}.QmduLW_statsSortArrow{text-align:center;min-width:10px;font-size:9px;line-height:1}.QmduLW_statsTable td{border-bottom:1px solid var(--dsw-alias-border-l3,#eaeef2);color:var(--dsw-alias-label-primary,#1f2329);white-space:normal;overflow-wrap:anywhere;padding:6px 8px}.QmduLW_statsRowMuted td{color:var(--dsw-alias-label-tertiary,#6b7280)}.QmduLW_statsTable tbody tr:hover td,.QmduLW_tableGrid tbody tr:hover td{background:var(--dsw-alias-bg-layer-2,#f6f8fa)}.QmduLW_statsRowLocal td{border-top:1px solid var(--dsw-alias-border-l2,#d0d7de);color:var(--dsw-alias-label-secondary,#4b5563);border-bottom:none;font-weight:500}.QmduLW_statsEndpoint{color:var(--dsw-alias-label-tertiary,#6b7280);white-space:nowrap;margin-left:6px;font-size:.86em}.QmduLW_statsDot{vertical-align:middle;border-radius:50%;width:7px;height:7px;margin-right:5px;display:inline-block}.QmduLW_statsDotOk{background:var(--dsw-alias-state-success-primary,#1a7f37)}.QmduLW_statsDotWarn{background:var(--dsw-alias-state-warning-primary,#9a6700)}.QmduLW_statsDotBad{background:var(--dsw-alias-state-error-primary,#d1242f)}.QmduLW_statsRegion{font-variant-numeric:tabular-nums;letter-spacing:.02em;white-space:nowrap}.QmduLW_statsActions{white-space:nowrap}.QmduLW_rowAction{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:5px;justify-content:center;align-items:center;padding:3px 5px;line-height:0;display:inline-flex}.QmduLW_rowAction:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowAction:disabled{opacity:.5;cursor:default}.QmduLW_rowActionActive,.QmduLW_rowActionActive:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff}.QmduLW_rowIcon{border:1px solid var(--dsw-alias-border-l2,#d0d7de);background:var(--dsw-alias-bg-layer-2,#f6f8fa);color:var(--dsw-alias-label-secondary,#4b5563);cursor:pointer;border-radius:6px;align-items:center;padding:4px 7px;line-height:0;display:inline-flex}.QmduLW_rowIcon:hover:not(:disabled){border-color:var(--dsw-alias-state-business-primary,#4f8cff);color:var(--dsw-alias-state-business-primary,#4f8cff)}.QmduLW_rowIcon:disabled{opacity:.5;cursor:default}.QmduLW_actionGroup{vertical-align:middle;display:inline-flex}.QmduLW_actionGroup>button+button{margin-left:-1px}.QmduLW_actionGroup>button:not(:first-child){border-top-left-radius:0;border-bottom-left-radius:0}.QmduLW_actionGroup>button:not(:last-child){border-top-right-radius:0;border-bottom-right-radius:0}.QmduLW_actionGroup>button:hover:not(:disabled),.QmduLW_actionGroup>button:focus-visible{z-index:1;position:relative}.QmduLW_tableGrid td>*+*{margin-left:4px}.QmduLW_statsToast{z-index:2;background:var(--dsw-alias-toast-bg,#1f2937);max-width:min(360px,100% - 40px);color:var(--dsw-alias-toast-label,#f9fafb);box-shadow:var(--dsw-shadow-lv3,0 8px 24px #0000002e);animation:QmduLW_stats-toast-in .16s ease-out, QmduLW_stats-toast-fade .3s ease var(--stats-toast-hold,3s) forwards;border-radius:8px;padding:8px 14px;font-size:12px;line-height:1.5;position:absolute;bottom:20px;right:20px}.QmduLW_statsToastWarn{color:var(--dsw-alias-state-warning-primary,#d29922)}@keyframes QmduLW_stats-toast-in{0%{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}@keyframes QmduLW_stats-toast-fade{to{opacity:0;visibility:hidden}}@media (prefers-reduced-motion:reduce){.QmduLW_statsToast{animation:QmduLW_stats-toast-fade .3s ease var(--stats-toast-hold,3s) forwards}}.QmduLW_statsInflight{background:var(--dsw-alias-state-business-primary,#4f8cff);color:#fff;border-radius:999px;margin-right:6px;padding:0 6px;font-size:10px;line-height:1.6;display:inline-block}";
 const tagId = "@opencode2dsh/dsh-plugin/ip-pool.module.css";
 if (typeof document !== "undefined" && document.querySelector("style[data-plugin-css=" + JSON.stringify(tagId) + "]") === null) {
 	const tag = document.createElement("style");
@@ -41,104 +41,107 @@ if (typeof document !== "undefined" && document.querySelector("style[data-plugin
 	document.head.appendChild(tag);
 }
 var ip_pool_module_css_default = {
-	"table": "QmduLW_table",
-	"input": "QmduLW_input",
-	"statsSummary": "QmduLW_statsSummary",
-	"statsContent": "QmduLW_statsContent",
-	"statsSortButton": "QmduLW_statsSortButton",
-	"stateDead": "QmduLW_stateDead",
-	"statsDot": "QmduLW_statsDot",
-	"projectList": "QmduLW_projectList",
-	"usageScopeChip": "QmduLW_usageScopeChip",
-	"statsTable": "QmduLW_statsTable",
-	"footerMain": "QmduLW_footerMain",
 	"select": "QmduLW_select",
-	"footerIcon": "QmduLW_footerIcon",
-	"dayTrack": "QmduLW_dayTrack",
-	"body": "QmduLW_body",
-	"badge": "QmduLW_badge",
-	"footerText": "QmduLW_footerText",
+	"textarea": "QmduLW_textarea",
+	"collapseToggle": "QmduLW_collapseToggle",
+	"footerEntry": "QmduLW_footerEntry",
+	"usageSectionTitle": "QmduLW_usageSectionTitle",
+	"dayRequests": "QmduLW_dayRequests",
+	"statsContent": "QmduLW_statsContent",
+	"statsDot": "QmduLW_statsDot",
+	"table": "QmduLW_table",
+	"tableGrid": "QmduLW_tableGrid",
+	"rowIcon": "QmduLW_rowIcon",
+	"scopeSwitch": "QmduLW_scopeSwitch",
 	"footerCompactOnNarrow": "QmduLW_footerCompactOnNarrow",
-	"dayRow": "QmduLW_dayRow",
-	"tabActive": "QmduLW_tabActive",
-	"footerCompact": "QmduLW_footerCompact",
-	"usageTableWrap": "QmduLW_usageTableWrap",
-	"statsDotBad": "QmduLW_statsDotBad",
-	"badgeCritical": "QmduLW_badgeCritical",
-	"dayBar": "QmduLW_dayBar",
-	"compliance": "QmduLW_compliance",
-	"saveStatus": "QmduLW_saveStatus",
-	"statsActions": "QmduLW_statsActions",
+	"section": "QmduLW_section",
+	"stateCooling": "QmduLW_stateCooling",
+	"stats-toast-in": "QmduLW_stats-toast-in",
+	"dayTrack": "QmduLW_dayTrack",
+	"scopeOption": "QmduLW_scopeOption",
+	"rowRemove": "QmduLW_rowRemove",
 	"usageClear": "QmduLW_usageClear",
-	"statsChip": "QmduLW_statsChip",
+	"usageFootnote": "QmduLW_usageFootnote",
+	"rowAction": "QmduLW_rowAction",
+	"fieldRow": "QmduLW_fieldRow",
+	"statsToastWarn": "QmduLW_statsToastWarn",
+	"usageTable": "QmduLW_usageTable",
+	"statsModal": "QmduLW_statsModal",
+	"badgeEmergency": "QmduLW_badgeEmergency",
+	"rowAdd": "QmduLW_rowAdd",
+	"rowList": "QmduLW_rowList",
+	"ghostButton": "QmduLW_ghostButton",
+	"saveStatusOk": "QmduLW_saveStatusOk",
+	"radio": "QmduLW_radio",
 	"footerSub": "QmduLW_footerSub",
 	"badgeHealthy": "QmduLW_badgeHealthy",
-	"dayLabel": "QmduLW_dayLabel",
-	"usagePanel": "QmduLW_usagePanel",
-	"usageSection": "QmduLW_usageSection",
-	"statsRegion": "QmduLW_statsRegion",
-	"usageClearDanger": "QmduLW_usageClearDanger",
-	"rowAction": "QmduLW_rowAction",
-	"collapseToggle": "QmduLW_collapseToggle",
-	"statsModal": "QmduLW_statsModal",
-	"footerUnit": "QmduLW_footerUnit",
-	"actionGroup": "QmduLW_actionGroup",
-	"footerEntryCompact": "QmduLW_footerEntryCompact",
-	"rowLabel": "QmduLW_rowLabel",
-	"usageFootnote": "QmduLW_usageFootnote",
-	"projectRow": "QmduLW_projectRow",
-	"tabBar": "QmduLW_tabBar",
-	"rowAdd": "QmduLW_rowAdd",
-	"fieldLabel": "QmduLW_fieldLabel",
-	"row": "QmduLW_row",
-	"statsWrap": "QmduLW_statsWrap",
-	"stateCooling": "QmduLW_stateCooling",
-	"statsRowLocal": "QmduLW_statsRowLocal",
-	"statsActionNote": "QmduLW_statsActionNote",
-	"statsInflight": "QmduLW_statsInflight",
-	"rowRemove": "QmduLW_rowRemove",
-	"overviewBar": "QmduLW_overviewBar",
-	"fieldRow": "QmduLW_fieldRow",
-	"textarea": "QmduLW_textarea",
-	"usageTable": "QmduLW_usageTable",
-	"ghostButton": "QmduLW_ghostButton",
-	"sessionLabel": "QmduLW_sessionLabel",
-	"statsRowMuted": "QmduLW_statsRowMuted",
-	"badgeEmergency": "QmduLW_badgeEmergency",
-	"statsDotOk": "QmduLW_statsDotOk",
-	"statsDotWarn": "QmduLW_statsDotWarn",
-	"field": "QmduLW_field",
-	"status": "QmduLW_status",
-	"tableGrid": "QmduLW_tableGrid",
 	"dayList": "QmduLW_dayList",
-	"statsSortArrow": "QmduLW_statsSortArrow",
-	"projectMeta": "QmduLW_projectMeta",
-	"footerEntry": "QmduLW_footerEntry",
-	"rowIcon": "QmduLW_rowIcon",
-	"statsEndpoint": "QmduLW_statsEndpoint",
-	"fieldHint": "QmduLW_fieldHint",
-	"projectLabel": "QmduLW_projectLabel",
-	"statsActionNoteWarn": "QmduLW_statsActionNoteWarn",
-	"scopeOptionActive": "QmduLW_scopeOptionActive",
-	"saveStatusError": "QmduLW_saveStatusError",
-	"rowInput": "QmduLW_rowInput",
-	"saveStatusOk": "QmduLW_saveStatusOk",
-	"stateOk": "QmduLW_stateOk",
-	"scopeSwitch": "QmduLW_scopeSwitch",
-	"usageSectionTitle": "QmduLW_usageSectionTitle",
-	"usageClearPrompt": "QmduLW_usageClearPrompt",
-	"mono": "QmduLW_mono",
+	"footerIcon": "QmduLW_footerIcon",
 	"dayValue": "QmduLW_dayValue",
-	"scopeOption": "QmduLW_scopeOption",
-	"section": "QmduLW_section",
-	"stateUnknown": "QmduLW_stateUnknown",
-	"badgeWarning": "QmduLW_badgeWarning",
-	"dayRequests": "QmduLW_dayRequests",
-	"sectionTitle": "QmduLW_sectionTitle",
-	"rowList": "QmduLW_rowList",
+	"statsSortButton": "QmduLW_statsSortButton",
+	"statsSortArrow": "QmduLW_statsSortArrow",
+	"usageScopeChip": "QmduLW_usageScopeChip",
+	"statsRowLocal": "QmduLW_statsRowLocal",
+	"input": "QmduLW_input",
+	"statsDotOk": "QmduLW_statsDotOk",
+	"tabActive": "QmduLW_tabActive",
+	"body": "QmduLW_body",
+	"stats-toast-fade": "QmduLW_stats-toast-fade",
 	"badgePinned": "QmduLW_badgePinned",
-	"radio": "QmduLW_radio",
-	"tab": "QmduLW_tab"
+	"status": "QmduLW_status",
+	"row": "QmduLW_row",
+	"rowLabel": "QmduLW_rowLabel",
+	"usageTableWrap": "QmduLW_usageTableWrap",
+	"scopeOptionActive": "QmduLW_scopeOptionActive",
+	"footerText": "QmduLW_footerText",
+	"usageSection": "QmduLW_usageSection",
+	"projectRow": "QmduLW_projectRow",
+	"statsEndpoint": "QmduLW_statsEndpoint",
+	"actionGroup": "QmduLW_actionGroup",
+	"saveStatus": "QmduLW_saveStatus",
+	"badgeCritical": "QmduLW_badgeCritical",
+	"footerCompact": "QmduLW_footerCompact",
+	"statsDotBad": "QmduLW_statsDotBad",
+	"statsActions": "QmduLW_statsActions",
+	"statsWrap": "QmduLW_statsWrap",
+	"footerMain": "QmduLW_footerMain",
+	"sessionLabel": "QmduLW_sessionLabel",
+	"usageClearDanger": "QmduLW_usageClearDanger",
+	"field": "QmduLW_field",
+	"statsInflight": "QmduLW_statsInflight",
+	"statsSummary": "QmduLW_statsSummary",
+	"stateDead": "QmduLW_stateDead",
+	"mono": "QmduLW_mono",
+	"badgeWarning": "QmduLW_badgeWarning",
+	"usagePanel": "QmduLW_usagePanel",
+	"compliance": "QmduLW_compliance",
+	"dayLabel": "QmduLW_dayLabel",
+	"statsRowMuted": "QmduLW_statsRowMuted",
+	"tabBar": "QmduLW_tabBar",
+	"statsDotWarn": "QmduLW_statsDotWarn",
+	"projectLabel": "QmduLW_projectLabel",
+	"rowInput": "QmduLW_rowInput",
+	"overviewBar": "QmduLW_overviewBar",
+	"statsTable": "QmduLW_statsTable",
+	"stateUnknown": "QmduLW_stateUnknown",
+	"tab": "QmduLW_tab",
+	"projectList": "QmduLW_projectList",
+	"usageClearPrompt": "QmduLW_usageClearPrompt",
+	"statsChip": "QmduLW_statsChip",
+	"dayBar": "QmduLW_dayBar",
+	"footerUnit": "QmduLW_footerUnit",
+	"fieldHint": "QmduLW_fieldHint",
+	"statsRegion": "QmduLW_statsRegion",
+	"stateOk": "QmduLW_stateOk",
+	"rowActionActive": "QmduLW_rowActionActive",
+	"projectMeta": "QmduLW_projectMeta",
+	"statsToast": "QmduLW_statsToast",
+	"sectionTitle": "QmduLW_sectionTitle",
+	"fieldLabel": "QmduLW_fieldLabel",
+	"dayRow": "QmduLW_dayRow",
+	"footerEntryCompact": "QmduLW_footerEntryCompact",
+	"saveStatusError": "QmduLW_saveStatusError",
+	"badge": "QmduLW_badge"
 };
 
 //#endregion
@@ -1725,6 +1728,14 @@ function compact(value) {
 	if (value >= 1e3) return `${(value / 1e3).toFixed(1)}k`;
 	return String(value);
 }
+/**
+* The outcome toast's two clocks (live request 2026-10-14: the old note above
+* the table never disappeared on its own). HOLD is full-opacity reading time;
+* FADE matches the stylesheet's dismiss animation so the element unmounts
+* exactly when it stops being visible.
+*/
+const TOAST_HOLD_MS = 3e3;
+const TOAST_FADE_MS = 300;
 /** Clock label for a last-used stamp; 0 reads the never placeholder. */
 function timeLabel(epoch, never) {
 	if (epoch <= 0) return never;
@@ -1761,8 +1772,29 @@ function ExitStatsEntry({ wide, t }) {
 	const [tab, setTab] = (0, react.useState)("exits");
 	/** The row action in flight (its key), so every button disables together. */
 	const [busy, setBusy] = (0, react.useState)("");
-	/** The last action's outcome, shown above the table until the next one. */
+	/**
+	* The last action's outcome, shown as a toast DOCKED at the modal's
+	* bottom-right corner (live request 2026-10-14). It used to be a note
+	* above the table that stayed until the next action — the green
+	* "操作成功" line never went away on its own. `seq` restarts the show
+	* cycle when the same text fires twice in a row.
+	*/
 	const [note, setNote] = (0, react.useState)(null);
+	const noteSeq = (0, react.useRef)(0);
+	/** Show one outcome toast; every success/failure line funnels through here. */
+	const showNote = (0, react.useCallback)((text, warn) => {
+		noteSeq.current += 1;
+		setNote({
+			text,
+			warn,
+			seq: noteSeq.current
+		});
+	}, []);
+	(0, react.useEffect)(() => {
+		if (note === null) return;
+		const timer = window.setTimeout(() => setNote(null), TOAST_HOLD_MS + TOAST_FADE_MS);
+		return () => window.clearTimeout(timer);
+	}, [note]);
 	const refresh = (0, react.useCallback)(async () => {
 		try {
 			const body = await (await fetch(`${BRIDGE_PREFIX}/status`, {
@@ -1805,26 +1837,21 @@ function ExitStatsEntry({ wide, t }) {
 				body: JSON.stringify({ action: "reset" })
 			})).json();
 			if (!body.ok || body.value?.cleared !== true) {
-				setNote({
-					text: t("statsActionFailed"),
-					warn: true
-				});
+				showNote(t("statsActionFailed"), true);
 				return false;
 			}
-			setNote({
-				text: t("usageCleared"),
-				warn: false
-			});
+			showNote(t("usageCleared"), false);
 			await refresh();
 			return true;
 		} catch {
-			setNote({
-				text: t("statsActionFailed"),
-				warn: true
-			});
+			showNote(t("statsActionFailed"), true);
 			return false;
 		}
-	}, [refresh, t]);
+	}, [
+		refresh,
+		showNote,
+		t
+	]);
 	const runExitAction = (0, react.useCallback)(async (action, exitId) => {
 		setBusy(`${action}:${exitId ?? ""}`);
 		setNote(null);
@@ -1838,38 +1865,27 @@ function ExitStatsEntry({ wide, t }) {
 				})
 			})).json();
 			if (!body.ok || body.value === void 0) {
-				setNote({
-					text: t("statsActionFailed"),
-					warn: true
-				});
+				showNote(t("statsActionFailed"), true);
 				return;
 			}
 			const value = body.value;
 			if (action === "rotate" && value.busy === true) {
-				setNote({
-					text: t("statsActionBusy"),
-					warn: true
-				});
+				showNote(t("statsActionBusy"), true);
 				return;
 			}
 			const text = action === "rotate" ? value.promoted === true ? t("statsActionReplaced") : t("statsActionDemoted") : action === "unpin" ? t("statsActionUnpinned") : action === "pin-local" ? t("statsActionPinnedLocal") : t("statsActionPinned");
-			setNote(value.persisted === false ? {
-				text: `${text} · ${t("statsActionVolatile")}`,
-				warn: true
-			} : {
-				text,
-				warn: false
-			});
+			showNote(value.persisted === false ? `${text} · ${t("statsActionVolatile")}` : text, value.persisted === false);
 		} catch {
-			setNote({
-				text: t("statsActionFailed"),
-				warn: true
-			});
+			showNote(t("statsActionFailed"), true);
 		} finally {
 			setBusy("");
 			await refresh();
 		}
-	}, [refresh, t]);
+	}, [
+		refresh,
+		showNote,
+		t
+	]);
 	const totals = (0, react.useMemo)(() => {
 		const localRequests = status?.local?.requests ?? 0;
 		const localTokens = status?.local?.tokens;
@@ -2002,136 +2018,194 @@ function ExitStatsEntry({ wide, t }) {
 		description: t("statsDescription"),
 		className: ip_pool_module_css_default.statsModal,
 		contentClassName: ip_pool_module_css_default.statsContent,
-		children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-			className: ip_pool_module_css_default.tabBar,
-			role: "tablist",
-			"aria-label": t("statsTitle"),
-			children: ["exits", "usage"].map((key) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-				type: "button",
-				role: "tab",
-				"aria-selected": tab === key,
-				className: tab === key ? `${ip_pool_module_css_default.tab} ${ip_pool_module_css_default.tabActive}` : ip_pool_module_css_default.tab,
-				onClick: () => setTab(key),
-				children: key === "exits" ? t("tabExits") : t("tabUsage")
-			}, key))
-		}), tab === "usage" ? status?.usage == null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-			className: ip_pool_module_css_default.status,
-			children: t("usageNoStore")
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UsagePanel, {
-			usage: status.usage,
-			t,
-			onClear: clearUsage
-		}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
-			/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
-				className: ip_pool_module_css_default.statsSummary,
-				children: [
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: poolOff ? t("footerDisabled") : t("footerUsable", {
-							usable,
-							total
+		children: [
+			/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: ip_pool_module_css_default.tabBar,
+				role: "tablist",
+				"aria-label": t("statsTitle"),
+				children: ["exits", "usage"].map((key) => /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+					type: "button",
+					role: "tab",
+					"aria-selected": tab === key,
+					className: tab === key ? `${ip_pool_module_css_default.tab} ${ip_pool_module_css_default.tabActive}` : ip_pool_module_css_default.tab,
+					onClick: () => setTab(key),
+					children: key === "exits" ? t("tabExits") : t("tabUsage")
+				}, key))
+			}),
+			tab === "usage" ? status?.usage == null ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+				className: ip_pool_module_css_default.status,
+				children: t("usageNoStore")
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UsagePanel, {
+				usage: status.usage,
+				t,
+				onClear: clearUsage
+			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [
+				/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+					className: ip_pool_module_css_default.statsSummary,
+					children: [
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: poolOff ? t("footerDisabled") : t("footerUsable", {
+								usable,
+								total
+							})
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: t("statsSummaryRequests", { count: totals.requests.toLocaleString() })
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: t("statsSummaryTokens", { count: compact(totals.tokens) })
+						}),
+						totals.speed > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: t("statsSummarySpeed", { count: totals.speed.toLocaleString() })
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: t("statsSummaryInflight", { count: totals.inFlight })
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: t("statsSummaryLocal", { count: (status?.local?.requests ?? 0).toLocaleString() })
+						}),
+						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+							className: ip_pool_module_css_default.statsChip,
+							children: t("statsSummaryDirect", { count: status?.direct.requests ?? 0 })
 						})
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: t("statsSummaryRequests", { count: totals.requests.toLocaleString() })
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: t("statsSummaryTokens", { count: compact(totals.tokens) })
-					}),
-					totals.speed > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: t("statsSummarySpeed", { count: totals.speed.toLocaleString() })
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: t("statsSummaryInflight", { count: totals.inFlight })
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: t("statsSummaryLocal", { count: (status?.local?.requests ?? 0).toLocaleString() })
-					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-						className: ip_pool_module_css_default.statsChip,
-						children: t("statsSummaryDirect", { count: status?.direct.requests ?? 0 })
-					})
-				]
-			}),
-			poolOff && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-				className: ip_pool_module_css_default.status,
-				children: t("statsPoolOff")
-			}),
-			note !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-				className: note.warn ? ip_pool_module_css_default.statsActionNoteWarn : ip_pool_module_css_default.statsActionNote,
-				role: "status",
-				children: note.text
-			}),
-			!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
-				className: ip_pool_module_css_default.status,
-				children: failed && status === null ? t("statsError") : t("statsEmpty")
-			}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
-				className: ip_pool_module_css_default.statsWrap,
-				children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
-					className: ip_pool_module_css_default.statsTable,
-					children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColRegion") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
-						sortableHeader("requests", t("statsColRequests")),
-						sortableHeader("input", t("statsColInput")),
-						sortableHeader("output", t("statsColOutput")),
-						sortableHeader("cache", t("statsColCache")),
-						sortableHeader("latency", t("statsColLatency")),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") }),
-						/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColActions") })
-					] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [rows.map((exit) => {
-						const usableRow = isUsable(exit) && exit.demoted !== true;
-						const dotClass = usableRow ? ip_pool_module_css_default.statsDotOk : exit.state === "dead" ? ip_pool_module_css_default.statsDotBad : ip_pool_module_css_default.statsDotWarn;
-						const stateLabel = exit.demoted === true ? t("stateDemoted") : usableRow ? t("statsStateUsable") : exit.cooling ? t("stateCooling") : exit.state === "dead" ? t("stateDead") : t("statsStateUnverified");
-						return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
-							className: usableRow ? void 0 : ip_pool_module_css_default.statsRowMuted,
-							children: [
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
-									className: ip_pool_module_css_default.mono,
-									title: exit.exitLocation || void 0,
-									children: [
-										exit.exitIP !== "" ? exit.exitIP : t("statsNever"),
-										exit.pinned ? ` · ${t("exitPinnedMark")}` : "",
-										exit.exitIP === "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-											className: ip_pool_module_css_default.statsEndpoint,
-											children: exit.id
+					]
+				}),
+				poolOff && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: ip_pool_module_css_default.status,
+					children: t("statsPoolOff")
+				}),
+				!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("p", {
+					className: ip_pool_module_css_default.status,
+					children: failed && status === null ? t("statsError") : t("statsEmpty")
+				}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					className: ip_pool_module_css_default.statsWrap,
+					children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("table", {
+						className: ip_pool_module_css_default.statsTable,
+						children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", { children: [
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColIp") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColRegion") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColState") }),
+							sortableHeader("requests", t("statsColRequests")),
+							sortableHeader("input", t("statsColInput")),
+							sortableHeader("output", t("statsColOutput")),
+							sortableHeader("cache", t("statsColCache")),
+							sortableHeader("latency", t("statsColLatency")),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColLastUsed") }),
+							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("th", { children: t("statsColActions") })
+						] }) }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tbody", { children: [rows.map((exit) => {
+							const usableRow = isUsable(exit) && exit.demoted !== true;
+							const dotClass = usableRow ? ip_pool_module_css_default.statsDotOk : exit.state === "dead" ? ip_pool_module_css_default.statsDotBad : ip_pool_module_css_default.statsDotWarn;
+							const stateLabel = exit.demoted === true ? t("stateDemoted") : usableRow ? t("statsStateUsable") : exit.cooling ? t("stateCooling") : exit.state === "dead" ? t("stateDead") : t("statsStateUnverified");
+							return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+								className: usableRow ? void 0 : ip_pool_module_css_default.statsRowMuted,
+								children: [
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", {
+										className: ip_pool_module_css_default.mono,
+										title: exit.exitLocation || void 0,
+										children: [
+											exit.exitIP !== "" ? exit.exitIP : t("statsNever"),
+											exit.pinned ? ` · ${t("exitPinnedMark")}` : "",
+											exit.exitIP === "" && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+												className: ip_pool_module_css_default.statsEndpoint,
+												children: exit.id
+											})
+										]
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+										className: ip_pool_module_css_default.statsRegion,
+										title: exit.exitLocation || void 0,
+										children: regionCode(exit.exitLocation) || t("statsNever")
+									}),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: `${ip_pool_module_css_default.statsDot} ${dotClass}`,
+										"aria-hidden": "true"
+									}), stateLabel] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.requests.toLocaleString() }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.inputTokens) }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [compact(exit.tokens.outputTokens), outputSpeed(exit.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ip_pool_module_css_default.statsEndpoint,
+										children: t("statsSpeedNote", { count: outputSpeed(exit.tokens).toLocaleString() })
+									})] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: cacheTotal(exit.tokens) > 0 ? compact(cacheTotal(exit.tokens)) : "—" }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t("statsNever") }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+										className: ip_pool_module_css_default.statsInflight,
+										children: t("statsInflight", { count: exit.inFlight })
+									}), timeLabel(exit.lastUsedAt, t("statsNever"))] }),
+									/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
+										className: ip_pool_module_css_default.statsActions,
+										children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+											className: ip_pool_module_css_default.actionGroup,
+											children: [exit.pinned ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: `${ip_pool_module_css_default.rowAction} ${ip_pool_module_css_default.rowActionActive}`,
+												disabled: busy !== "",
+												title: t("statsUnpinHint"),
+												"aria-label": t("statsUnpin"),
+												onClick: () => {
+													runExitAction("unpin");
+												},
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnpinIcon, {})
+											}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: ip_pool_module_css_default.rowAction,
+												disabled: busy !== "",
+												title: t("statsPinHint"),
+												"aria-label": t("statsPin"),
+												onClick: () => {
+													runExitAction("pin", exit.id);
+												},
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
+											}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+												type: "button",
+												className: ip_pool_module_css_default.rowAction,
+												disabled: busy !== "",
+												title: t("statsRotateHint"),
+												"aria-label": t("statsRotate"),
+												onClick: () => {
+													runExitAction("rotate", exit.id);
+												},
+												children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RotateIcon, {})
+											})]
 										})
-									]
-								}),
+									})
+								]
+							}, exit.id);
+						}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
+							className: ip_pool_module_css_default.statsRowLocal,
+							"data-local-egress": true,
+							children: [
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-									className: ip_pool_module_css_default.statsRegion,
-									title: exit.exitLocation || void 0,
-									children: regionCode(exit.exitLocation) || t("statsNever")
+									className: ip_pool_module_css_default.mono,
+									children: t("statsLocalIp")
 								}),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: `${ip_pool_module_css_default.statsDot} ${dotClass}`,
+									className: `${ip_pool_module_css_default.statsDot} ${ip_pool_module_css_default.statsDotOk}`,
 									"aria-hidden": "true"
-								}), stateLabel] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.requests.toLocaleString() }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: compact(exit.tokens.inputTokens) }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [compact(exit.tokens.outputTokens), outputSpeed(exit.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+								}), t("statsLocalState")] }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : compact(status.local.tokens.inputTokens) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [compact(status.local.tokens.outputTokens), outputSpeed(status.local.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 									className: ip_pool_module_css_default.statsEndpoint,
-									children: t("statsSpeedNote", { count: outputSpeed(exit.tokens).toLocaleString() })
-								})] }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: cacheTotal(exit.tokens) > 0 ? compact(cacheTotal(exit.tokens)) : "—" }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: exit.latencyMs > 0 ? `${exit.latencyMs}ms` : t("statsNever") }),
-								/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [exit.inFlight > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ip_pool_module_css_default.statsInflight,
-									children: t("statsInflight", { count: exit.inFlight })
-								}), timeLabel(exit.lastUsedAt, t("statsNever"))] }),
+									children: t("statsSpeedNote", { count: outputSpeed(status.local.tokens).toLocaleString() })
+								})] }) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 || cacheTotal(status.local.tokens) === 0 ? "—" : compact(cacheTotal(status.local.tokens)) }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
+								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) }),
 								/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
 									className: ip_pool_module_css_default.statsActions,
-									children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+									children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 										className: ip_pool_module_css_default.actionGroup,
-										children: [exit.pinned ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+										children: status?.pinned?.local === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 											type: "button",
-											className: ip_pool_module_css_default.rowAction,
+											className: `${ip_pool_module_css_default.rowAction} ${ip_pool_module_css_default.rowActionActive}`,
 											disabled: busy !== "",
 											title: t("statsUnpinHint"),
 											"aria-label": t("statsUnpin"),
@@ -2143,81 +2217,27 @@ function ExitStatsEntry({ wide, t }) {
 											type: "button",
 											className: ip_pool_module_css_default.rowAction,
 											disabled: busy !== "",
-											title: t("statsPinHint"),
+											title: t("statsPinLocalHint"),
 											"aria-label": t("statsPin"),
 											onClick: () => {
-												runExitAction("pin", exit.id);
+												runExitAction("pin-local");
 											},
 											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
-										}), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-											type: "button",
-											className: ip_pool_module_css_default.rowAction,
-											disabled: busy !== "",
-											title: t("statsRotateHint"),
-											"aria-label": t("statsRotate"),
-											onClick: () => {
-												runExitAction("rotate", exit.id);
-											},
-											children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(RotateIcon, {})
-										})]
+										})
 									})
 								})
 							]
-						}, exit.id);
-					}), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("tr", {
-						className: ip_pool_module_css_default.statsRowLocal,
-						"data-local-egress": true,
-						children: [
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-								className: ip_pool_module_css_default.mono,
-								children: t("statsLocalIp")
-							}),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("td", { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: `${ip_pool_module_css_default.statsDot} ${ip_pool_module_css_default.statsDotOk}`,
-								"aria-hidden": "true"
-							}), t("statsLocalState")] }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: (status?.local?.requests ?? 0).toLocaleString() }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : compact(status.local.tokens.inputTokens) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 ? t("statsNever") : /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [compact(status.local.tokens.outputTokens), outputSpeed(status.local.tokens) > 0 && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-								className: ip_pool_module_css_default.statsEndpoint,
-								children: t("statsSpeedNote", { count: outputSpeed(status.local.tokens).toLocaleString() })
-							})] }) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: status?.local === void 0 || cacheTotal(status.local.tokens) === 0 ? "—" : compact(cacheTotal(status.local.tokens)) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: t("statsNever") }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", { children: timeLabel(status?.local?.lastUsedAt ?? 0, t("statsNever")) }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("td", {
-								className: ip_pool_module_css_default.statsActions,
-								children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-									className: ip_pool_module_css_default.actionGroup,
-									children: status?.pinned?.local === true ? /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: ip_pool_module_css_default.rowAction,
-										disabled: busy !== "",
-										title: t("statsUnpinHint"),
-										"aria-label": t("statsUnpin"),
-										onClick: () => {
-											runExitAction("unpin");
-										},
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(UnpinIcon, {})
-									}) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
-										type: "button",
-										className: ip_pool_module_css_default.rowAction,
-										disabled: busy !== "",
-										title: t("statsPinLocalHint"),
-										"aria-label": t("statsPin"),
-										onClick: () => {
-											runExitAction("pin-local");
-										},
-										children: /* @__PURE__ */ (0, react_jsx_runtime.jsx)(PinIcon, {})
-									})
-								})
-							})
-						]
-					})] })]
+						})] })]
+					})
 				})
-			})
-		] })]
+			] }),
+			note !== null && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+				className: note.warn ? `${ip_pool_module_css_default.statsToast} ${ip_pool_module_css_default.statsToastWarn}` : ip_pool_module_css_default.statsToast,
+				style: { "--stats-toast-hold": `${TOAST_HOLD_MS}ms` },
+				role: "status",
+				children: note.text
+			}, note.seq)
+		]
 	})] });
 }
 
@@ -2314,7 +2334,7 @@ const zh = {
 	footerSpeed: "{count} tok/s",
 	footerDisabled: "IP 池未启用",
 	footerLocal: "本地直连",
-	statsTitle: "出口 IP 统计",
+	statsTitle: "数据统计",
 	statsDescription: "进程内累计（重启清零），总数 = 输入 + 输出 + 缓存读写；点击表头排序，默认按请求数降序。",
 	statsClose: "关闭",
 	statsSummaryRequests: "请求 {count}",
@@ -2485,7 +2505,7 @@ const en = {
 	footerSpeed: "{count} tok/s",
 	footerDisabled: "IP pool off",
 	footerLocal: "Local direct",
-	statsTitle: "Exit IP stats",
+	statsTitle: "Data stats",
 	statsDescription: "Process-lifetime totals (reset on restart; the total includes cache read/write); click a header to sort, request count desc by default.",
 	statsClose: "Close",
 	statsSummaryRequests: "{count} requests",
