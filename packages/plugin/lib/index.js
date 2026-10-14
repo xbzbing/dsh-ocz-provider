@@ -1567,7 +1567,7 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 					}
 				};
 			}
-			if (action === "remove") {
+			if (action === "rotate") {
 				const exitId = typeof body.exitId === "string" ? body.exitId : "";
 				if (!rt.pool.has(exitId)) return {
 					ok: false,
@@ -1580,13 +1580,13 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 					} catch {}
 					rt.pool.unpin();
 				}
-				const replaced = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false;
-				if (!replaced && rt.pool.has(exitId)) {
+				const promoted = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false;
+				if (!promoted && rt.pool.has(exitId)) {
 					if (rt.subscriptions?.busy === true) return {
 						ok: true,
 						value: {
-							removed: false,
-							replaced: false,
+							rotated: false,
+							promoted: false,
 							busy: true,
 							remaining: rt.pool.snapshot().total
 						}
@@ -1596,8 +1596,8 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 				return {
 					ok: true,
 					value: {
-						removed: true,
-						replaced,
+						rotated: true,
+						promoted,
 						remaining: rt.pool.snapshot().total
 					}
 				};
@@ -1605,7 +1605,7 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 			return {
 				ok: false,
 				code: "settings-rejected",
-				message: "exit action must be 'pin', 'pin-local', 'unpin' or 'remove'"
+				message: "exit action must be 'pin', 'pin-local', 'unpin' or 'rotate'"
 			};
 		}
 	};

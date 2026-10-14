@@ -23,6 +23,19 @@ const code = (source: string): string =>
     .filter((line) => !line.trimStart().startsWith('*') && !line.trimStart().startsWith('//') && !line.trimStart().startsWith('/*'))
     .join('\n')
 
+test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
+  // Live request 2026-10-14: the 固定/删除 text buttons became ICON buttons,
+  // and 删除 was renamed — nothing is deleted, the row is rotated (a reserve
+  // takes its slot, or it sinks to the pool tail). The icons are inline SVG
+  // paths, so their geometry is the cheapest thing to pin here.
+  const source = code(bundle())
+  assert.ok(source.includes('M5.6 7V5.2'), 'the 固定 padlock path is in the bundle')
+  assert.ok(source.includes('M12.8 8A4.8'), 'the 轮换 circular-arrow path is in the bundle')
+  assert.ok(source.includes('轮换'), 'the rotated-out action is named 轮换, not 删除')
+  assert.ok(!source.includes('已删除'), 'no user-visible string still says 已删除')
+  assert.ok(source.includes('statsRotateHint'), 'the icon buttons carry their explanation in a tooltip')
+})
+
 test('client bundle is built and well-formed', () => {
   const source = bundle()
   assert.ok(source.includes('window.__ModuleLoader__.load'), 'loader handoff present')

@@ -470,7 +470,7 @@
    input, output (which also carries the "N tok/s" note), cache, latency,
    last-used, actions. The `#` slot column was dropped and the location column
    became a tooltip on the IP cell (2026-10-14); the 地区 code column and the
-   actions column (固定 / 删除) were added back the same day on request. Keep
+   actions column (固定 / 轮换) were added back the same day on request. Keep
    this block in step with the header: a leftover rule silently squeezes the
    first column (measured 2026-10-14: IP at 4% after `#` was removed but its
    width rules stayed). */
@@ -598,19 +598,25 @@
   white-space: nowrap;
 }
 
-/* The actions column: two small buttons per row (固定/取消固定 + 删除). */
+/* The actions column: two ICON buttons per row (固定/取消固定 + 轮换). The
+   words live in the tooltip and the aria-label, so the buttons stay square and
+   the column stops competing with the numbers beside it. */
 .statsActions {
   white-space: nowrap;
 }
 
 .rowAction {
-  padding: 2px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
   border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
   border-radius: 5px;
   background: var(--dsw-alias-bg-layer-2, #f6f8fa);
   color: var(--dsw-alias-label-secondary, #4b5563);
-  font-size: 11px;
-  line-height: 1.6;
+  /* line-height 0 keeps the 13px glyph from adding baseline leading inside the
+     button, which would make the two buttons different heights. */
+  line-height: 0;
   cursor: pointer;
 }
 
@@ -628,9 +634,35 @@
   cursor: default;
 }
 
-.rowActionDanger:hover:not(:disabled) {
-  border-color: var(--dsw-alias-state-error-primary, #d1242f);
-  color: var(--dsw-alias-state-error-primary, #d1242f);
+/* The settings card's exit rows: the same two icon actions, sized to the text
+   buttons beside them (探测). NOT .rowRemove — that one's hover turns red,
+   which was right for a 删除 and is wrong for a 轮换. */
+.rowIcon {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.rowIcon:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.rowIcon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The exit table's action cell mixes a text button (探测) with the icon pair;
+   without this the three of them touch. */
+.tableGrid td > button + button {
+  margin-left: 4px;
 }
 
 /* The last action's outcome, above the table. A read-only profile lands in the

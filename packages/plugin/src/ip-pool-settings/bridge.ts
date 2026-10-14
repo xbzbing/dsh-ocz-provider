@@ -383,9 +383,11 @@ export interface BridgeHandlers {
   models(): Promise<BridgeResult>
   /**
    * One row action from the exit tables (live request 2026-10-14): pin,
-   * pin-local, unpin, or remove. The pin family writes `pinnedExitId` and
-   * applies live; `remove` drops the exit and promotes a reserve, or parks it
-   * at the tail when there is nothing to promote.
+   * pin-local, unpin, or rotate. The pin family writes `pinnedExitId` and
+   * applies live; `rotate` hands the row to the candidate list — a reserve
+   * takes its slot, or it sinks to the tail when there is nothing to promote.
+   * It was called `remove` until the operator pointed out that nothing is
+   * deleted: the row is rotated out.
    */
   exit(body: { action?: unknown; exitId?: unknown }): Promise<BridgeResult>
 }
@@ -483,12 +485,12 @@ export function makeBridgeHandlers(
         return { ok: true, value: { pinned: raw, local: raw === LOCAL_EXIT_ID, persisted } }
       }
 
-      if (action === 'remove') {
+      if (action === 'rotate') {
         const exitId = typeof body.exitId === 'string' ? body.exitId : ''
         if (!rt.pool.has(exitId)) {
           return { ok: false, code: 'unknown-exit', message: `exit "${exitId}" is not in the pool` }
         }
-        // Removing the pinned exit has to unpin first: the pin lives in the
+        // Rotating the pinned exit has to unpin first: the pin lives in the
         // settings, and a later commit would otherwise re-pin a row that is no
         // longer in the pool — and re-admit it as a manual row when the id
         // happens to parse as an address (subscription ids do).
@@ -500,24 +502,24 @@ export function makeBridgeHandlers(
         }
         // The subscription layer owns the candidate list: it promotes the
         // next-fastest reserve, or keeps the exit at the pool tail when the
-        // reserve is empty (both documented as "delete → refill, else sink").
-        const replaced = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false
-        if (!replaced && rt.pool.has(exitId)) {
+        // reserve is empty (both documented as "rotate → refill, else sink").
+        const promoted = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false
+        if (!promoted && rt.pool.has(exitId)) {
           // A running onboarding/trim holds the rebuild mutex and replaceExit()
           // answers false without consulting the reserve. Sinking the row then
           // would violate the request ("refill first, sink only when there is
           // nothing to promote"), so say busy instead and leave the row alone.
           if (rt.subscriptions?.busy === true) {
-            return { ok: true, value: { removed: false, replaced: false, busy: true, remaining: rt.pool.snapshot().total } }
+            return { ok: true, value: { rotated: false, promoted: false, busy: true, remaining: rt.pool.snapshot().total } }
           }
           // No onboarder at all (no subscription round ran in this process):
           // the row still has to stop outranking live exits.
           rt.pool.demoteToTail(exitId)
         }
-        return { ok: true, value: { removed: true, replaced, remaining: rt.pool.snapshot().total } }
+        return { ok: true, value: { rotated: true, promoted, remaining: rt.pool.snapshot().total } }
       }
 
-      return { ok: false, code: 'settings-rejected', message: "exit action must be 'pin', 'pin-local', 'unpin' or 'remove'" }
+      return { ok: false, code: 'settings-rejected', message: "exit action must be 'pin', 'pin-local', 'unpin' or 'rotate'" }
     },
   }
 }
