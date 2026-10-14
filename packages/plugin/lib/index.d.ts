@@ -41,7 +41,11 @@ interface IpPoolSettings {
   proxyHosts: string[];
   proxyPathPrefixes: string[];
   maxRotateAttempts: number;
+  /** 'total' (persisted ledger) or 'run' (this process); see the schema field. */
+  usageScope: UsageScopeSetting;
 }
+/** The two usage scopes the UI switches between. */
+type UsageScopeSetting = 'total' | 'run';
 //#endregion
 //#region src/config.d.ts
 /**
@@ -230,6 +234,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
+    usageScope: Schema<string, string, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
@@ -265,6 +270,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
+    usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;
 }>>, Schemastery.ObjectT<NoInfer<{
   /** Integration mode; `adapter` (default) is the shipped shape. */
@@ -332,6 +338,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
+    usageScope: Schema<string, string, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
     probeModels: Schema<string[], string[], "defined">;
@@ -367,6 +374,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
+    usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;
 }>>, "plain">;
 /**
@@ -547,6 +555,19 @@ interface PluginContext {
    * page instead of letting the domain auto-generate one. The 0.1.1
    * `register()/watch()` scope seam is gone and deliberately not re-declared.
    */
+  /**
+   * The host's workspace registry (`@deepseek-ai/dsh-workspace`), requested on
+   * demand: it is the authority on which project a session belongs to, and the
+   * usage ledger's 流量 tab joins session ids to it at read time.
+   */
+  workspaceRegistry?: {
+    list?(): Array<{
+      id: unknown;
+      title: string;
+      path: string;
+      sessionIds?: readonly unknown[];
+    }>;
+  };
   settings?: {
     describe?(options?: {
       redactSecrets?: boolean;

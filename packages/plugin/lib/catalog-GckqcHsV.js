@@ -24,6 +24,30 @@ function conversationSeed(messages) {
 	return "";
 }
 /**
+* A readable label for one conversation: its first user turn, flattened and
+* truncated. The usage ledger's top-session list is unusable without one —
+* `ses_9f2c…` says nothing about which conversation burned the tokens (live
+* request 2026-10-14). Text blocks are concatenated; images and tool results
+* contribute nothing.
+*/
+function conversationLabel(messages, limit = 64) {
+	const seed = conversationSeed(messages);
+	if (seed === "") return "";
+	let text = "";
+	try {
+		const parsed = JSON.parse(seed);
+		if (typeof parsed === "string") text = parsed;
+		else if (Array.isArray(parsed)) {
+			for (const block of parsed) if (block?.type === "text" && typeof block.text === "string") text += ` ${block.text}`;
+		}
+	} catch {
+		text = seed;
+	}
+	const flat = text.replace(/\s+/g, " ").trim();
+	if (flat === "") return "";
+	return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`;
+}
+/**
 * Derive the correlation ids for one upstream request. In adapter mode there
 * are no inbound opencode headers, so the seed is the conversation itself.
 */
@@ -593,4 +617,4 @@ function defaultCachePath(dataDir) {
 }
 
 //#endregion
-export { decodeModelsDev as a, isFreeModel as c, deriveRequestIDs as d, disguiseHeaders as f, stableID as h, decide as i, staticFreeModels as l, randomID as m, ModelCatalog as n, defaultCachePath as o, opencodeUserAgent as p, ZEN_BASE_URL as r, fetchZenModels as s, FREE_LANE_BLOCKLIST as t, canonicalSessionID as u };
+export { decodeModelsDev as a, isFreeModel as c, conversationLabel as d, deriveRequestIDs as f, stableID as g, randomID as h, decide as i, staticFreeModels as l, opencodeUserAgent as m, ModelCatalog as n, defaultCachePath as o, disguiseHeaders as p, ZEN_BASE_URL as r, fetchZenModels as s, FREE_LANE_BLOCKLIST as t, canonicalSessionID as u };

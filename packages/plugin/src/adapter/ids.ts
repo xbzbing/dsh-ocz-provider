@@ -47,6 +47,33 @@ export function conversationSeed(messages: Array<{ role: string; content: unknow
 }
 
 /**
+ * A readable label for one conversation: its first user turn, flattened and
+ * truncated. The usage ledger's top-session list is unusable without one —
+ * `ses_9f2c…` says nothing about which conversation burned the tokens (live
+ * request 2026-10-14). Text blocks are concatenated; images and tool results
+ * contribute nothing.
+ */
+export function conversationLabel(messages: Array<{ role: string; content: unknown }>, limit = 64): string {
+  const seed = conversationSeed(messages)
+  if (seed === '') return ''
+  let text = ''
+  try {
+    const parsed = JSON.parse(seed) as unknown
+    if (typeof parsed === 'string') text = parsed
+    else if (Array.isArray(parsed)) {
+      for (const block of parsed as Array<{ type?: string; text?: string }>) {
+        if (block?.type === 'text' && typeof block.text === 'string') text += ` ${block.text}`
+      }
+    }
+  } catch {
+    text = seed
+  }
+  const flat = text.replace(/\s+/g, ' ').trim()
+  if (flat === '') return ''
+  return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`
+}
+
+/**
  * Derive the correlation ids for one upstream request. In adapter mode there
  * are no inbound opencode headers, so the seed is the conversation itself.
  */

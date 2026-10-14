@@ -69,14 +69,32 @@ function zeroTotals(): TokenTotals {
 /** A fresh all-zero bucket (bridge stubs for a disabled pool). */
 export const emptyTotals = zeroTotals
 
+/**
+ * Who a response belongs to, for the persistent ledger's per-session view
+ * (live request 2026-10-14). Optional everywhere: the process-lifetime tracker
+ * has no session dimension, and an adapter call that carries no session id
+ * simply lands in the per-day/per-exit totals alone.
+ */
+export interface UsageRecordMeta {
+  /** Session the response belongs to (the host's session id when there is one). */
+  session?: string
+  /** Human label for that session (its first user turn, truncated). */
+  label?: string
+}
+
+/** The write face {@link attributeUsage} needs (the tracker, or the ledger). */
+export interface UsageRecorder {
+  record(exitId: string, usage: TokenUsage, meta?: UsageRecordMeta): void
+}
+
 /** Mutable accumulator map keyed by exit id. One instance per process. */
-export class UsageTracker {
+export class UsageTracker implements UsageRecorder {
   #byExit = new Map<string, TokenTotals>()
   /** Last record time per bucket (epoch ms) — the modal's 最后使用 column. */
   #lastAt = new Map<string, number>()
 
   /** Attribute one response's usage to one exit id. */
-  record(exitId: string, usage: TokenUsage): void {
+  record(exitId: string, usage: TokenUsage, _meta?: UsageRecordMeta): void {
     const bucket = this.#byExit.get(exitId) ?? zeroTotals()
     const input = usage.inputTokens ?? 0
     const output = usage.outputTokens ?? 0
@@ -117,6 +135,21 @@ export class UsageTracker {
 export const usageTracker = new UsageTracker()
 
 /**
+ * Where `attributeUsage` writes by default. The plugin swaps in the persistent
+ * ledger at apply() time (usage-store.ts), which keeps the run-scope tracker
+ * inside itself — this seam exists so usage.ts never has to import the ledger
+ * (the two modules would form an import cycle, and the ledger pulls node:fs in
+ * with it). A composition without the swap keeps the plain in-process tracker,
+ * which is also what the unit tests exercise.
+ */
+let activeRecorder: UsageRecorder = usageTracker
+
+/** Install the recorder `attributeUsage` should write to (null restores the tracker). */
+export function setUsageRecorder(recorder: UsageRecorder | null): void {
+  activeRecorder = recorder ?? usageTracker
+}
+
+/**
  * Pass a chunk stream through, recording every `usage` chunk against the
  * routing context's exit stamp. Placed around the adapter's per-attempt
  * output so each attempt's tokens land on the exit that actually carried
@@ -140,11 +173,12 @@ export const usageTracker = new UsageTracker()
  * healthy (the failure mode this bucket was added for, live 2026-10-13).
  */
 export async function* attributeUsage(
-  store: { exitId?: string },
+  store: { exitId?: string; usageSession?: string; usageLabel?: string },
   source: AsyncGenerator<HarnessChunk>,
-  tracker: UsageTracker = usageTracker,
+  recorder: UsageRecorder | undefined = undefined,
   now: () => number = Date.now,
 ): AsyncGenerator<HarnessChunk> {
+  const target = recorder ?? activeRecorder
   let firstDeltaAt: number | undefined
   for await (const chunk of source) {
     if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta' || chunk.type === 'tool-call-delta') {
@@ -154,7 +188,11 @@ export async function* attributeUsage(
       // carrying several responses (a recovery re-send) starts a fresh one.
       const durationMs = firstDeltaAt === undefined ? undefined : Math.max(1, now() - firstDeltaAt)
       firstDeltaAt = undefined
-      tracker.record(store.exitId ?? LOCAL_EXIT_ID, { ...chunk.usage, durationMs })
+      target.record(
+        store.exitId ?? LOCAL_EXIT_ID,
+        { ...chunk.usage, durationMs },
+        { session: store.usageSession, label: store.usageLabel },
+      )
     }
     yield chunk
   }

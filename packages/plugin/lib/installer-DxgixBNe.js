@@ -1,4 +1,4 @@
-import { i as resolveProxyPathPrefixes, r as resolveProxyHosts, t as PoolRoutingDispatcher } from "./dispatcher-ko3LVHp4.js";
+import { i as resolveProxyPathPrefixes, r as resolveProxyHosts, t as PoolRoutingDispatcher } from "./dispatcher-BfnX7k6I.js";
 
 //#region src/pool/installer.ts
 var RoutingInstaller = class {

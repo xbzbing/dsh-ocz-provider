@@ -31,7 +31,7 @@ var UsageTracker = class {
 	/** Last record time per bucket (epoch ms) — the modal's 最后使用 column. */
 	#lastAt = /* @__PURE__ */ new Map();
 	/** Attribute one response's usage to one exit id. */
-	record(exitId, usage) {
+	record(exitId, usage, _meta) {
 		const bucket = this.#byExit.get(exitId) ?? zeroTotals();
 		const input = usage.inputTokens ?? 0;
 		const output = usage.outputTokens ?? 0;
@@ -66,6 +66,19 @@ var UsageTracker = class {
 /** The process-lifetime tracker: adapter writes, status bridge reads. */
 const usageTracker = new UsageTracker();
 /**
+* Where `attributeUsage` writes by default. The plugin swaps in the persistent
+* ledger at apply() time (usage-store.ts), which keeps the run-scope tracker
+* inside itself — this seam exists so usage.ts never has to import the ledger
+* (the two modules would form an import cycle, and the ledger pulls node:fs in
+* with it). A composition without the swap keeps the plain in-process tracker,
+* which is also what the unit tests exercise.
+*/
+let activeRecorder = usageTracker;
+/** Install the recorder `attributeUsage` should write to (null restores the tracker). */
+function setUsageRecorder(recorder) {
+	activeRecorder = recorder ?? usageTracker;
+}
+/**
 * Pass a chunk stream through, recording every `usage` chunk against the
 * routing context's exit stamp. Placed around the adapter's per-attempt
 * output so each attempt's tokens land on the exit that actually carried
@@ -88,16 +101,20 @@ const usageTracker = new UsageTracker();
 * that model traffic is leaving from this machine even while the pool looks
 * healthy (the failure mode this bucket was added for, live 2026-10-13).
 */
-async function* attributeUsage(store, source, tracker = usageTracker, now = Date.now) {
+async function* attributeUsage(store, source, recorder = void 0, now = Date.now) {
+	const target = recorder ?? activeRecorder;
 	let firstDeltaAt;
 	for await (const chunk of source) {
 		if (chunk.type === "text-delta" || chunk.type === "reasoning-delta" || chunk.type === "tool-call-delta") firstDeltaAt ??= now();
 		else if (chunk.type === "usage") {
 			const durationMs = firstDeltaAt === void 0 ? void 0 : Math.max(1, now() - firstDeltaAt);
 			firstDeltaAt = void 0;
-			tracker.record(store.exitId ?? LOCAL_EXIT_ID, {
+			target.record(store.exitId ?? LOCAL_EXIT_ID, {
 				...chunk.usage,
 				durationMs
+			}, {
+				session: store.usageSession,
+				label: store.usageLabel
 			});
 		}
 		yield chunk;
@@ -464,4 +481,4 @@ var PoolRoutingDispatcher = class {
 };
 
 //#endregion
-export { routingContext as a, attributeUsage as c, resolveProxyPathPrefixes as i, emptyTotals as l, exitProxyUri as n, DIRECT_EXIT_ID as o, resolveProxyHosts as r, LOCAL_EXIT_ID as s, PoolRoutingDispatcher as t, usageTracker as u };
+export { routingContext as a, UsageTracker as c, setUsageRecorder as d, usageTracker as f, resolveProxyPathPrefixes as i, attributeUsage as l, exitProxyUri as n, DIRECT_EXIT_ID as o, resolveProxyHosts as r, LOCAL_EXIT_ID as s, PoolRoutingDispatcher as t, emptyTotals as u };
