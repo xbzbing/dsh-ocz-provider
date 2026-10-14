@@ -7,10 +7,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/xbzbing/opencode2dsh.git"
+    "url": "git+https://github.com/xbzbing/dsh-ocz-provider.git"
   },
-  "homepage": "https://github.com/xbzbing/opencode2dsh#readme",
-  "bugs": "https://github.com/xbzbing/opencode2dsh/issues",
+  "homepage": "https://github.com/xbzbing/dsh-ocz-provider#readme",
+  "bugs": "https://github.com/xbzbing/dsh-ocz-provider/issues",
   "engines": {
     "node": ">=20"
   },

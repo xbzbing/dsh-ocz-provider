@@ -37,14 +37,14 @@ OpenCode 官方 CLI 无需登录即可使用的那批免费模型，它们会以
 **从 GitHub 安装**：
 
 ```sh
-dsh plugin --profile web add github:xbzbing/opencode2dsh
+dsh plugin --profile web add github:xbzbing/dsh-ocz-provider
 ```
 
 **从本地检出安装**：
 
 ```sh
-git clone https://github.com/xbzbing/opencode2dsh.git
-dsh plugin --profile web add file:/path/to/opencode2dsh
+git clone https://github.com/xbzbing/dsh-ocz-provider.git
+dsh plugin --profile web add file:/path/to/dsh-ocz-provider
 ```
 
 **从 tarball 安装**（可选）：
@@ -163,8 +163,8 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 ## 开发
 
 ```sh
-git clone https://github.com/xbzbing/opencode2dsh.git
-cd opencode2dsh
+git clone https://github.com/xbzbing/dsh-ocz-provider.git
+cd dsh-ocz-provider
 pnpm install                         # 构建工具链
 pnpm typecheck && pnpm test          # 全量门禁
 pnpm build                           # 干净构建两个半 + 写新鲜度清单

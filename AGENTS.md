@@ -10,7 +10,7 @@ this before changing anything.
 registers a native dsh-llm adapter and streams from OpenCode Zen's anonymous
 free lane (`Authorization: Bearer public`, no API key), impersonating the
 official client's wire fingerprint. The repository root IS the installable
-package (`dsh plugin add file:<repo>` or `github:xbzbing/opencode2dsh`); `lib/`
+package (`dsh plugin add file:<repo>` or `github:xbzbing/dsh-ocz-provider`); `lib/`
 is committed because neither install path runs a lifecycle script.
 
 Upstream this fork ported fixes from: `jasonxu114514/opencode2api` (its Go
