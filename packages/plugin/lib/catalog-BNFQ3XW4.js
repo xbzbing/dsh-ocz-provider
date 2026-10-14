@@ -3,10 +3,6 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 
 //#region src/adapter/ids.ts
-/** sha256("prefix\0value") truncated to 12 bytes: stable, non-reversible. */
-function stableID(prefix, value) {
-	return `${prefix}_${createHash("sha256").update(prefix + "\0" + value).digest().subarray(0, 12).toString("hex")}`;
-}
 function randomID(prefix, size) {
 	return `${prefix}_${randomBytes(size).toString("hex")}`;
 }
@@ -48,16 +44,35 @@ function conversationLabel(messages, limit = 64) {
 	return flat.length <= limit ? flat : `${flat.slice(0, limit - 1)}…`;
 }
 /**
+* The project id sent upstream. `ProjectID` in the client is a PLAIN string —
+* `"global"` for a directory that is not a git worktree, otherwise the 40-hex
+* worktree hash (`ids.ts` `init_project_id`; live-observed `global` and
+* `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`). It has no prefix: the client's
+* id prefix table lists job/event/session/message/permission/question/part/
+* pty/tool/workspace and NOT project. The `prj_<24hex>` this adapter used to
+* mint is now a rejection signal — live-probed 2026-10-14 against
+* `/inference/v1` with an otherwise-passing request: `prj_*` -> 403
+* FreeTierError, `global` / a 40-hex id / the header omitted -> 200. The
+* adapter has no worktree, so it sends what the client sends for a non-git
+* directory.
+*/
+const DEFAULT_PROJECT_ID = "global";
+/**
 * Derive the correlation ids for one upstream request. In adapter mode there
 * are no inbound opencode headers, so the seed is the conversation itself.
+*
+* Both non-session ids are now shape-checked by the gate (live-probed
+* 2026-10-14): `x-opencode-request` must be a `msg_*` MESSAGE id — the client
+* sends `input.user.id`, i.e. the user turn's id — and a `req_<hex>` there
+* answers 403; `x-opencode-project` must be the prefix-less project id above.
 */
 function deriveRequestIDs(messages) {
 	let signal = conversationSeed(messages);
 	if (signal === "" || signal === "{}") signal = randomID("fallback", 16);
 	return {
 		session: canonicalSessionID(signal),
-		request: randomID("req", 16),
-		project: stableID("prj", "opencode2dsh:default-project"),
+		request: mintedMessageID(),
+		project: DEFAULT_PROJECT_ID,
 		parentSession: ""
 	};
 }
@@ -114,6 +129,24 @@ function mintedTimePrefix() {
 	for (let bit = 40; bit >= 0; bit -= 8) hex += Number(value >> BigInt(bit) & 255n).toString(16).padStart(2, "0");
 	return hex;
 }
+/** Clock state for the ascending message-id prefix (kept apart from sessions). */
+let messageCounter = 0;
+/**
+* A `msg_*` request id, shaped exactly like the client's
+* `Session.Message.ID.create()`: `"msg_" + ascending()`, where the ascending
+* scheme is the same `unix_ms * 0x1000 + counter` low-48-bit encoding as the
+* session prefix WITHOUT the inversion, plus a random Base62 tail. The gate
+* only ever sees it as the `x-opencode-request` header, so the tail carries no
+* affinity: one fresh id per request is what the client does (`input.user.id`
+* is that request's own user turn).
+*/
+function mintedMessageID() {
+	messageCounter = messageCounter + 1 & 4095;
+	const value = BigInt(Date.now()) * 4096n + BigInt(messageCounter);
+	let hex = "";
+	for (let bit = 40; bit >= 0; bit -= 8) hex += Number(value >> BigInt(bit) & 255n).toString(16).padStart(2, "0");
+	return `msg_${hex}${base62Fixed(BigInt("0x" + randomBytes(10).toString("hex")), 14)}`;
+}
 /**
 * The session id sent upstream. A signal that already carries an official
 * OpenCode session passes through unchanged (preserving upstream prompt-cache
@@ -142,15 +175,25 @@ function opencodeUserAgent() {
 }
 /**
 * The full disguise header set sent with every upstream request
-* (design.md 2.4; gateway.go newUpstreamRequest:640-669).
+* (design.md 2.4; gateway.go newUpstreamRequest:640-669), as re-derived from
+* the real client on 2026-10-14.
+*
+* For a provider whose id starts with `opencode` the client sends exactly
+* `x-opencode-session-id`, `x-opencode-session`, `x-opencode-request`,
+* `x-opencode-client` and `User-Agent`; `x-session-affinity` and `X-Session-Id`
+* belong to its OTHER providers' branch. The 2026-10-09 gate accepted any one
+* of the three session spellings, so this adapter sent all three — but the
+* 2026-10-14 gate treats them as a foreign-client signal: live-probed against
+* `/inference/v1` with an otherwise-passing request, adding
+* `x-session-affinity` and/or `X-Session-Id` -> 403 FreeTierError, while
+* `x-opencode-session` alone (or with `x-opencode-session-id`) -> 200.
 */
 function disguiseHeaders(ids) {
 	return {
 		"user-agent": opencodeUserAgent(),
 		"x-opencode-client": "cli",
 		"x-opencode-session": ids.session,
-		"x-session-affinity": ids.session,
-		"X-Session-Id": ids.session,
+		"x-opencode-session-id": ids.session,
 		"x-opencode-request": ids.request,
 		"x-opencode-project": ids.project
 	};
@@ -168,7 +211,28 @@ function disguiseHeaders(ids) {
 *
 * /v1/models-equivalent exposure = S1 ∩ S2-allowed (or S3 while S1 is pending).
 */
-const ZEN_BASE_URL = "https://opencode.ai/zen";
+/**
+* The anonymous lane's base URL (every caller appends `/v1`).
+*
+* It was `https://opencode.ai/zen` until 2026-10-14, when OpenCode moved the
+* whole lane — free models included — to `https://opencode.ai/inference/v1`.
+* Four independent sources agree: the client's runtime catalog
+* (`https://models.opencode.ai/api.json`, read at every boot, whose `opencode`
+* provider entry now carries `api: https://opencode.ai/inference/v1`),
+* models.dev's `opencode` entry (the same URL), the Console model table at
+* `https://opencode.ai/v2/docs/console/models/` (every free id is listed with
+* an `/inference/v1/...` endpoint), and the client's own request, captured
+* 2026-10-14 from OpenCode Desktop 1.19.0 (a `POST` to
+* `/inference/v1/chat/completions` that answered 200).
+*
+* Live-probed the same day: a request that passes on `/inference/v1` — the
+* genuine gate tools, a `msg_*` request id, the real project id, the minted
+* `ses_*` session — answers **403 FreeTierError** on `/zen/v1`, so the old
+* lane is closed rather than merely deprecated. `/zen/v1/models` alone still
+* answers 200, which is why this plugin's catalog stayed green (and its
+* `adapter-status.json` reported `ready`) while every chat request failed.
+*/
+const ZEN_BASE_URL = "https://opencode.ai/inference";
 /**
 * Free-lane blocklist (issue #56 live matrix, 2026-10-10): models the live
 * chat lane can never serve. The Zen catalog still lists them, so S1 alone
@@ -617,4 +681,4 @@ function defaultCachePath(dataDir) {
 }
 
 //#endregion
-export { decodeModelsDev as a, isFreeModel as c, conversationLabel as d, deriveRequestIDs as f, stableID as g, randomID as h, decide as i, staticFreeModels as l, opencodeUserAgent as m, ModelCatalog as n, defaultCachePath as o, disguiseHeaders as p, ZEN_BASE_URL as r, fetchZenModels as s, FREE_LANE_BLOCKLIST as t, canonicalSessionID as u };
+export { decodeModelsDev as a, isFreeModel as c, canonicalSessionID as d, conversationLabel as f, opencodeUserAgent as g, mintedMessageID as h, decide as i, staticFreeModels as l, disguiseHeaders as m, ModelCatalog as n, defaultCachePath as o, deriveRequestIDs as p, ZEN_BASE_URL as r, fetchZenModels as s, FREE_LANE_BLOCKLIST as t, DEFAULT_PROJECT_ID as u };

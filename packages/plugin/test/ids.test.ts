@@ -1,20 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { canonicalSessionID, conversationSeed, deriveRequestIDs, disguiseHeaders, opencodeUserAgent, randomID, stableID } from '../src/adapter/ids.ts'
-
-test('stableID is deterministic and sha256-truncated', () => {
-  const first = stableID('ses', 'hello')
-  const second = stableID('ses', 'hello')
-  assert.equal(first, second)
-  assert.ok(first.startsWith('ses_'))
-  const hex = first.slice('ses_'.length)
-  assert.equal(hex.length, 24, '12 bytes hex')
-  const expected = createHash('sha256').update('ses\x00hello').digest().subarray(0, 12).toString('hex')
-  assert.equal(hex, expected)
-  assert.notEqual(stableID('ses', 'world'), first)
-  assert.notEqual(stableID('prj', 'hello'), first, 'prefix is part of the hash input')
-})
+import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID } from '../src/adapter/ids.ts'
 
 test('randomID differs per call with the requested size', () => {
   const a = randomID('req', 16)
@@ -120,7 +107,12 @@ test('deriveRequestIDs keeps the session stable across turns and randomizes requ
   assert.equal(first.session, second.session)
   assert.notEqual(first.request, second.request)
   assert.equal(first.project, second.project)
-  assert.ok(first.project.startsWith('prj_'))
+  // 2026-10-14: the request id must be a msg_* MESSAGE id and the project id
+  // must be the client's prefix-less `ProjectID` — `req_*` and `prj_*` each
+  // answer 403 FreeTierError on their own (live-probed against /inference/v1).
+  assert.match(first.request, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+  assert.equal(first.project, DEFAULT_PROJECT_ID)
+  assert.equal(first.project, 'global')
   assert.equal(first.parentSession, '')
   // fallback: no user content at all still yields usable ids
   const empty = deriveRequestIDs([{ role: 'system', content: 'only system' }])
@@ -134,8 +126,12 @@ test('disguiseHeaders carries the CLI-identical correlation set', () => {
   assert.equal(headers['user-agent'], opencodeUserAgent())
   assert.equal(headers['x-opencode-client'], 'cli')
   assert.equal(headers['x-opencode-session'], ids.session)
-  assert.equal(headers['x-session-affinity'], ids.session)
-  assert.equal(headers['X-Session-Id'], ids.session)
+  assert.equal(headers['x-opencode-session-id'], ids.session)
+  // the client sends x-session-affinity / X-Session-Id only for its NON-opencode
+  // providers; adding them to an opencode-provider request is a 403 since
+  // 2026-10-14 (they were the 2026-10-09 workaround).
+  assert.equal(headers['x-session-affinity'], undefined)
+  assert.equal(headers['X-Session-Id'], undefined)
   assert.equal(headers['x-opencode-request'], ids.request)
   assert.equal(headers['x-opencode-project'], ids.project)
   assert.ok(headers['user-agent'].startsWith('opencode/'))

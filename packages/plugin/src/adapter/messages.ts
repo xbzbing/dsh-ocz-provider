@@ -1,4 +1,11 @@
 import { apiForModel } from './routing.ts'
+import {
+  FREE_LANE_GATE_TOOL_NAMES,
+  freeLaneGateFlatTool,
+  freeLaneGateTool,
+  isGenuineFlatGateTool,
+  isGenuineGateTool,
+} from './gate-tools.ts'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -332,46 +339,50 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
 }
 
 /**
- * The anonymous free-lane gate (~2026-10-09, issue #56; live-probed again
- * 2026-10-11): a chat request passes with HTTP 200 only when ALL hold:
- *   1. a canonical `ses_*` id in a session header (`x-opencode-session`,
- *      `x-session-affinity` and `X-Session-Id` all work — any ONE suffices;
- *      bad-shape ids 403);
- *   2. a streaming body (`stream: true` — non-stream 403s);
- *   3. an agent-shaped `tools` array: `bash`+`read` pass (200), `shell`+1
- *      known name pass (200), but `bash` alone, `shell` alone, and 5 known
- *      names WITHOUT bash/shell all 403. Schemas and descriptions go
- *      uninspected.
- * The `Bearer public` credential and the User-Agent spelling are NOT gates
- * (both pass on /zen/v1; only /inference/openai 401s the Bearer). The shipped
- * recipe stays the 2026-09-18 bash+read pair: minimal, host-named, and valid
- * on both the /zen and /inference lanes.
- */
-export const FREE_LANE_GATE_TOOL_NAMES = ['bash', 'read'] as const
-
-/**
- * Inbound tool-call names rewritten before the chunk stream leaves the
- * adapter (zen-adapter.ts hands this to toStreamChunks). Empty on the shipped
- * recipe: every injected stub is call-disabled or host-named, so nothing the
- * model can call needs a rename. Kept as the seam for a future gate spelling
- * that forces an alias (e.g. a mandatory `shell`).
+ * The anonymous free-lane gate, as re-probed on 2026-10-14 against
+ * `POST https://opencode.ai/inference/v1/chat/completions` — the lane moved
+ * there the same day (adapter/catalog.ts `ZEN_BASE_URL`). A chat request
+ * answers 200 only when ALL of these hold:
+ *
+ *   1. the endpoint is `/inference/v1`: the old `/zen/v1` now answers 403
+ *      FreeTierError for EVERY shape, including a byte-copy of the client's
+ *      own request. `/zen/v1/models` alone still answers 200, which is why
+ *      the catalog and the settings card's `/status` stayed green while every
+ *      chat died;
+ *   2. a canonical `ses_*` id rides `x-opencode-session` (or
+ *      `x-opencode-session-id`) — and NOT `x-session-affinity` /
+ *      `X-Session-Id`, which the client sends only for its other providers and
+ *      which now mark a foreign client (adapter/ids.ts);
+ *   3. `x-opencode-request` is a `msg_*` message id and `x-opencode-project`
+ *      is the prefix-less project id (`global`, or a 40-hex worktree hash) —
+ *      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts);
+ *   4. a streaming body (`stream: true`);
+ *   5. a `tools` array carrying `bash` AND `read` with the GENUINE definitions
+ *      (adapter/gate-tools.ts — the placeholder stubs this file used to inject
+ *      are now themselves a rejection signal), while extra tools are ignored;
+ *   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass).
+ *
+ * NOT gates, measured the same day: `Bearer public`, the User-Agent's exact
+ * version (a bare `opencode/1.19.0` fails but `opencode/1.18.31 (darwin
+ * arm64; node24.21.0)` passes — keep the platform/parenthetical tail),
+ * `max_tokens`, `temperature`, and the system prompt's content (the client's
+ * title prompt must not ride WITH tools — that pair 403s — but any other
+ * prompt passes).
+ *
+ * The two shapes are mutually exclusive at the edges: a no-tools request is
+ * only accepted with the client's exact title-generator prompt, which is why
+ * this adapter always ensures the gate tools are present rather than ever
+ * sending an empty `tools` array.
  */
 export const GATE_TOOL_ALIASES: Record<string, string> = {}
 
-export interface FreeLaneGateTool {
-  type: 'function'
-  function: { name: string; description: string; parameters: Record<string, unknown> }
-}
-
-export function freeLaneGateTool(name: (typeof FREE_LANE_GATE_TOOL_NAMES)[number]): FreeLaneGateTool {
-  return {
-    type: 'function',
-    function: {
-      name,
-      description: 'Reserved for the host runtime; do not call it.',
-      parameters: { type: 'object', properties: {} },
-    },
-  }
+/** The name of a tool entry in either lane's shape (chat nests it, responses
+ *  hoists it). */
+function toolEntryName(entry: unknown, flat: boolean): string | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const record = entry as { name?: unknown; function?: { name?: unknown } }
+  const name = flat ? record.name : record.function?.name
+  return typeof name === 'string' ? name : undefined
 }
 
 /** Responses uses flat function tools and its Zen gateway accepts auto only. */
@@ -379,46 +390,60 @@ export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefi
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
   const body = payload as Record<string, unknown>
   if (!Array.isArray(body.input)) return undefined
-  const tools = Array.isArray(body.tools) ? body.tools as unknown[] : []
-  const names = new Set(tools.map((tool) => {
-    if (typeof tool !== 'object' || tool === null) return undefined
-    const candidate = tool as { type?: unknown; name?: unknown }
-    return candidate.type === 'function' ? candidate.name : undefined
-  }))
-  const missing = FREE_LANE_GATE_TOOL_NAMES.filter((name) => !names.has(name))
+  const tools = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : []
+  let changed = false
+  for (const name of FREE_LANE_GATE_TOOL_NAMES) {
+    const index = tools.findIndex((tool) => toolEntryName(tool, true) === name)
+    if (index === -1) {
+      tools.push(freeLaneGateFlatTool(name))
+      changed = true
+    } else if (!isGenuineFlatGateTool(name, tools[index])) {
+      tools[index] = freeLaneGateFlatTool(name)
+      changed = true
+    }
+  }
   const invalidChoice = body.tool_choice !== undefined && body.tool_choice !== 'auto'
-  if (missing.length === 0 && !invalidChoice) return undefined
+  if (!changed && !invalidChoice) return undefined
   return {
     ...body,
-    tools: [...tools, ...missing.map((name) => ({ type: 'function', ...freeLaneGateTool(name).function }))],
+    tools,
     tool_choice: 'auto',
   }
 }
 
 /**
  * Rewrite an outgoing chat-completions payload so it satisfies the free-lane
- * agent-shape gate (wired through pi-ai's onPayload). Appends only the gate
- * tools the payload is missing; when the context carried no tools at all,
- * tool_choice 'none' keeps the model from ever calling the injected stubs,
- * while client-provided tool choices are preserved untouched. Returns
- * undefined when the payload already satisfies the gate or is not a
- * chat-completions body (pi-ai keeps the original in that case).
+ * gate (wired through pi-ai's onPayload).
+ *
+ * The gate tools must be the GENUINE definitions, so an entry that already
+ * carries a gate name is REPLACED unless it is already genuine: the host's own
+ * `bash`/`read` (DSH's are named exactly that) would otherwise ride out with
+ * the host's schema and draw a 403. The adapter bridges the call's arguments
+ * back to the host's shape on the way in (gate-tools.ts
+ * `gateToolArgumentBridge`). Missing gate tools are appended, a
+ * `tool_choice: 'none'` is dropped (the gate rejects it), and the function
+ * returns undefined when nothing had to change — pi-ai then keeps the
+ * original payload untouched.
  */
 export function ensureFreeLaneShape(payload: unknown): unknown | undefined {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
   const body = payload as Record<string, unknown>
   if (!Array.isArray(body.messages)) return undefined
-  const tools = Array.isArray(body.tools) ? (body.tools as unknown[]) : []
-  const names = new Set(
-    tools.map((tool) => {
-      const fn = typeof tool === 'object' && tool !== null ? (tool as { function?: { name?: unknown } }).function : undefined
-      return typeof fn === 'object' && fn !== null ? fn.name : undefined
-    }),
-  )
-  const missing = FREE_LANE_GATE_TOOL_NAMES.filter((name) => !names.has(name))
-  if (missing.length === 0) return undefined
-  const next: Record<string, unknown> = { ...body }
-  next.tools = [...tools, ...missing.map((name) => freeLaneGateTool(name))]
-  if (tools.length === 0) next.tool_choice = 'none'
+  const tools = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : []
+  let changed = false
+  for (const name of FREE_LANE_GATE_TOOL_NAMES) {
+    const index = tools.findIndex((tool) => toolEntryName(tool, false) === name)
+    if (index === -1) {
+      tools.push(freeLaneGateTool(name))
+      changed = true
+    } else if (!isGenuineGateTool(name, tools[index])) {
+      tools[index] = freeLaneGateTool(name)
+      changed = true
+    }
+  }
+  const dropsNone = body.tool_choice === 'none'
+  if (!changed && !dropsNone) return undefined
+  const next: Record<string, unknown> = { ...body, tools }
+  if (dropsNone) delete next.tool_choice
   return next
 }

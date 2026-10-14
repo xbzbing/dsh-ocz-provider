@@ -77,7 +77,7 @@ export interface PoolRoutingOptions {
   proxyHosts?: string[]
   /**
    * Path prefixes ON those hosts that the pool carries (default
-   * `/zen/v1` = this plugin's own lane). Empty means every path.
+   * `/inference/v1` = this plugin's own lane). Empty means every path.
    */
   proxyPathPrefixes?: string[]
   /** Per-exit ProxyAgent cache LRU cap (connection setup is lazy). */
@@ -100,20 +100,29 @@ const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
  * The path prefixes this plugin's OWN traffic uses on the proxied hosts.
  *
  * Host matching alone is too coarse to mean "our traffic": one opencode.ai
- * serves ZEN's free lane (`/zen/v1` — what this plugin's adapter calls), the
- * paid/go lane (`/zen/go/v1`, driven by the separate `opencode-go` provider)
- * and the usage-billing plugin's `/zen/go/v1/usage` poll. Live 2026-10-13
- * with host-only routing: 77 `POST /zen/go/v1/chat/completions` in 6.3
- * minutes (≈12/min) were proxied through the airport exits and counted as
- * requests with zero tokens (tokens are attributed only for traffic that
- * flows through our adapter), so "I stopped using opencode2dsh models" and
- * "the request count keeps climbing" were both true — and paid-lane traffic
- * was egressing through free airport exits by accident.
+ * serves the free lane this plugin's adapter calls, the paid/go lane (driven
+ * by the separate `opencode-go` provider) and the usage-billing plugin's
+ * usage poll. Live 2026-10-13 with host-only routing: 77 `POST
+ * /zen/go/v1/chat/completions` in 6.3 minutes (≈12/min) were proxied through
+ * the airport exits and counted as requests with zero tokens (tokens are
+ * attributed only for traffic that flows through our adapter), so "I stopped
+ * using opencode2dsh models" and "the request count keeps climbing" were both
+ * true — and paid-lane traffic was egressing through free airport exits by
+ * accident.
+ *
+ * The lane moved on 2026-10-14: the adapter now calls
+ * `https://opencode.ai/inference/v1` (adapter/catalog.ts `ZEN_BASE_URL`) and
+ * the go lane sits at `/inference/go/v1`, so the default follows the adapter —
+ * `/inference/v1` does not take `/inference/go/v1` (segment-aware match
+ * below), which keeps the isolation this constant exists for. An operator whose
+ * profile still stores the old `/zen/v1` keeps their explicit value; the
+ * settings card shows it, and `/inference/v1` must be added there for the pool
+ * to carry the lane again.
  *
  * Empty means "every path on the proxied hosts" (the old behaviour), which
  * stays reachable for anyone who wants the pool to carry the whole host.
  */
-export const DEFAULT_PROXY_PATH_PREFIXES = ['/zen/v1']
+export const DEFAULT_PROXY_PATH_PREFIXES = ['/inference/v1']
 
 /**
  * The effective path-prefix list: an absent OR EMPTY list means the default.
@@ -129,7 +138,7 @@ export function resolveProxyPathPrefixes(prefixes?: readonly string[] | null): s
   return normalized.length > 0 ? normalized : [...DEFAULT_PROXY_PATH_PREFIXES]
 }
 
-/** 'zen/v1/', '/zen/v1?x=1' -> '/zen/v1'; an unusable entry -> '' (dropped). */
+/** 'inference/v1/', '/inference/v1?x=1' -> '/inference/v1'; an unusable entry -> '' (dropped). */
 export function normalizePathPrefix(prefix: string): string {
   const trimmed = (prefix ?? '').trim().split('?')[0]?.trim() ?? ''
   if (trimmed === '') return ''
@@ -137,8 +146,9 @@ export function normalizePathPrefix(prefix: string): string {
   return rooted.length > 1 ? rooted.replace(/\/+$/, '') : rooted
 }
 
-/** Segment-aware prefix match: '/zen/v1' takes '/zen/v1' and
- *  '/zen/v1/chat/completions?x=1', never '/zen/v10' or '/zen/go/v1'. */
+/** Segment-aware prefix match: '/inference/v1' takes '/inference/v1' and
+ *  '/inference/v1/chat/completions?x=1', never '/inference/v10' or
+ *  '/inference/go/v1'. */
 export function matchesPathPrefix(path: string, prefix: string): boolean {
   const clean = path.split('?')[0] ?? ''
   if (prefix === '/') return true
@@ -350,13 +360,14 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       return this.#direct.dispatch(options, handler)
     }
     if (!this.#inScope(dispatchRequestPath(options))) {
-      // Right host, wrong lane: /zen/go/* (the separate opencode-go provider
-      // and its usage poll) shares this host with our own /zen/v1 traffic,
-      // and host-only routing used to drag all of it through the airport
-      // exits and into the request counters. Deliberately NOT stamped as
-      // 本机 — this traffic is not ours to account — and not a blind spot
-      // either: were a path change to exclude OUR calls, the adapter's usage
-      // would still land in 本机 through attributeUsage's default.
+      // Right host, wrong lane: /inference/go/* (the separate opencode-go
+      // provider and its usage poll) shares this host with our own
+      // /inference/v1 traffic, and host-only routing used to drag all of it
+      // through the airport exits and into the request counters. Deliberately
+      // NOT stamped as 本机 — this traffic is not ours to account — and not a
+      // blind spot either: were a path change to exclude OUR calls, the
+      // adapter's usage would still land in 本机 through attributeUsage's
+      // default.
       return this.#direct.dispatch(options, handler)
     }
     const context = routingContext.getStore() ?? {}

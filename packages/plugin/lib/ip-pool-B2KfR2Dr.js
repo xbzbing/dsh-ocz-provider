@@ -1,8 +1,8 @@
-import "./catalog-GckqcHsV.js";
-import { r as pickSmokeContent } from "./smoke-content-CfTGy8JU.js";
-import { s as LOCAL_EXIT_ID } from "./dispatcher-BfnX7k6I.js";
+import "./catalog-BNFQ3XW4.js";
+import { r as pickSmokeContent } from "./smoke-content-3O2qKne8.js";
+import { c as LOCAL_EXIT_ID } from "./dispatcher-CuJu-myX.js";
 import { a as createRotateDelegate, n as DEFAULT_SUBSCRIPTION_USER_AGENT, r as parseSubscription, s as setRotateDelegate, t as stateDir } from "./paths-Czv1ZEwZ.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-OYUMOlPr.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-DGFkprXU.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -1864,7 +1864,7 @@ async function startIpPool(config, logger, deps = {}) {
 		proxyPathPrefixes: ipPool.proxyPathPrefixes,
 		logger
 	};
-	const installer = deps.makeInstaller !== void 0 ? deps.makeInstaller(installerDeps) : new (await (import("./installer-DxgixBNe.js"))).RoutingInstaller(installerDeps);
+	const installer = deps.makeInstaller !== void 0 ? deps.makeInstaller(installerDeps) : new (await (import("./installer-MIsAXk4H.js"))).RoutingInstaller(installerDeps);
 	const admissionDeps = {
 		pool,
 		undici,
@@ -1977,7 +1977,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-CQmU9KG6.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-DsDcVJpd.js");
 		const deps$1 = {
 			...admissionDeps,
 			smokeContent: pickSmokeContent(probeContents)

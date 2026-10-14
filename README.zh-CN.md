@@ -109,15 +109,16 @@ DSH 会话
 ZenAdapter（注册的 LlmAdapter）
    │  pi-ai openai-completions 流式
    ▼
-https://opencode.ai/zen/v1        ← Authorization: Bearer public
+https://opencode.ai/inference/v1   ← Authorization: Bearer public
    携带与 CLI 同形的请求头：
      user-agent: opencode/…
-     x-opencode-client, x-opencode-session, x-session-affinity,
-     X-Session-Id, x-opencode-request, x-opencode-project
+     x-opencode-client, x-opencode-session, x-opencode-session-id,
+     x-opencode-request, x-opencode-project
 ```
 
-- **会话关联**——session/project id 由会话首条用户消息经 SHA-256 派生
-  （同一会话稳定、不可逆推），每个请求再附带一个全新的随机 id，与 CLI 行为一致。
+- **会话关联**——session id 为规范的 `ses_*`（会话稳定的 Base62 尾段 + 时钟铸造的
+  时间前缀，兼顾上游 prompt-cache 亲和与不可逆推），每请求附一个全新的 `msg_*`
+  消息 id，project id 用客户端同款无前缀 `global`，与 CLI 行为一致。
 - **目录回退链**——S1：实时 `GET /v1/models`；S2：models.dev 定价元数据判定
   "免费"；S3：编译期验证的静态名单。上游故障时由磁盘缓存（约 7 天有效期）兜底。
 - **韧性**——adapter 在启动时立即注册；若首次目录拉取撞上网络尚未就绪

@@ -41,7 +41,7 @@ opencode2dsh 是一个 **DSH cordis 插件**：它在 DSH 进程旁拉起一台*
         └──────────────────┬──────────────────────────┘
                            │ HTTPS
                            ▼
-              https://opencode.ai/zen/v1/...
+              https://opencode.ai/inference/v1/...
               (Authorization: Bearer public
                + x-opencode-client: cli 等)
 ```
@@ -102,7 +102,7 @@ DSH                opencode2dsh-agent (Go)                opencode.ai/zen
  │                       │ Route() → {Tier:zen, Anonymous:true}│
  │                       │ newUpstreamRequest()                │
  │                       │───────────────────────────────────►│
- │                       │ POST https://opencode.ai/zen/v1/chat/completions
+ │                       │ POST https://opencode.ai/inference/v1/chat/completions
  │                       │ Content-Type: application/json
  │                       │ Accept: application/json, text/event-stream
  │                       │ User-Agent: opencode/1.18.31 (<goos> <goarch>; <goversion>)
@@ -150,7 +150,7 @@ DSH                opencode2dsh-agent (Go)                opencode.ai/zen
 
 | 优先级 | 来源 | 内容 | 刷新 |
 | --- | --- | --- | --- |
-| S1 动态主源 | `GET https://opencode.ai/zen/v1/models`（`Authorization: Bearer public`，models.go:587-618 `fetchModels`） | Zen 上当前在售模型全集（含免费与付费，**不含 allowAnonymous 标记**） | 默认 300s（复用 `models.refresh_seconds`） |
+| S1 动态主源 | `GET https://opencode.ai/inference/v1/models`（`Authorization: Bearer public`，models.go:587-618 `fetchModels`） | 免费通道在售模型全集（含免费与付费，**不含 allowAnonymous 标记**） | 默认 300s（复用 `models.refresh_seconds`） |
 | S2 免费判定 | `GET https://models.dev/api.json`（model_metadata.go:21 `modelsDevDefaultURL`，24h 刷新，带磁盘缓存 `config.json.models.dev.json`） | 每模型 `input_cost`/`output_cost`/`deprecated` → `Decide()` 判定免费 | 24h + 启动时读缓存 |
 | S3 静态兜底 | 编译期嵌入的模型清单（Go 常量表） | 已知可用匿名模型 id 列表（以 Phase 0 实测为准填充；预置 `gpt-oss-120b`、`gpt-oss-20b`、`deepseek-v4-flash`、`qwen3-coder-480b` 等，**以实测为准，交付前校准**） | 随版本发布更新 |
 
@@ -204,7 +204,7 @@ opencode2dsh 的 Go 部分命名 `opencode2dsh-agent`，Go module 采用 `cmd/ag
 | 方法/路径 | 行为 | 对应上游 |
 | --- | --- | --- |
 | `GET /v1/models` | 本地鉴权后返回免费模型清单（§4） | S1/S2/S3 合并 |
-| `POST /v1/chat/completions` | 本地鉴权 → 匿名转发（流式/非流式均支持） | `POST https://opencode.ai/zen/v1/chat/completions` |
+| `POST /v1/chat/completions` | 本地鉴权 → 匿名转发（流式/非流式均支持） | `POST https://opencode.ai/inference/v1/chat/completions` |
 | `GET /healthz` | 无需鉴权；`{"status","ready","version","models":{...},"anonymous":true}`；模型目录 pending/stale/empty、无健康出口时降级（移植 gateway.go:108-168） | — |
 
 `/v1/responses`、`/v1/messages` 不注册（对应 gateway.go:102-103 两行不移植）。

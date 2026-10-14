@@ -22,7 +22,7 @@ Go 版慢在「保真移植 8300 行里的每一段语义」。TS 版不走移�
 llm-pi-ai:
   providers:
     opencode2dsh:
-      baseURL: https://opencode.ai/zen/v1     # 直连上游，无本地代理
+      baseURL: https://opencode.ai/inference/v1     # 直连上游，无本地代理
       apiKeyEnv: OPENCODE2DSH_TOKEN            # 该凭证的值就是字面量 "public"
       api: openai-completions
       headers:                                 # 静态伪装头
@@ -43,7 +43,7 @@ llm-pi-ai:
 
 **wire 层全部复用 `@earendil-works/pi-ai`（MIT）**，不自写 SSE/消息编码。关键 API 事实（均已实读确认）：
 
-- `createProvider({id, name, baseUrl, headers, auth, models, api})`（models.d.ts:158）：构造 provider，`baseUrl` 直指 `https://opencode.ai/zen/v1`，`api` 传 `@earendil-works/pi-ai/api/openai-completions` 模块（导出 `stream`/`streamSimple`，即 DSH 一切 OpenAI 兼容 provider 使用的同一实现）
+- `createProvider({id, name, baseUrl, headers, auth, models, api})`（models.d.ts:158）：构造 provider，`baseUrl` 直指 `https://opencode.ai/inference/v1`，`api` 传 `@earendil-works/pi-ai/api/openai-completions` 模块（导出 `stream`/`streamSimple`，即 DSH 一切 OpenAI 兼容 provider 使用的同一实现）
 - `StreamOptions.headers`（types.d.ts:78-85）：**调用方值覆盖默认头** → user-agent 伪装可覆盖（R-B 解除）；`StreamOptions` 是每次调用的参数 → **动态 session/request 头每请求构造传入**（R-A 解除）
 - `StreamOptions.apiKey`：传字面量 `'public'`（非秘密，无需 credentials 服务）
 - `inputModalities: ['text', 'image']` 声明后 dsh-llm 把图片块原样派发（声明不含 `image` 时才自动剥离：`projectImagesForTextModel`，dsh-llm index.js adapterStream）→ `toPiContext` 从 harness 附件存储读字节转 pi-ai image 块（2026-09-23 起）

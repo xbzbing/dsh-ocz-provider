@@ -137,19 +137,19 @@ test('proxyPathPrefixes reports the path scope actually in force (live regressio
     proxyPathPrefixes: [],
     logger: { info: () => {}, warn: () => {} },
   })
-  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1'], 'empty config reports the default it resolves to')
+  assert.deepEqual(installer.proxyPathPrefixes, ['/inference/v1'], 'empty config reports the default it resolves to')
 
   installer.install()
-  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1'], 'and the running router agrees')
+  assert.deepEqual(installer.proxyPathPrefixes, ['/inference/v1'], 'and the running router agrees')
 
-  installer.setProxyPathPrefixes(['/zen/v1/', 'zen/go/v1'])
-  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1', '/zen/go/v1'], 'a live re-apply is reported normalized')
+  installer.setProxyPathPrefixes(['/inference/v1/', 'inference/go/v1'])
+  assert.deepEqual(installer.proxyPathPrefixes, ['/inference/v1', '/inference/go/v1'], 'a live re-apply is reported normalized')
 
   installer.setProxyPathPrefixes(['/'])
   assert.deepEqual(installer.proxyPathPrefixes, ['/'], 'the whole host stays expressible')
 
   installer.setProxyPathPrefixes([])
-  assert.deepEqual(installer.proxyPathPrefixes, ['/zen/v1'], 'clearing the field falls back to the default')
+  assert.deepEqual(installer.proxyPathPrefixes, ['/inference/v1'], 'clearing the field falls back to the default')
 })
 
 test('disable() restores the dispatcher that was active before install (regression)', () => {

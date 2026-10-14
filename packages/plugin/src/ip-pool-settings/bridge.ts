@@ -17,6 +17,7 @@ import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 import type { UsageScope, UsageStore } from '../pool/usage-store.ts'
 import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titles.ts'
+import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
 export const IP_POOL_BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
@@ -190,8 +191,8 @@ export interface PoolStatusView {
    */
   pinned: { id: string; strict: boolean; local: boolean } | null
   proxyHosts: string[]
-  /** Path prefixes on those hosts the pool carries (default `/zen/v1`); this
-   *  is the scope that decides WHICH opencode.ai traffic the exits serve. */
+  /** Path prefixes on those hosts the pool carries (default `/inference/v1`);
+   *  this is the scope that decides WHICH opencode.ai traffic the exits serve. */
   proxyPathPrefixes: string[]
   exits: ExitRowView[]
   prober: ProberView
@@ -248,7 +249,7 @@ export function buildStatusView(
   } = {},
 ): PoolStatusView {
   const freeEnabled = options.freeEnabled ?? true
-  const proxyPathPrefixes = options.proxyPathPrefixes ?? ['/zen/v1']
+  const proxyPathPrefixes = options.proxyPathPrefixes ?? [...DEFAULT_PROXY_PATH_PREFIXES]
   const store = options.usage
   const scope: UsageScope = options.usageScope ?? 'total'
   /**

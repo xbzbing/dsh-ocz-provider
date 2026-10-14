@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { ModelCatalog } from '../src/adapter/catalog.ts'
 import { isResponsesModel, PROVIDER_ID, reasoningEfforts, reasoningEffortWire, WATCHDOG_FIRST_MESSAGE, ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import { Config, resolveConfig } from '../src/config.ts'
+import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
 
 /**
  * The exact method surface dsh-llm touches on a registered adapter. A missing
@@ -248,12 +249,14 @@ function capturingProvider() {
   return { provider, captured }
 }
 
-/** A body that already satisfies the free-lane gate recipe (issue #56). */
+/** A body that already satisfies the free-lane gate recipe: since 2026-10-14
+ *  that means the GENUINE bash/read definitions (adapter/gate-tools.ts), not
+ *  placeholder stubs. */
 const gateBody = {
   model: 'big-pickle',
   messages: [{ role: 'user', content: 'hi' }],
   stream: true,
-  tools: ['bash', 'read'].map((name) => ({ type: 'function', function: { name, description: 'd', parameters: {} } })),
+  tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
 }
 
 async function runStream(catalogReasoning: boolean, effort?: string): Promise<Array<{ onPayload?: (payload: unknown) => unknown }>> {
@@ -296,7 +299,9 @@ test('stream keeps the free-lane gate rewrite alongside the effort injection', a
     (shaped.tools as Array<{ function: { name: string } }>).map((t) => t.function.name).sort(),
     ['bash', 'read'],
   )
-  assert.equal(shaped.tool_choice, 'none')
+  // the injected tools are the genuine definitions and are NOT call-disabled:
+  // `tool_choice: 'none'` is a 403 of its own since 2026-10-14
+  assert.equal(shaped.tool_choice, undefined)
 
   // non-chat payloads pass through untouched even with an effort selected
   assert.equal(offOptions.onPayload?.(null), undefined)
@@ -483,7 +488,7 @@ test('Responses streams pass a valid reasoning option and sanitize the payload',
   assert.deepEqual((payload.tools as Array<{ name: string }>).map((tool) => tool.name), ['bash', 'read'])
 })
 
-test('the wire request carries the canonical session the free-lane gate requires (issue #56)', async () => {
+test('the wire request carries the correlation headers the free-lane gate requires', async () => {
   let headers: Record<string, string> | undefined
   const provider = {
     streamSimple(_model: unknown, _context: unknown, options: { headers?: Record<string, string> }): AsyncIterable<{ type: string }> {
@@ -503,12 +508,18 @@ test('the wire request carries the canonical session the free-lane gate requires
     { providerOverride: provider },
   )
   for await (const chunk of adapter.stream({ provider: 'opencode2dsh', model: 'big-pickle', messages: [] })) void chunk
-  // live-probed 2026-10-11: the gate answers 403 unless a canonical ses_* id
-  // rides a session header (x-opencode-session / x-session-affinity /
-  // X-Session-Id — any one suffices); the adapter sends all three.
-  for (const name of ['x-opencode-session', 'x-session-affinity', 'X-Session-Id']) {
+  // live-probed 2026-10-14: a canonical ses_* id must ride x-opencode-session
+  // (or x-opencode-session-id), while the client's OTHER-provider spellings —
+  // x-session-affinity / X-Session-Id — are themselves a foreign-client signal
+  // (403). `x-opencode-request` must be a msg_* id and `x-opencode-project` the
+  // prefix-less project id (`prj_*` 403s).
+  for (const name of ['x-opencode-session', 'x-opencode-session-id']) {
     assert.match(headers?.[name] ?? '', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/, name + ' carries the canonical shape')
   }
+  assert.equal(headers?.['x-session-affinity'], undefined, 'the 2026-10-09 workaround is now poison')
+  assert.equal(headers?.['X-Session-Id'], undefined)
+  assert.match(headers?.['x-opencode-request'] ?? '', /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/, 'request id is a message id')
+  assert.equal(headers?.['x-opencode-project'], 'global', 'the client sends a prefix-less project id')
   assert.equal(headers?.['x-opencode-client'], 'cli')
   assert.match(headers?.['user-agent'] ?? '', /^opencode/)
 })

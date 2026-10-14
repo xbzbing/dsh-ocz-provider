@@ -133,20 +133,29 @@ const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i;
 * The path prefixes this plugin's OWN traffic uses on the proxied hosts.
 *
 * Host matching alone is too coarse to mean "our traffic": one opencode.ai
-* serves ZEN's free lane (`/zen/v1` — what this plugin's adapter calls), the
-* paid/go lane (`/zen/go/v1`, driven by the separate `opencode-go` provider)
-* and the usage-billing plugin's `/zen/go/v1/usage` poll. Live 2026-10-13
-* with host-only routing: 77 `POST /zen/go/v1/chat/completions` in 6.3
-* minutes (≈12/min) were proxied through the airport exits and counted as
-* requests with zero tokens (tokens are attributed only for traffic that
-* flows through our adapter), so "I stopped using opencode2dsh models" and
-* "the request count keeps climbing" were both true — and paid-lane traffic
-* was egressing through free airport exits by accident.
+* serves the free lane this plugin's adapter calls, the paid/go lane (driven
+* by the separate `opencode-go` provider) and the usage-billing plugin's
+* usage poll. Live 2026-10-13 with host-only routing: 77 `POST
+* /zen/go/v1/chat/completions` in 6.3 minutes (≈12/min) were proxied through
+* the airport exits and counted as requests with zero tokens (tokens are
+* attributed only for traffic that flows through our adapter), so "I stopped
+* using opencode2dsh models" and "the request count keeps climbing" were both
+* true — and paid-lane traffic was egressing through free airport exits by
+* accident.
+*
+* The lane moved on 2026-10-14: the adapter now calls
+* `https://opencode.ai/inference/v1` (adapter/catalog.ts `ZEN_BASE_URL`) and
+* the go lane sits at `/inference/go/v1`, so the default follows the adapter —
+* `/inference/v1` does not take `/inference/go/v1` (segment-aware match
+* below), which keeps the isolation this constant exists for. An operator whose
+* profile still stores the old `/zen/v1` keeps their explicit value; the
+* settings card shows it, and `/inference/v1` must be added there for the pool
+* to carry the lane again.
 *
 * Empty means "every path on the proxied hosts" (the old behaviour), which
 * stays reachable for anyone who wants the pool to carry the whole host.
 */
-const DEFAULT_PROXY_PATH_PREFIXES = ["/zen/v1"];
+const DEFAULT_PROXY_PATH_PREFIXES = ["/inference/v1"];
 /**
 * The effective path-prefix list: an absent OR EMPTY list means the default.
 * Same empty-equals-absent rule as {@link resolveProxyHosts}, and for the
@@ -158,15 +167,16 @@ function resolveProxyPathPrefixes(prefixes) {
 	const normalized = (prefixes ?? []).map((prefix) => normalizePathPrefix(prefix)).filter((prefix) => prefix !== "");
 	return normalized.length > 0 ? normalized : [...DEFAULT_PROXY_PATH_PREFIXES];
 }
-/** 'zen/v1/', '/zen/v1?x=1' -> '/zen/v1'; an unusable entry -> '' (dropped). */
+/** 'inference/v1/', '/inference/v1?x=1' -> '/inference/v1'; an unusable entry -> '' (dropped). */
 function normalizePathPrefix(prefix) {
 	const trimmed = (prefix ?? "").trim().split("?")[0]?.trim() ?? "";
 	if (trimmed === "") return "";
 	const rooted = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 	return rooted.length > 1 ? rooted.replace(/\/+$/, "") : rooted;
 }
-/** Segment-aware prefix match: '/zen/v1' takes '/zen/v1' and
-*  '/zen/v1/chat/completions?x=1', never '/zen/v10' or '/zen/go/v1'. */
+/** Segment-aware prefix match: '/inference/v1' takes '/inference/v1' and
+*  '/inference/v1/chat/completions?x=1', never '/inference/v10' or
+*  '/inference/go/v1'. */
 function matchesPathPrefix(path, prefix) {
 	const clean = path.split("?")[0] ?? "";
 	if (prefix === "/") return true;
@@ -481,4 +491,4 @@ var PoolRoutingDispatcher = class {
 };
 
 //#endregion
-export { routingContext as a, UsageTracker as c, setUsageRecorder as d, usageTracker as f, resolveProxyPathPrefixes as i, attributeUsage as l, exitProxyUri as n, DIRECT_EXIT_ID as o, resolveProxyHosts as r, LOCAL_EXIT_ID as s, PoolRoutingDispatcher as t, emptyTotals as u };
+export { resolveProxyPathPrefixes as a, LOCAL_EXIT_ID as c, emptyTotals as d, setUsageRecorder as f, resolveProxyHosts as i, UsageTracker as l, PoolRoutingDispatcher as n, routingContext as o, usageTracker as p, exitProxyUri as r, DIRECT_EXIT_ID as s, DEFAULT_PROXY_PATH_PREFIXES as t, attributeUsage as u };

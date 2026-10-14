@@ -126,9 +126,10 @@ export const IpPoolConfigSchema = Schema.object({
   /** Hosts whose traffic goes through the pool (default opencode.ai). */
   proxyHosts: Schema.array(Schema.string()).default([]),
   /**
-   * Path prefixes on those hosts the pool carries (default `/zen/v1`, this
-   * plugin's own lane). Empty = every path on the host, which also drags the
-   * separate `opencode-go` provider's `/zen/go/v1` calls through the exits.
+   * Path prefixes on those hosts the pool carries (default `/inference/v1`,
+   * this plugin's own lane — the adapter's base URL since the 2026-10-14 lane
+   * move). Empty = every path on the host, which also drags the separate
+   * `opencode-go` provider's `/inference/go/v1` calls through the exits.
    */
   proxyPathPrefixes: Schema.array(Schema.string()).default([]),
   /** Same-request rotate attempts on pre-content transport/429 failures (§3.4). */

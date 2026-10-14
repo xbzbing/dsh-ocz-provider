@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureFreeLaneShape, toPiContext, type HarnessGenerateOptions, type HarnessMessage, type PiMessage } from '../src/adapter/messages.ts'
+import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool, GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
 
 function expectAssistant(message: PiMessage | undefined): Extract<PiMessage, { role: 'assistant' }> {
   assert.equal(message?.role, 'assistant')
@@ -429,15 +430,35 @@ test('tools pass through and empty tool lists are omitted', async () => {
   assert.equal(withoutTools.tools, undefined)
 })
 
-test('ensureFreeLaneShape injects gate tools into toolless chat bodies', () => {
+test('ensureFreeLaneShape injects the genuine gate tools into toolless chat bodies', () => {
   const payload = { model: 'm', stream: true, messages: [{ role: 'user', content: 'ping' }] }
   const next = ensureFreeLaneShape(payload) as Record<string, unknown>
   assert.notEqual(next, undefined)
   assert.deepEqual(next.messages, payload.messages, 'messages untouched')
-  const tools = next.tools as Array<{ type: string; function: { name: string } }>
-  // the shipped recipe (issue #56 verified): bash+read, minimal and host-named
+  const tools = next.tools as Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
+  // 2026-10-14: the gate validates the CONTENT of bash/read, so what gets
+  // injected is the genuine OpenCode definition (adapter/gate-tools.ts), not
+  // the placeholder stub the 2026-09-18 recipe shipped — that stub is now
+  // itself a 403.
   assert.deepEqual(tools.map((t) => t.function.name).sort(), ['bash', 'read'])
-  assert.equal(next.tool_choice, 'none', 'injected-only stubs are call-disabled')
+  for (const tool of tools) {
+    const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'bash' | 'read']
+    assert.deepEqual(tool.function, genuine.function)
+  }
+  // `tool_choice: 'none'` is a 403 of its own now, so nothing may set it
+  assert.equal(next.tool_choice, undefined)
+})
+
+test('ensureFreeLaneShape drops a tool_choice the gate rejects', () => {
+  const payload = {
+    model: 'm',
+    messages: [],
+    tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
+    tool_choice: 'none',
+  }
+  const next = ensureFreeLaneShape(payload) as Record<string, unknown>
+  assert.equal(next.tool_choice, undefined, 'none is dropped, not forwarded')
+  assert.deepEqual(next.tools, payload.tools, 'the genuine tools needed no change')
 })
 
 test('ensureFreeLaneShape appends only missing gate tools and keeps tool_choice', () => {
@@ -454,16 +475,31 @@ test('ensureFreeLaneShape appends only missing gate tools and keeps tool_choice'
   assert.equal(next.tool_choice, 'auto', 'client choice preserved')
 })
 
-test('ensureFreeLaneShape leaves satisfying and non-chat payloads untouched', () => {
-  const both = {
+test('ensureFreeLaneShape replaces host-shaped gate tools and leaves genuine ones untouched', () => {
+  const hostShaped = {
     model: 'm',
     messages: [],
     tools: [
-      { type: 'function', function: { name: 'bash', description: 'x', parameters: {} } },
-      { type: 'function', function: { name: 'read', description: 'x', parameters: {} } },
+      { type: 'function', function: { name: 'bash', description: 'host bash', parameters: { type: 'object', properties: { command: { type: 'string' } } } } },
+      { type: 'function', function: { name: 'read', description: 'host read', parameters: { type: 'object', properties: { file_path: { type: 'string' } } } } },
+      { type: 'function', function: { name: 'webfetch', description: 'x', parameters: {} } },
     ],
   }
-  assert.equal(ensureFreeLaneShape(both), undefined)
+  const next = ensureFreeLaneShape(hostShaped) as Record<string, unknown>
+  const tools = next.tools as Array<{ function: { name: string; parameters: unknown } }>
+  assert.equal(tools.length, 3, 'replaced in place: no duplicate names on the wire')
+  assert.deepEqual(
+    tools.find((t) => t.function.name === 'bash')!.function.parameters,
+    GENUINE_GATE_TOOLS.bash.function.parameters,
+    "the host's own bash schema cannot ride out — the gate compares parameters",
+  )
+  assert.deepEqual(tools.find((t) => t.function.name === 'read')!.function.parameters, GENUINE_GATE_TOOLS.read.function.parameters)
+  assert.deepEqual(tools.find((t) => t.function.name === 'webfetch')!.function.parameters, {}, 'unrelated tools untouched')
+
+  // an already-genuine payload needs no rewrite at all (pi-ai keeps the original)
+  const genuine = { model: 'm', messages: [], tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)) }
+  assert.equal(ensureFreeLaneShape(genuine), undefined)
+
   assert.equal(ensureFreeLaneShape({ tools: [] }), undefined, 'no messages = not a chat body')
   assert.equal(ensureFreeLaneShape(null), undefined)
   assert.equal(ensureFreeLaneShape('text'), undefined)
