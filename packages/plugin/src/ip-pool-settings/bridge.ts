@@ -16,12 +16,20 @@ import type { IpPoolRuntime } from '../ip-pool.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 import type { UsageScope, UsageStore } from '../pool/usage-store.ts'
+import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titles.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
 export const IP_POOL_BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
 
 /** Cap on JSON request bodies (a probe trigger is tiny). */
 const MAX_JSON_BODY_BYTES = 16 * 1024
+
+/**
+ * Sessions listed in the 流量 tab. Shared by the status prefetch and the view
+ * builder so both slice the ledger to the same population — the title join
+ * must ask for exactly the ids the table will render.
+ */
+export const USAGE_SESSION_LIMIT = 20
 
 // -- status view ---------------------------------------------------------------
 
@@ -82,6 +90,11 @@ export interface UsageDayView {
 /** One session's row in the 流量 tab's top list. */
 export interface UsageSessionView {
   id: string
+  /**
+   * The row's name: the HOST's session title when the host has one (the same
+   * name the sidebar shows), falling back to the ledger's recorded label —
+   * the first user turn, truncated — for sessions the host cannot title.
+   */
   label: string
   requests: number
   tokens: number
@@ -228,6 +241,8 @@ export function buildStatusView(
     /** Which population the per-exit/usage numbers report. */
     usageScope?: UsageScope
     projectOf?: ProjectResolver
+    /** Host session titles for the top-session rows (read-time join). */
+    sessionTitles?: SessionTitleMap
     /** Process start, for the 本次重启 label. */
     runSince?: number
   } = {},
@@ -331,6 +346,7 @@ export function buildStatusView(
     local: localView(store, scope),
     usage: buildUsageView(store, scope, {
       projectOf: options.projectOf,
+      sessionTitles: options.sessionTitles,
       runSince: options.runSince,
     }),
     at: now,
@@ -376,18 +392,21 @@ function localView(store: UsageStore | undefined, scope: UsageScope): { requests
  *
  * Sessions are listed heaviest-first and their projects resolved through the
  * registry seam — a session whose project cannot be resolved keeps a null
- * project rather than a fabricated one.
+ * project rather than a fabricated one. The row NAME prefers the host's own
+ * session title over the recorded first-prompt label (live request
+ * 2026-10-14: the list "looks like part of the prompt" — the prompt fragment
+ * is now only the fallback for sessions the host cannot title).
  */
 export function buildUsageView(
   store: UsageStore | undefined,
   scope: UsageScope,
-  options: { projectOf?: ProjectResolver; runSince?: number; sessionLimit?: number } = {},
+  options: { projectOf?: ProjectResolver; sessionTitles?: SessionTitleMap; runSince?: number; sessionLimit?: number } = {},
 ): UsageView | null {
   if (store === undefined) return null
-  const sessionLimit = options.sessionLimit ?? 20
+  const sessionLimit = options.sessionLimit ?? USAGE_SESSION_LIMIT
   const sessions: UsageSessionView[] = store.sessions(scope, sessionLimit).map((row) => ({
     id: row.id,
-    label: row.label,
+    label: options.sessionTitles?.get(row.id) || row.label,
     requests: row.totals.requests,
     tokens: row.totals.inputTokens + row.totals.outputTokens + row.totals.cacheReadTokens + row.totals.cacheWriteTokens,
     outputTokens: row.totals.outputTokens,
@@ -583,6 +602,8 @@ export function makeBridgeHandlers(
     usage?: UsageStore
     /** Session id → project, resolved from the host's workspace registry. */
     projectOf?: ProjectResolver
+    /** Session id → host session title, resolved from the host's session corpus. */
+    sessionTitles?: SessionTitleResolver
     /** Process start, for the 本次重启 label. */
     runSince?: () => number
   } = {},
@@ -590,6 +611,23 @@ export function makeBridgeHandlers(
   return {
     async status() {
       const current = settings()
+      /**
+       * The top-session join (live request 2026-10-14): ask the host for the
+       * titles of exactly the rows the view will render, before building it —
+       * the resolver is TTL-cached, so the modal's 2s poll mostly reads cache.
+       * A missing resolver or a failed batch just yields no map: every row
+       * keeps its recorded label and /status still answers.
+       */
+      let sessionTitles: SessionTitleMap | undefined
+      const store = deps.usage
+      if (deps.sessionTitles !== undefined && store !== undefined) {
+        const scope: UsageScope = current.usageScope ?? 'total'
+        try {
+          sessionTitles = await deps.sessionTitles(store.sessions(scope, USAGE_SESSION_LIMIT).map((row) => row.id))
+        } catch {
+          sessionTitles = undefined
+        }
+      }
       return {
         ok: true,
         value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, {
@@ -598,6 +636,7 @@ export function makeBridgeHandlers(
           usage: deps.usage,
           usageScope: current.usageScope,
           projectOf: deps.projectOf,
+          sessionTitles,
           runSince: deps.runSince?.(),
         }),
       }
