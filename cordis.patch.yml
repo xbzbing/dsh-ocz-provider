@@ -1,16 +1,23 @@
 # oc2dsh DSH plugin — bundle patch: insert the plugin row (deployment-global).
 #
-# The loader imports the row's `name`, so this package IS what the row points
-# at: the repository root is the installable unit and resolves to
-# `oc2dsh` whether it arrived via `file:<repo>`,
-# `github:<owner>/<repo>` or `pnpm pack`. Keeping the row name identical to
-# this package's own name is what makes every install path converge on one
-# package instead of a second, registry-sourced copy (and it is what the
-# client half's module id and `plugins.row.config` key are keyed by).
+# The loader imports the row's `name`, so it has to be this package's own name:
+# `dsh-opencode-zen-provider`, whether the repository root arrived via
+# `file:<repo>`, `github:<owner>/<repo>` or `pnpm pack`. Keeping the row name
+# identical to the package name is what makes every install path converge on one
+# package instead of a second, registry-sourced copy (and it is what the client
+# half's module id is keyed by).
+#
+# `id` is a separate identifier and stays `oc2dsh`: it is the settings
+# namespace, the route id and the keyed `plugins.bundle.config` slot. Never try
+# to repair a wrong `name` here from a user-layer patch — the loader drops a
+# patch whose name does not match the existing row ("patch: name mismatch for
+# ... skipping"), so the repair is silently lost and the row then fails to
+# import with ERR_MODULE_NOT_FOUND (a restart shows it as the plugin not
+# starting).
 #
 # Defaults need no edits: the adapter registers into llm-pi-ai with no key and
 # no extra process. Override any option via the config object (src/config.ts).
 - insert:
     - id: oc2dsh
-      name: 'oc2dsh'
+      name: 'dsh-opencode-zen-provider'
       config: {}

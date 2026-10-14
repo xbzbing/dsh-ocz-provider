@@ -65,8 +65,8 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 
 | Setting | Value | Where |
 | --- | --- | --- |
-| Package name (installable unit) | `oc2dsh` | package.json |
-| Cordis patch row | `id: oc2dsh`, `name: oc2dsh` | cordis.patch.yml |
+| Package name (installable unit) | `dsh-opencode-zen-provider` | package.json |
+| Cordis patch row | `id: oc2dsh`, `name: dsh-opencode-zen-provider` (the row name must equal the package name — the loader imports it) | cordis.patch.yml |
 | Loader entry id / settings namespace | `oc2dsh` | src/index.ts `name`, src/ip-pool-settings/namespace.ts `IP_POOL_NAMESPACE`, src/client/index.ts `SETTINGS_NAMESPACE` |
 | Provider route id (llm-pi-ai, request header) | `oc2dsh` | src/adapter/zen-adapter.ts `PROVIDER_ID` |
 | Provider display name (model picker group) | `OpenCode-Zen` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
@@ -81,6 +81,13 @@ Renaming any of the identifiers above is a cross-cutting change: the row id
 keys the settings namespace, the client bundle's module id, the slot keys and
 stored profile config — moving one without the others silently orphans the
 operator's saved `ipPool` settings and the usage ledger path.
+
+The row `name` is not a free rename knob: it has to equal the package name,
+because the loader imports it. A user-layer patch can only edit a row whose
+`name` matches — on a mismatch the loader logs `patch: name mismatch for
+"oc2dsh" (expected …, got …), skipping`, the row keeps the wrong name, and the
+next restart fails with `ERR_MODULE_NOT_FOUND`, which surfaces as the plugin
+simply not starting (live 2026-10-15, after the dsh 0.2.1-alpha.3 upgrade).
 
 ## The upstream free-lane gate (why wire code looks the way it does)
 

@@ -44,17 +44,17 @@ dsh plugin --profile web add github:xbzbing/opencode2dsh
 
 ```sh
 git clone https://github.com/xbzbing/opencode2dsh.git
-dsh plugin --profile web add file:/path/to/oc2dsh
+dsh plugin --profile web add file:/path/to/opencode2dsh
 ```
 
 **从 tarball 安装**（可选）：
 
 ```sh
 pnpm build && pnpm pack
-dsh plugin --profile web add ./oc2dsh-<version>.tgz
+dsh plugin --profile web add ./dsh-opencode-zen-provider-<version>.tgz
 ```
 
-注意不要和 `dsh plugin add oc2dsh` 混用：那是上游发到 npm 的包，包名与本 fork 相同，装上会把本 fork 的副本替换成不含这些修复的代码。
+注意不要用 `dsh plugin add @opencode2dsh/dsh-plugin` 装上游发到 npm 的包：它不含本 fork 的这些修复。本 fork 的包名 `dsh-opencode-zen-provider` 没有发布到 npm，两条 Git 安装路径才是本 fork 的。
 
 **验证**：重启 `dsh web`，打开模型选择器，在 **OpenCode-Zen** 分组里选模型即可。
 
@@ -164,7 +164,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 
 ```sh
 git clone https://github.com/xbzbing/opencode2dsh.git
-cd oc2dsh
+cd opencode2dsh
 pnpm install                         # 构建工具链
 pnpm typecheck && pnpm test          # 全量门禁
 pnpm build                           # 干净构建两个半 + 写新鲜度清单
