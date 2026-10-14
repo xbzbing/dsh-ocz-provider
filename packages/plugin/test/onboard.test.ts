@@ -32,7 +32,15 @@ function node(name: string): ParsedNode {
   }
 }
 
-/** The candidate list a full conversion hands over: one port per slot. */
+/**
+ * The candidate list a full conversion hands over: one port per slot.
+ *
+ * NOTE on the `latencyMs` seams below: the speed pass ranks by MEASURED wall
+ * time, and node --test runs test FILES in parallel, so the spacing has to
+ * dominate scheduler jitter. 10ms per step was too tight — one full-suite run
+ * ranked [4,1,2] where the speed order was [4,3,2] (a 20ms inversion under
+ * load). The steps are now 50-120ms.
+ */
 function candidates(count: number): ConvertedExit[] {
   return Array.from({ length: count }, (_, index) => ({
     address: `127.0.0.1:${BASE_PORT + 1 + index}`,
@@ -128,7 +136,7 @@ test('onboarding keeps the fastest poolSize and shrinks the conversion to exactl
   const { pool, nodes, onboarder, selections } = harness({
     count: 30,
     poolSize: 20,
-    latencyMs: (port) => (BASE_PORT + 31 - port) * 10,
+    latencyMs: (port) => (BASE_PORT + 31 - port) * 50,
   })
   const result = await onboarder.run(nodes)
 
@@ -148,7 +156,7 @@ test('a refused exit is replaced by the next-fastest reserve', async () => {
   const { pool, nodes, onboarder, selections } = harness({
     count: 5,
     poolSize: 3,
-    latencyMs: (port) => (BASE_PORT + 6 - port) * 10,
+    latencyMs: (port) => (BASE_PORT + 6 - port) * 120,
     refuseSmoke: [BASE_PORT + 5],
   })
   const result = await onboarder.run(nodes)
@@ -176,7 +184,7 @@ test('with no reserve left a refused exit is kept, demoted to the tail', async (
   const { pool, nodes, onboarder } = harness({
     count: 2,
     poolSize: 2,
-    latencyMs: (port) => (port - BASE_PORT) * 10,
+    latencyMs: (port) => (port - BASE_PORT) * 120,
     refuseSmoke: [BASE_PORT + 2],
   })
   const result = await onboarder.run(nodes)
@@ -213,7 +221,7 @@ test('replace() promotes a reserve for an exit the upstream refuses later', asyn
   const { pool, nodes, onboarder } = harness({
     count: 3,
     poolSize: 2,
-    latencyMs: (port) => (port - BASE_PORT) * 10,
+    latencyMs: (port) => (port - BASE_PORT) * 120,
   })
   await onboarder.run(nodes)
   assert.deepEqual(pool.list().map((entry) => entry.id).sort(), [`127.0.0.1:${BASE_PORT + 1}`, `127.0.0.1:${BASE_PORT + 2}`])
@@ -255,7 +263,7 @@ test('trim() converges a live pool to a lowered capacity and closes the dropped 
   const { pool, nodes, onboarder, selections } = harness({
     count: 6,
     poolSize: 6,
-    latencyMs: (port) => (BASE_PORT + 7 - port) * 10,
+    latencyMs: (port) => (BASE_PORT + 7 - port) * 120,
   })
   await onboarder.run(nodes)
   assert.equal(pool.list().length, 6)
@@ -292,7 +300,7 @@ test('replace() is a no-op for an exit that already left both the table and the 
   const { pool, nodes, onboarder, selections } = harness({
     count: 5,
     poolSize: 3,
-    latencyMs: (port) => (BASE_PORT + 6 - port) * 10,
+    latencyMs: (port) => (BASE_PORT + 6 - port) * 120,
   })
   await onboarder.run(nodes)
   const victim = pool.list().map((entry) => entry.id).sort()[0]!
@@ -313,7 +321,7 @@ test('replace() still swaps a reserve for an exit that is in the table', async (
   const { pool, nodes, onboarder, selections } = harness({
     count: 5,
     poolSize: 3,
-    latencyMs: (port) => (BASE_PORT + 6 - port) * 10,
+    latencyMs: (port) => (BASE_PORT + 6 - port) * 120,
   })
   await onboarder.run(nodes)
   const before = selections.length
