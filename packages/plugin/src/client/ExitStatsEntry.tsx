@@ -161,6 +161,34 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
    * "deleted" means two different things (a reserve took the slot, or the row
    * sank to the tail).
    */
+  /**
+   * Clear the usage ledger (live request 2026-10-14: 清空功能按钮). Same
+   * loopback route family as the row actions; the modal re-reads /status
+   * afterwards so the chips, the bar list and the footer all drop to zero
+   * together.
+   */
+  const clearUsage = useCallback(async (): Promise<boolean> => {
+    setNote(null)
+    try {
+      const response = await fetch(`${BRIDGE_PREFIX}/usage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'reset' }),
+      })
+      const body = await response.json() as { ok: boolean; value?: { cleared?: boolean } }
+      if (!body.ok || body.value?.cleared !== true) {
+        setNote({ text: t('statsActionFailed'), warn: true })
+        return false
+      }
+      setNote({ text: t('usageCleared'), warn: false })
+      await refresh()
+      return true
+    } catch {
+      setNote({ text: t('statsActionFailed'), warn: true })
+      return false
+    }
+  }, [refresh, t])
+
   const runExitAction = useCallback(async (action: ExitAction, exitId?: string): Promise<void> => {
     setBusy(`${action}:${exitId ?? ''}`)
     setNote(null)
@@ -368,7 +396,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         {tab === 'usage' ? (
           status?.usage == null
             ? <p className={styles.status}>{t('usageNoStore')}</p>
-            : <UsagePanel usage={status.usage} t={t} />
+            : <UsagePanel usage={status.usage} t={t} onClear={clearUsage} />
         ) : (
         <>
         <div className={styles.statsSummary}>

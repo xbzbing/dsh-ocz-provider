@@ -1707,6 +1707,24 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 				code: "settings-rejected",
 				message: "exit action must be 'pin', 'pin-local', 'unpin' or 'rotate'"
 			};
+		},
+		async usage(body) {
+			const store = deps.usage;
+			if (store === void 0) return {
+				ok: false,
+				code: "no-ledger",
+				message: "this composition has no persistent usage ledger"
+			};
+			if (body.action !== "reset") return {
+				ok: false,
+				code: "settings-rejected",
+				message: "usage action must be 'reset'"
+			};
+			await store.clear();
+			return {
+				ok: true,
+				value: { cleared: true }
+			};
 		}
 	};
 }
@@ -1785,6 +1803,28 @@ function makeBridgeRoutes(handlers, deps = {}) {
 					return;
 				}
 				writeJson(res, 200, await handlers.exit(body));
+			}
+		},
+		{
+			kind: "exact",
+			path: `${IP_POOL_BRIDGE_PREFIX}/usage`,
+			handler: async (req, res) => {
+				if (!check(req, res)) return;
+				let body;
+				try {
+					body = await readJsonBody(req);
+				} catch {
+					body = void 0;
+				}
+				if (body === void 0 || typeof body !== "object" || body === null) {
+					writeJson(res, 400, {
+						ok: false,
+						code: "settings-rejected",
+						message: "unreadable JSON body"
+					});
+					return;
+				}
+				writeJson(res, 200, await handlers.usage(body));
 			}
 		}
 	];
@@ -2234,7 +2274,23 @@ var UsageStore = class {
 		}
 		await this.flush();
 	}
-	/** Test seam: drop every bucket and start over. */
+	/**
+	* Operator-facing clear (live request 2026-10-14: "总量统计保留 90 天，自然
+	* 过期，增加一个清空的功能按钮"): drop every bucket AND make the empty
+	* document the one on disk, so a restart cannot bring the numbers back.
+	*
+	* `load()` runs FIRST on purpose: a store that has not read the file yet
+	* would otherwise re-read it inside `flush()` and merge the old totals back
+	* over the clear. Both scopes go together — a cleared 总览 next to a live
+	* 本次重启 would read as a bug, not as a feature.
+	*/
+	async clear() {
+		this.load();
+		this.reset();
+		this.#dirty = true;
+		await this.flush();
+	}
+	/** In-memory-only seam: drop every bucket and start over (tests). */
 	reset() {
 		this.run.reset();
 		this.#totals = emptyTotals();

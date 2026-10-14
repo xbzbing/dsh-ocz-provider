@@ -75,6 +75,59 @@ test('the run scope counts this process only, the total scope counts everything'
   }
 })
 
+test('clear() empties every bucket and persists the empty document', async () => {
+  // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空按钮.
+  const { dir, path } = tempPath()
+  try {
+    const store = new UsageStore({ path, flushMs: 0, now: () => Date.UTC(2026, 9, 14, 3, 0, 0) })
+    store.record('127.0.0.1:30001', usage(100, 50), { session: 'ses_a', label: 'conversation' })
+    store.record('local', usage(5, 5), { session: 'ses_b', label: 'other' })
+    await store.flush()
+    assert.equal(store.totals().requests, 2)
+
+    await store.clear()
+    assert.equal(store.totals().requests, 0)
+    assert.equal(store.runTotals().requests, 0, '本次重启 goes with it — a cleared 总览 beside a live run reads as a bug')
+    assert.deepEqual(store.sessions('total', 10), [])
+    assert.deepEqual(store.days('total'), [])
+    assert.equal(store.exitTotals('127.0.0.1:30001', 'total').requests, 0)
+
+    // The clear has to be ON DISK, or a restart resurrects everything.
+    const onDisk = JSON.parse(readFileSync(path, 'utf8')) as {
+      totals: { requests: number }
+      sessions: Record<string, unknown>
+      exits: Record<string, unknown>
+    }
+    assert.equal(onDisk.totals.requests, 0)
+    assert.deepEqual(Object.keys(onDisk.sessions), [])
+    assert.deepEqual(Object.keys(onDisk.exits), [])
+
+    const reloaded = new UsageStore({ path, flushMs: 0 })
+    assert.equal(reloaded.totals().requests, 0, 'a fresh process sees the cleared ledger')
+    assert.deepEqual(reloaded.sessions('total', 10), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('clear() works on a store that has not read the file yet', async () => {
+  // The trap this guards: flush() loads first, so a clear that skipped load()
+  // would merge the old document back over the clear.
+  const { dir, path } = tempPath()
+  try {
+    const seeded = new UsageStore({ path, flushMs: 0 })
+    seeded.record('a:1', usage(10, 10), { session: 'ses_1', label: 'one' })
+    await seeded.flush()
+
+    const fresh = new UsageStore({ path, flushMs: 0 }) // never read the file
+    await fresh.clear()
+    assert.equal(fresh.totals().requests, 0)
+    assert.equal((JSON.parse(readFileSync(path, 'utf8')) as { totals: { requests: number } }).totals.requests, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('OPENCODE2DSH_HOME redirects the default ledger path, and is read lazily', async () => {
   // Regression for the live bug of 2026-10-14: the watchdog scenarios drive the
   // real entry, whose store is built at import time — before a test body can set

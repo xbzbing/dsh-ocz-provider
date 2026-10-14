@@ -9,12 +9,16 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { applyIpPoolSettings, type AssembleIpPool } from '../src/ip-pool-settings/apply.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, type AnyIpPoolSection, type IpPoolSettings, type VolatileRef } from '../src/ip-pool-settings/namespace.ts'
 import { IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
 import { resolveConfig, type OrdinaryPluginConfig } from '../src/config.ts'
 import type { PluginContext } from '../src/index.ts'
+import { UsageStore } from '../src/pool/usage-store.ts'
 
 /** Recorded assembly + reconfigure calls (reset per test). */
 let starts: Array<{ config: Record<string, unknown> }> = []
@@ -337,4 +341,56 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
     ns: IP_POOL_NAMESPACE,
     ops: [{ op: 'unset', path: ['ipPool', 'pinnedExitId'] }],
   })
+})
+
+test('the bridge wires the 清空 button to the same ledger the adapter writes', async () => {
+  // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空的功能按钮.
+  // The route has to reach the SAME store (index.ts owns the singleton) and it
+  // must work with the pool OFF — the ledger records every request regardless.
+  resetCalls()
+  const dir = mkdtempSync(join(tmpdir(), 'apply-usage-clear-'))
+  const usagePath = join(dir, 'usage.json')
+  const store = new UsageStore({ path: usagePath, flushMs: 0 })
+  store.record('local', { inputTokens: 9, outputTokens: 4 }, { session: 'ses_hi', label: 'hi' })
+  await store.flush()
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }> = []
+  const host = makeVolatileHost({ enabled: false })
+  const ctx: PluginContext = {
+    logger: { info() {}, warn() {}, error() {} },
+    on: host.ctx.on,
+    inject(services, callback) {
+      if (services.includes('webServer')) {
+        callback({
+          logger: { info() {}, warn() {}, error() {} },
+          webServer: { register: (route: never) => { routes.push(route); return () => {} } },
+        })
+      }
+    },
+  }
+  try {
+    applyIpPoolSettings(ctx, ordinary(), () => host.ref.get(), ctx.logger, { usage: store })
+    await tick(30)
+
+    const usageRoute = routes.find((route) => route.path === `${IP_POOL_BRIDGE_PREFIX}/usage`)
+    assert.ok(usageRoute, 'the /usage route is mounted with the rest of the bridge')
+
+    let written: { status?: number; body?: unknown } = {}
+    const res = {
+      writeHead(status: number) { written.status = status },
+      end(body: string) { written.body = JSON.parse(body) },
+    }
+    const post = (body: unknown): unknown => ({
+      method: 'POST',
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: { host: '127.0.0.1:3080' },
+      async *[Symbol.asyncIterator]() { yield Buffer.from(JSON.stringify(body)) },
+    })
+    await usageRoute.handler(post({ action: 'reset' }), res)
+    assert.equal(written.status, 200)
+    assert.deepEqual(written.body, { ok: true, value: { cleared: true } })
+    assert.equal(store.totals().requests, 0, 'the modal cleared the live ledger')
+    assert.equal((JSON.parse(readFileSync(usagePath, 'utf8')) as { totals: { requests: number } }).totals.requests, 0, 'and the clear is on disk')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

@@ -550,6 +550,15 @@ export interface BridgeHandlers {
    * deleted: the row is rotated out.
    */
   exit(body: { action?: unknown; exitId?: unknown }): Promise<BridgeResult>
+  /**
+   * Ledger maintenance (live request 2026-10-14: 清空功能按钮). `reset` drops
+   * the persisted totals AND the run scope — a cleared 总览 beside a live
+   * 本次重启 would read as a bug — and answers `{cleared: true}`; the caller
+   * re-reads /status for the new numbers. It deliberately does NOT need the
+   * pool: the ledger records every request with the pool off (§5.6), so its
+   * clear must work there too.
+   */
+  usage(body: { action?: unknown }): Promise<BridgeResult>
 }
 
 /** Live-catalog seam for the models() dropdown rows (index.ts injects the
@@ -701,6 +710,13 @@ export function makeBridgeHandlers(
 
       return { ok: false, code: 'settings-rejected', message: "exit action must be 'pin', 'pin-local', 'unpin' or 'rotate'" }
     },
+    async usage(body) {
+      const store = deps.usage
+      if (store === undefined) return { ok: false, code: 'no-ledger', message: 'this composition has no persistent usage ledger' }
+      if (body.action !== 'reset') return { ok: false, code: 'settings-rejected', message: "usage action must be 'reset'" }
+      await store.clear()
+      return { ok: true, value: { cleared: true } }
+    },
   }
 }
 
@@ -786,6 +802,25 @@ export function makeBridgeRoutes(
           return
         }
         const result = await handlers.exit(body as { action?: unknown; exitId?: unknown })
+        writeJson(res as never, 200, result)
+      },
+    },
+    {
+      kind: 'exact',
+      path: `${IP_POOL_BRIDGE_PREFIX}/usage`,
+      handler: async (req, res) => {
+        if (!check(req as never, res as never)) return
+        let body: unknown
+        try {
+          body = await readJsonBody(req as never)
+        } catch {
+          body = undefined
+        }
+        if (body === undefined || typeof body !== 'object' || body === null) {
+          writeJson(res as never, 400, { ok: false, code: 'settings-rejected', message: 'unreadable JSON body' })
+          return
+        }
+        const result = await handlers.usage(body as { action?: unknown })
         writeJson(res as never, 200, result)
       },
     },
