@@ -552,6 +552,7 @@ Config = Schema.object({
   pinnedStrict: Schema.boolean().default(false), // true = 绝对固定：失败也不换出口、不直连（§3.6 行为契约）
   cooldown: Schema.object({ /* §4.6 参数 */ }),
   maxRotateAttempts: Schema.number().default(3),
+  usageScope: Schema.string().default('total'),  // 用量口径：'total' = 持久台账（§5.6），'run' = 本次重启；其它值一律按 total
 })
 ```
 
@@ -567,6 +568,7 @@ Config = Schema.object({
 | 探活模型 | 多选：当前免费目录（catalog.list()）+ S3 清单，默认选 S3 首个；说明文案「探测结论按出口计，建议加主用模型；同一出口内多模型串行探测」 |
 | 并发上限 | maxConcurrentProbes 数字框（1-8，默认 3）+ 说明「不同出口并发，同一出口串行」 |
 | 池子容量 | poolSize 数字框（1-100，默认 10）+ 说明「同时在线的出口数：上线先测速取最快的前 N 个，并把 sing-box 本地监听收缩到它们，其余留作候补」（§4.7） |
+| 用量统计（持久记录） | 口径切换（分段控件：「总览（累计）」/「本次重启」，**即点即生效**，不走保存按钮）+ 该口径下的请求/token/tok-s/会话数/活跃天数 + 说明。它决定**出口列表里的用量数字**看哪个口径；左下角入口固定显示总览（§5.5/§5.6） |
 | 出口列表 | 每行：地址、来源、延迟、质量级、出口 IP（悬停显示位置）、状态徽章（ok/冷却中/dead/已降级）、真实流量计数、单出口「探测」按钮 + 🔒「固定为主力」/⟳「轮换」组成的按钮组；顶部「批量探活」按钮（两级调度跑，显示队列进度 x/y） |
 | 模型封禁列表 | 折叠区：被 banned 的 (出口, 模型) 对及原因（403 region-blocked 等），供用户理解为什么某出口不服务某模型 |
 | 探活参数 | §4.6 表格的可调项 |
@@ -614,6 +616,17 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 设置页之外的第二张客户端面：侧边栏页脚的「◈ n/m 出口」按钮 + 点击后的「出口 IP 统计」弹窗（`src/client/ExitStatsEntry.tsx`）。它挂在 `sidebar.footer.action` 座位（与 `kenz1117/dsh-ui-usage-billing` 同一座位），**不依赖设置页是否挂载**，数据走同一个 `/status` bridge（打开时 2s 轮询、关闭 10s）。
 
+页脚那行数字**固定是总览**（持久台账的全时段累计：请求 · token · tok/s），不随设置页的口径切换而变——它回答的是「我一共花了多少」，必须与弹窗上次停在哪个口径无关（2026-10-14 用户口径：左下角显示总览）。
+
+弹窗分两个 tab（分段控件，2026-10-14）：
+
+| Tab | 内容 |
+| --- | --- |
+| 出口 | 下表（每出口一行）+ 汇总 chips |
+| 流量 | 持久台账视图（`src/client/UsagePanel.tsx`）：口径 chip（总览/本次重启）+ 请求/Token/tok-s/会话数/活跃天数；**每天**（近 14 天的条形列表，按窗口内最重的一天归一，右侧带真实数字）；**Top 会话**（按 token 降序，会话名 = 首轮用户消息截断，悬停显示完整 id，带项目列与最后使用）；**项目**（按项目汇总的会话数/token/请求数）；底部脚注说明台账规模与保留天数 |
+
+出口 tab 的列：
+
 | 列 | 内容 |
 | --- | --- |
 | 出口 IP | 出口 IP；未验证的出口显示 `— 127.0.0.1:30xxx`（本地端点，弱化）；悬停显示完整位置（`HK Central`）；已固定的行带「主力」标记 |
@@ -625,6 +638,25 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 | 本机行 | 本机出口（`direct` + `local` 两个桶合并）：状态绿点 + 「直连」，同样带 🔒 图标 = 固定本机（`local` 哨兵，§3.6） |
 
 要点：**弹窗没有 settings 表单**（它不在设置页的插槽里），所以固定/轮换不能像卡片那样走 `ConfigForm.mutate`，而是走 bridge 的 `/exit`（§5.3）——写设置的那一半由宿主侧完成，浏览器半只发意图。
+
+### 5.6 用量台账（持久记录，90 天）
+
+**动机**（2026-10-14 用户口径）：「目前流量是重启后丢失，增加改为持久记录，最长 90 天」，并按会话/项目记录，弹窗加一个展示每天数据与 Top 会话的 tab。
+
+`src/pool/usage-store.ts`（`UsageStore`）是唯一写入方与读取方，落盘 `~/.opencode2dsh/usage.json`（单文档，原子写：临时文件 + rename；写操作去抖 10s，进程退出时 flush）：
+
+| 字段 | 内容 | 保留策略 |
+| --- | --- | --- |
+| `totals` | 全时段累计 | **永不清零**——页脚的「总览」必须跨越保留窗口仍然诚实 |
+| `days` | 每个本地日历日一个桶（`YYYY-MM-DD`，按宿主时区） | 保留 90 天，过期在 load/prune 时丢弃 |
+| `sessions` | 按会话 id：可读 label（首轮用户消息截断 64 字）、首末时刻、token 桶 | 上限 500，按最后活动淘汰 |
+| `exits` | 按出口 id：token 桶 + 最后记录时刻 | 上限 200，按最后活动淘汰 |
+
+**两个口径**（`usageScope` 设置，默认 `total`）：`run` = 本进程（store 内部持有的 `UsageTracker`），`total` = 持久台账。**写路径只有一条**：`attributeUsage()` 写「当前 recorder」，插件在 `apply()` 时用 `setUsageRecorder(usageStore)` 把它换成台账（usage.ts 因此不必 import 台账，避免循环依赖与 node:fs 泄漏进适配器图）。台账在 `record()` 里同时更新 run 与 total 两套桶，所以两个口径永远来自同一次记录。
+
+**会话/项目归属**：适配器把**宿主 session id**（`GenerateOptions.sessionId`，DSH 0.2 起提供；缺失时回落自己的 digest id）与 label 写进 `RoutingContext.usageSession/usageLabel`——注意它与路由粘性用的 `session` 是**两个字段**，后者不变以免影响路由行为。**项目不是记录时得到的**：LLM 请求里没有工作区信息（DSH 自己的提示词就写明 cwd 不可推断），所以项目是**读取时 join**——bridge 通过 `ctx.inject(['workspaceRegistry'])` 拿到宿主的工作区注册表，用 `list()` 的 `sessionIds` 反查会话属于哪个工作区（`title`/`path`）。注册表不可用时项目列显示 `—`，绝不编造。
+
+**为什么落盘而不是每次请求写**：一次响应只有几百字节的账目，按 token 重写文档是荒唐的；崩溃最多丢最近一个去抖窗口的数据。文件损坏（手改坏、写一半断电）按「重新开始」处理，不抛异常、不影响请求，下一次 flush 会写好新文档。
 
 ## 6. 文件落点（增量，不动现有结构）
 

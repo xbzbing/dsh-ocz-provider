@@ -1,10 +1,10 @@
-import { d as deriveRequestIDs, f as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, r as ZEN_BASE_URL } from "./catalog-BraBPliY.js";
+import { d as conversationLabel, f as deriveRequestIDs, n as ModelCatalog, o as defaultCachePath, p as disguiseHeaders, r as ZEN_BASE_URL } from "./catalog-GckqcHsV.js";
 import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CLaBfusR.js";
-import { a as routingContext, c as attributeUsage, l as emptyTotals, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as usageTracker } from "./dispatcher-ko3LVHp4.js";
+import { a as routingContext, c as UsageTracker, d as setUsageRecorder, f as usageTracker, l as attributeUsage, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as emptyTotals } from "./dispatcher-BfnX7k6I.js";
 import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { createProvider } from "@earendil-works/pi-ai";
@@ -628,9 +628,12 @@ var ZenAdapter = class {
 		const context = await toPiContext(options);
 		const ids = deriveRequestIDs(options.messages);
 		const model = toPiModel(options.model, this.#catalog.reasoningCapability(options.model)?.reasoning === true, this.#catalog.limits?.(options.model), this.#catalog.modalities?.(options.model));
+		const hostSession = typeof options.sessionId === "string" ? options.sessionId : "";
 		const contextStore = {
 			model: options.model,
-			session: ids.session
+			session: ids.session,
+			usageSession: hostSession !== "" ? hostSession : ids.session,
+			usageLabel: conversationLabel(options.messages)
 		};
 		const self = this;
 		const MAX_ROTATES = 3;
@@ -1044,8 +1047,13 @@ const IpPoolConfigSchema = Schema.object({
 	pinnedStrict: Schema.boolean().default(false),
 	proxyHosts: Schema.array(Schema.string()).default([]),
 	proxyPathPrefixes: Schema.array(Schema.string()).default([]),
-	maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3)
+	maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3),
+	usageScope: Schema.string().default("total")
 });
+/** Anything but 'run' resolves to the persisted scope. */
+function resolveUsageScope(value) {
+	return value === "run" ? "run" : "total";
+}
 /** Resolve the schema-level default for the probe model set (§4.6). */
 function resolveProbeModels(configured) {
 	if (configured.length > 0) return [...new Set(configured)];
@@ -1084,7 +1092,8 @@ function resolveIpPoolSettings(value) {
 		pinnedStrict: raw.pinnedStrict ?? false,
 		proxyHosts: raw.proxyHosts ?? [],
 		proxyPathPrefixes: raw.proxyPathPrefixes ?? [],
-		maxRotateAttempts: raw.maxRotateAttempts ?? 3
+		maxRotateAttempts: raw.maxRotateAttempts ?? 3,
+		usageScope: resolveUsageScope(raw.usageScope)
 	};
 }
 /**
@@ -1114,7 +1123,8 @@ function toIpPoolConfig(value) {
 		probeModels: resolveProbeModels(value.probeModels),
 		maxConcurrentProbes: value.maxConcurrentProbes,
 		poolSize: value.poolSize,
-		maxRotateAttempts: value.maxRotateAttempts
+		maxRotateAttempts: value.maxRotateAttempts,
+		usageScope: value.usageScope
 	};
 }
 
@@ -1263,6 +1273,18 @@ function stateOfRatio(available, capacity) {
 function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 	const freeEnabled = options.freeEnabled ?? true;
 	const proxyPathPrefixes = options.proxyPathPrefixes ?? ["/zen/v1"];
+	const store = options.usage;
+	const scope = options.usageScope ?? "total";
+	/**
+	* Per-exit numbers follow the scope switch: the ledger's persisted buckets
+	* for 总览, the in-process tracker for 本次重启. A composition with no ledger
+	* falls back to the tracker, which is exactly the pre-ledger behaviour.
+	*/
+	const tokensOf = (id) => store === void 0 ? usageTracker.totals(id) : store.exitTotals(id, scope);
+	/** 最后使用: the live dispatch stamp for 本次重启, the ledger's last recorded
+	*  response for 总览 (a dispatch that produced no usage event never reached
+	*  the ledger, so the two are not the same signal — the column says which). */
+	const lastUsedOf = (id, live) => store === void 0 || scope === "run" ? live : store.exitLastUsedAt(id, "total");
 	const snapshot = runtime ? runtime.pool.snapshot() : {
 		state: "healthy",
 		total: 0,
@@ -1299,10 +1321,10 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 			})),
 			passive,
 			requests: passive.ok + passive.limited + passive.refused + passive.dead + passive.transport,
-			lastUsedAt: activity.lastUsedAt,
+			lastUsedAt: lastUsedOf(entry.id, activity.lastUsedAt),
 			inFlight: activity.inFlight,
 			demoted: runtime.pool.demoted(entry.id),
-			tokens: usageTracker.totals(entry.id)
+			tokens: tokensOf(entry.id)
 		};
 	}) : [];
 	/**
@@ -1353,9 +1375,13 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 		} : null,
 		direct: {
 			requests: runtime ? runtime.pool.directRequests : 0,
-			tokens: runtime ? usageTracker.totals(DIRECT_EXIT_ID) : emptyTotals()
+			tokens: runtime ? tokensOf(DIRECT_EXIT_ID) : emptyTotals()
 		},
-		local: localView(),
+		local: localView(store, scope),
+		usage: buildUsageView(store, scope, {
+			projectOf: options.projectOf,
+			runSince: options.runSince
+		}),
 		at: now
 	};
 }
@@ -1369,9 +1395,11 @@ function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 * sees the request even when no usage event follows (an aborted turn), which
 * a token-only bucket would silently drop.
 */
-function localView() {
-	const direct = usageTracker.totals(DIRECT_EXIT_ID);
-	const local = usageTracker.totals(LOCAL_EXIT_ID);
+function localView(store, scope) {
+	const read = (id) => store === void 0 ? usageTracker.totals(id) : store.exitTotals(id, scope);
+	const lastUsed = (id) => store === void 0 || scope === "run" ? usageTracker.lastUsedAt(id) : store.exitLastUsedAt(id, "total");
+	const direct = read(DIRECT_EXIT_ID);
+	const local = read(LOCAL_EXIT_ID);
 	const tokens = {
 		requests: direct.requests + local.requests,
 		inputTokens: direct.inputTokens + local.inputTokens,
@@ -1384,7 +1412,64 @@ function localView() {
 	return {
 		requests: tokens.requests,
 		tokens,
-		lastUsedAt: Math.max(usageTracker.lastUsedAt(DIRECT_EXIT_ID), usageTracker.lastUsedAt(LOCAL_EXIT_ID))
+		lastUsedAt: Math.max(lastUsed(DIRECT_EXIT_ID), lastUsed(LOCAL_EXIT_ID))
+	};
+}
+/**
+* Project the ledger for the 流量 tab. `scope` picks the population; `total`
+* (all-time) always rides along, because the footer is pinned to 总览 while the
+* modal follows the switch.
+*
+* Sessions are listed heaviest-first and their projects resolved through the
+* registry seam — a session whose project cannot be resolved keeps a null
+* project rather than a fabricated one.
+*/
+function buildUsageView(store, scope, options = {}) {
+	if (store === void 0) return null;
+	const sessionLimit = options.sessionLimit ?? 20;
+	const sessions = store.sessions(scope, sessionLimit).map((row) => ({
+		id: row.id,
+		label: row.label,
+		requests: row.totals.requests,
+		tokens: row.totals.inputTokens + row.totals.outputTokens + row.totals.cacheReadTokens + row.totals.cacheWriteTokens,
+		outputTokens: row.totals.outputTokens,
+		outputMs: row.totals.outputMs,
+		firstAt: row.firstAt,
+		lastAt: row.lastAt,
+		project: options.projectOf?.(row.id) ?? null
+	}));
+	const byProject = /* @__PURE__ */ new Map();
+	for (const session of sessions) {
+		if (session.project === null) continue;
+		const row = byProject.get(session.project.id) ?? {
+			...session.project,
+			requests: 0,
+			tokens: 0,
+			sessions: 0,
+			lastAt: 0
+		};
+		row.requests += session.requests;
+		row.tokens += session.tokens;
+		row.sessions += 1;
+		row.lastAt = Math.max(row.lastAt, session.lastAt);
+		byProject.set(session.project.id, row);
+	}
+	return {
+		scope,
+		retentionDays: store.retentionDays,
+		runSince: options.runSince ?? 0,
+		total: store.totals(),
+		scoped: scope === "run" ? store.runTotals() : store.totals(),
+		days: store.days(scope).map((row) => ({
+			day: row.day,
+			requests: row.totals.requests,
+			tokens: row.totals.inputTokens + row.totals.outputTokens + row.totals.cacheReadTokens + row.totals.cacheWriteTokens,
+			outputTokens: row.totals.outputTokens,
+			outputMs: row.totals.outputMs
+		})),
+		sessions,
+		projects: [...byProject.values()].sort((left, right) => right.tokens - left.tokens),
+		stored: store.size()
 	};
 }
 /** Whether a socket address is a literal loopback peer. */
@@ -1466,7 +1551,11 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 				ok: true,
 				value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, {
 					freeEnabled: current.freeEnabled,
-					proxyPathPrefixes: current.proxyPathPrefixes
+					proxyPathPrefixes: current.proxyPathPrefixes,
+					usage: deps.usage,
+					usageScope: current.usageScope,
+					projectOf: deps.projectOf,
+					runSince: deps.runSince?.()
 				})
 			};
 		},
@@ -1515,7 +1604,7 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 			};
 		},
 		async models() {
-			const { staticFreeModels } = await import("./catalog-5kNCdeMQ.js");
+			const { staticFreeModels } = await import("./catalog-DuRFDtLA.js");
 			const rows = staticFreeModels.map((id) => ({
 				id,
 				verified: true
@@ -1693,7 +1782,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-BH-h4KNB.js");
+	const { startIpPool } = await import("./ip-pool-CZYBmUOT.js");
 	return startIpPool(config, logger);
 };
 /**
@@ -1761,6 +1850,33 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 		claim();
 	}));
 	/**
+	* Session id → project, resolved through the host's workspace registry.
+	*
+	* The ledger records SESSION ids (the LLM request carries no workspace —
+	* DSH's own prompt says the cwd is not inferable), and the registry is the
+	* authority on which project each session belongs to: `list()` returns every
+	* workspace with its `sessionIds`, so this is a read-time join rather than a
+	* fact the adapter would have to guess at record time. Optional service: a
+	* composition without the registry simply reports no project.
+	*/
+	let projectOf;
+	if (typeof ctx.inject === "function") Promise.resolve(ctx.inject(["workspaceRegistry"], (sctx) => {
+		const registry = sctx.workspaceRegistry;
+		if (registry === void 0 || typeof registry.list !== "function") return;
+		projectOf = (sessionId) => {
+			if (sessionId === "") return null;
+			for (const workspace of registry.list?.() ?? []) {
+				if (!(workspace.sessionIds ?? []).includes(sessionId)) continue;
+				return {
+					id: String(workspace.id),
+					title: workspace.title,
+					path: workspace.path
+				};
+			}
+			return null;
+		};
+	}));
+	/**
 	* Persist one pin value into this plugin's own namespace. `pinnedExitId` is
 	* a volatile field of the entry's Config, so the path carries the field name
 	* in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
@@ -1788,10 +1904,14 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 			pinnedStrict: controller.settings().pinnedStrict,
 			proxyHosts: controller.runtime?.installer?.proxyHosts !== void 0 ? [...controller.runtime.installer.proxyHosts] : controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"],
 			proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== void 0 ? [...controller.runtime.installer.proxyPathPrefixes] : controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : ["/zen/v1"],
-			freeEnabled: controller.settings().free.enabled
+			freeEnabled: controller.settings().free.enabled,
+			usageScope: controller.settings().usageScope
 		}), {
 			listLiveModels: deps.listLiveModels,
-			writePin
+			writePin,
+			usage: deps.usage,
+			projectOf: (sessionId) => projectOf?.(sessionId) ?? null,
+			runSince: () => Date.now() - Math.round(process.uptime() * 1e3)
 		});
 		const disposers = [];
 		for (const route of makeBridgeRoutes(handlers)) disposers.push(bctx.webServer.register(route));
@@ -1810,6 +1930,304 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 	});
 	return controller;
 }
+
+//#endregion
+//#region src/pool/usage-store.ts
+/** How long day buckets are kept (live request: 最长 90 天). */
+const USAGE_RETENTION_DAYS = 90;
+/** Bounds on the two keyed maps; the oldest activity is dropped first. */
+const SESSION_CAP = 500;
+const EXIT_CAP = 200;
+/** Debounce window for the atomic rewrite. */
+const FLUSH_DEBOUNCE_MS = 1e4;
+/** Sum a list of buckets into one. */
+function sumTotals(buckets) {
+	const total = emptyTotals();
+	for (const bucket of buckets) {
+		total.requests += bucket.requests;
+		total.inputTokens += bucket.inputTokens;
+		total.outputTokens += bucket.outputTokens;
+		total.cacheReadTokens += bucket.cacheReadTokens;
+		total.cacheWriteTokens += bucket.cacheWriteTokens;
+		total.totalTokens += bucket.totalTokens;
+		total.outputMs += bucket.outputMs;
+	}
+	return total;
+}
+/** Add one bucket into another (mutating the first). */
+function addInto(target, source) {
+	target.requests += source.requests;
+	target.inputTokens += source.inputTokens;
+	target.outputTokens += source.outputTokens;
+	target.cacheReadTokens += source.cacheReadTokens;
+	target.cacheWriteTokens += source.cacheWriteTokens;
+	target.totalTokens += source.totalTokens;
+	target.outputMs += source.outputMs;
+}
+/** Local calendar day key, `YYYY-MM-DD` (the operator's own timezone). */
+function localDay(at) {
+	const date = new Date(at);
+	const month = String(date.getMonth() + 1).padStart(2, "0");
+	const day = String(date.getDate()).padStart(2, "0");
+	return `${date.getFullYear()}-${month}-${day}`;
+}
+/** The default ledger path (same data dir as the catalog cache). */
+function defaultUsagePath() {
+	return join(homedir(), ".opencode2dsh", "usage.json");
+}
+var UsageStore = class {
+	/** This process's buckets — the 本次重启 scope, unchanged from before. */
+	run = new UsageTracker();
+	#path;
+	#retentionDays;
+	#flushMs;
+	#now;
+	#readOnly;
+	#loaded = false;
+	#dirty = false;
+	#timer = null;
+	#totals = emptyTotals();
+	#days = /* @__PURE__ */ new Map();
+	#sessions = /* @__PURE__ */ new Map();
+	#exits = /* @__PURE__ */ new Map();
+	/** Run-scope session buckets (this process only). */
+	#runSessions = /* @__PURE__ */ new Map();
+	constructor(options = {}) {
+		this.#path = options.path ?? defaultUsagePath();
+		this.#retentionDays = options.retentionDays ?? USAGE_RETENTION_DAYS;
+		this.#flushMs = options.flushMs ?? FLUSH_DEBOUNCE_MS;
+		this.#now = options.now ?? Date.now;
+		this.#readOnly = options.readOnly ?? false;
+	}
+	/** Where this ledger lives (diagnostics / the UI's footnote). */
+	get path() {
+		return this.#path;
+	}
+	get retentionDays() {
+		return this.#retentionDays;
+	}
+	/** Read the document once, then trim it to the retention window. */
+	load() {
+		if (this.#loaded) return;
+		this.#loaded = true;
+		if (this.#readOnly) return;
+		let raw;
+		try {
+			raw = readFileSync(this.#path, "utf8");
+		} catch {
+			return;
+		}
+		try {
+			const parsed = JSON.parse(raw);
+			if (parsed.version !== 1) return;
+			this.#totals = {
+				...emptyTotals(),
+				...parsed.totals
+			};
+			for (const [day, bucket] of Object.entries(parsed.days ?? {})) this.#days.set(day, {
+				...emptyTotals(),
+				...bucket
+			});
+			for (const [id, row] of Object.entries(parsed.sessions ?? {})) this.#sessions.set(id, {
+				label: row.label ?? "",
+				firstAt: row.firstAt ?? 0,
+				lastAt: row.lastAt ?? 0,
+				totals: {
+					...emptyTotals(),
+					...row.totals
+				}
+			});
+			for (const [id, row] of Object.entries(parsed.exits ?? {})) this.#exits.set(id, {
+				lastAt: row.lastAt ?? 0,
+				totals: {
+					...emptyTotals(),
+					...row.totals
+				}
+			});
+		} catch {
+			return;
+		}
+		this.prune();
+	}
+	/** Attribute one response's usage to one exit (and its session). */
+	record(exitId, usage, meta = {}) {
+		this.load();
+		const at = this.#now();
+		this.run.record(exitId, usage);
+		const delta = emptyTotals();
+		const input = usage.inputTokens ?? 0;
+		const output = usage.outputTokens ?? 0;
+		delta.requests = 1;
+		delta.inputTokens = input;
+		delta.outputTokens = output;
+		delta.cacheReadTokens = usage.cacheReadTokens ?? 0;
+		delta.cacheWriteTokens = usage.cacheWriteTokens ?? 0;
+		delta.totalTokens = input + output;
+		delta.outputMs = usage.durationMs ?? 0;
+		addInto(this.#totals, delta);
+		const day = localDay(at);
+		const dayBucket = this.#days.get(day) ?? emptyTotals();
+		addInto(dayBucket, delta);
+		this.#days.set(day, dayBucket);
+		const exit = this.#exits.get(exitId) ?? {
+			lastAt: 0,
+			totals: emptyTotals()
+		};
+		addInto(exit.totals, delta);
+		exit.lastAt = at;
+		this.#exits.set(exitId, exit);
+		const sessionId = meta.session ?? "";
+		if (sessionId !== "") {
+			const stored = this.#sessions.get(sessionId) ?? {
+				label: "",
+				firstAt: at,
+				lastAt: 0,
+				totals: emptyTotals()
+			};
+			if (stored.label === "" && meta.label !== void 0 && meta.label !== "") stored.label = meta.label;
+			addInto(stored.totals, delta);
+			stored.lastAt = at;
+			this.#sessions.set(sessionId, stored);
+			const run = this.#runSessions.get(sessionId) ?? {
+				label: stored.label,
+				firstAt: at,
+				lastAt: 0,
+				totals: emptyTotals()
+			};
+			if (run.label === "" && meta.label !== void 0 && meta.label !== "") run.label = meta.label;
+			addInto(run.totals, delta);
+			run.lastAt = at;
+			this.#runSessions.set(sessionId, run);
+		}
+		this.#dirty = true;
+		this.#schedule();
+	}
+	/** All-time cumulative totals (never trimmed). */
+	totals() {
+		this.load();
+		return { ...this.#totals };
+	}
+	/** This process's totals. */
+	runTotals() {
+		return sumTotals([...this.run.exits().map((id) => this.run.totals(id))]);
+	}
+	/** One exit's bucket in the requested scope. */
+	exitTotals(exitId, scope) {
+		if (scope === "run") return this.run.totals(exitId);
+		this.load();
+		return { ...this.#exits.get(exitId)?.totals ?? emptyTotals() };
+	}
+	/** One exit's last-use stamp in the requested scope (0 = never). */
+	exitLastUsedAt(exitId, scope) {
+		if (scope === "run") return this.run.lastUsedAt(exitId);
+		this.load();
+		return this.#exits.get(exitId)?.lastAt ?? 0;
+	}
+	/** Day buckets, oldest first, capped to the most recent `limit` days. */
+	days(scope, limit) {
+		this.load();
+		const rows = [...(scope === "run" ? this.#runDays() : this.#days).entries()].map(([day, totals]) => ({
+			day,
+			totals: { ...totals }
+		})).sort((left, right) => left.day.localeCompare(right.day));
+		return limit === void 0 ? rows : rows.slice(-limit);
+	}
+	/** Session buckets, heaviest first, capped to `limit`. */
+	sessions(scope, limit = 20) {
+		this.load();
+		return [...(scope === "run" ? this.#runSessions : this.#sessions).entries()].map(([id, row]) => ({
+			id,
+			label: row.label,
+			totals: { ...row.totals },
+			firstAt: row.firstAt,
+			lastAt: row.lastAt
+		})).sort((left, right) => right.totals.totalTokens - left.totals.totalTokens || right.lastAt - left.lastAt).slice(0, limit);
+	}
+	/** How many sessions/days the ledger is holding (the UI's footnote). */
+	size() {
+		this.load();
+		return {
+			sessions: this.#sessions.size,
+			days: this.#days.size,
+			exits: this.#exits.size
+		};
+	}
+	/** Drop day buckets past the retention window and cap the keyed maps. */
+	prune(at) {
+		const cutoff = localDay((at ?? this.#now()) - this.#retentionDays * 24 * 60 * 60 * 1e3);
+		for (const day of [...this.#days.keys()]) if (day < cutoff) this.#days.delete(day);
+		this.#cap(this.#sessions, SESSION_CAP, (row) => row.lastAt);
+		this.#cap(this.#exits, EXIT_CAP, (row) => row.lastAt);
+	}
+	#cap(map, limit, lastAt) {
+		if (map.size <= limit) return;
+		const doomed = [...map.entries()].sort((left, right) => lastAt(left[1]) - lastAt(right[1])).slice(0, map.size - limit);
+		for (const [key] of doomed) map.delete(key);
+	}
+	/** The day buckets recorded since this process started. */
+	#runDays() {
+		const days = /* @__PURE__ */ new Map();
+		for (const row of this.#runSessions.values()) {
+			const day = localDay(row.lastAt);
+			const bucket = days.get(day) ?? emptyTotals();
+			addInto(bucket, row.totals);
+			days.set(day, bucket);
+		}
+		return days;
+	}
+	#schedule() {
+		if (this.#readOnly || this.#flushMs <= 0 || this.#timer !== null) return;
+		this.#timer = setInterval(() => {
+			this.flush();
+		}, this.#flushMs);
+		this.#timer.unref?.();
+	}
+	/** Write the document atomically (temp file + rename); no-op when clean. */
+	async flush() {
+		if (this.#readOnly || !this.#dirty) return;
+		this.load();
+		this.prune();
+		const document = {
+			version: 1,
+			totals: this.#totals,
+			days: Object.fromEntries(this.#days),
+			sessions: Object.fromEntries(this.#sessions),
+			exits: Object.fromEntries(this.#exits),
+			savedAt: this.#now()
+		};
+		const temp = `${this.#path}.tmp`;
+		try {
+			mkdirSync(dirname(this.#path), { recursive: true });
+			writeFileSync(temp, JSON.stringify(document), "utf8");
+			renameSync(temp, this.#path);
+			this.#dirty = false;
+		} catch {
+			try {
+				unlinkSync(temp);
+			} catch {}
+		}
+	}
+	/** Stop the timer and write whatever is pending (host shutdown). */
+	async dispose() {
+		if (this.#timer !== null) {
+			clearInterval(this.#timer);
+			this.#timer = null;
+		}
+		await this.flush();
+	}
+	/** Test seam: drop every bucket and start over. */
+	reset() {
+		this.run.reset();
+		this.#totals = emptyTotals();
+		this.#days.clear();
+		this.#sessions.clear();
+		this.#exits.clear();
+		this.#runSessions.clear();
+		this.#dirty = false;
+	}
+};
+/** The process-wide ledger: adapter writes, status bridge reads. */
+const usageStore = new UsageStore();
 
 //#endregion
 //#region src/provider.ts
@@ -1985,10 +2403,19 @@ function applyAdapter(ctx, config, readIpPool) {
 		bodyIdleMs: cfg.bodyIdleMs,
 		responsesBodyIdleMs: cfg.responsesBodyIdleMs
 	});
+	setUsageRecorder(usageStore);
+	const maybeLedgerEffect = ctx.effect;
+	if (typeof maybeLedgerEffect === "function") maybeLedgerEffect.call(ctx, () => () => {
+		usageStore.dispose();
+	});
+	else usageStore.load();
 	ctx.llm.registerAdapter([PROVIDER_ID], adapter);
 	logger.info(`opencode2dsh: adapter registered for "${PROVIDER_ID}" (catalog warms up in background)`);
 	try {
-		applyIpPoolSettings(ctx, ordinary, readIpPool, logger, { listLiveModels: () => catalog.list() });
+		applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
+			listLiveModels: () => catalog.list(),
+			usage: usageStore
+		});
 	} catch (err) {
 		logger.error(`opencode2dsh: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`);
 	}

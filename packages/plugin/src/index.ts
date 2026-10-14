@@ -8,6 +8,8 @@ import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { AgentProcess, type ReadyInfo } from './agent-process.ts'
 import { Config, configPaths, ensureToken, ordinaryConfig, resolveConfig, writeAgentConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
 import { applyIpPoolSettings } from './ip-pool-settings/apply.ts'
+import { setUsageRecorder } from './pool/usage.ts'
+import { usageStore } from './pool/usage-store.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
 import { fetchHealth, fetchModels, registerProvider, removeProviderRoute } from './provider.ts'
 
@@ -43,6 +45,14 @@ export interface PluginContext {
    * page instead of letting the domain auto-generate one. The 0.1.1
    * `register()/watch()` scope seam is gone and deliberately not re-declared.
    */
+  /**
+   * The host's workspace registry (`@deepseek-ai/dsh-workspace`), requested on
+   * demand: it is the authority on which project a session belongs to, and the
+   * usage ledger's 流量 tab joins session ids to it at read time.
+   */
+  workspaceRegistry?: {
+    list?(): Array<{ id: unknown; title: string; path: string; sessionIds?: readonly unknown[] }>
+  }
   settings?: {
     describe?(options?: { redactSecrets?: boolean }): unknown
     get?(ns: string): unknown
@@ -141,6 +151,20 @@ function applyAdapter(
     responsesBodyIdleMs: cfg.responsesBodyIdleMs,
   })
 
+  // Persistent usage ledger (live request 2026-10-14: 流量重启后不再丢失，保留
+  // 90 天). Installed HERE, not inside the ip-pool runtime: the ledger answers
+  // "what did this machine spend", which stays true with the pool switched off
+  // (every request then lands in the 本机 bucket), and a host that never
+  // enables the pool still gets its numbers. The recorder seam keeps usage.ts
+  // from importing the ledger (that would be an import cycle).
+  setUsageRecorder(usageStore)
+  const maybeLedgerEffect = (ctx as { effect?: PluginContext['effect'] }).effect
+  if (typeof maybeLedgerEffect === 'function') {
+    maybeLedgerEffect.call(ctx, () => () => { void usageStore.dispose() })
+  } else {
+    void usageStore.load()
+  }
+
   // Register FIRST: the provider must appear in the selector right away. The
   // host awaits listModels and caches its answer per host generation, so the
   // registration-time read warms the catalog (bounded, issue #45) instead of
@@ -161,7 +185,10 @@ function applyAdapter(
   // must run after the catalog instance exists — and it is fenced, because the
   // route above is already live and must survive anything this layer throws.
   try {
-    applyIpPoolSettings(ctx, ordinary, readIpPool, logger, { listLiveModels: () => catalog.list() })
+    applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
+      listLiveModels: () => catalog.list(),
+      usage: usageStore,
+    })
   } catch (err) {
     logger.error(`opencode2dsh: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`)
   }

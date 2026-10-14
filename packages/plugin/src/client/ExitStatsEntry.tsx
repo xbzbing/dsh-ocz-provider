@@ -22,6 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPoolCard.tsx'
 import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
+import { UsagePanel } from './UsagePanel.tsx'
 import styles from './ip-pool.module.css'
 
 /**
@@ -119,6 +120,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const [failed, setFailed] = useState(false)
   /** Headline ordering contract: newest click wins, request count is home. */
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'requests', dir: 'desc' })
+  /** Which pane the modal shows: the exit table, or the traffic breakdown. */
+  const [tab, setTab] = useState<'exits' | 'usage'>('exits')
   /** The row action in flight (its key), so every button disables together. */
   const [busy, setBusy] = useState('')
   /** The last action's outcome, shown above the table until the next one. */
@@ -214,6 +217,28 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     return { requests, tokens, inFlight, speed }
   }, [status])
 
+  /**
+   * The footer's own numbers (live request 2026-10-14: 左下角显示总览). The
+   * ledger's ALL-TIME totals, never the scope the card's switch selected: the
+   * footer is the glanceable "what have I spent" figure, and it has to mean the
+   * same thing regardless of what the modal was last left on. Falls back to the
+   * live totals when the host serves no ledger.
+   */
+  const overview = useMemo(() => {
+    const ledger = status?.usage
+    if (ledger === null || ledger === undefined) return totals
+    const all = ledger.total
+    const allIn = grandTotal(all)
+    return {
+      requests: all.requests,
+      tokens: allIn,
+      inFlight: totals.inFlight,
+      speed: all.outputMs !== undefined && all.outputMs > 0 && all.outputTokens > 0
+        ? Math.round((all.outputTokens * 1000) / all.outputMs)
+        : 0,
+    }
+  }, [status, totals])
+
   const usable = status?.availableTotal ?? 0
   const total = status?.total ?? 0
   /**
@@ -286,13 +311,13 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   : <>{usable}<span className={styles.footerUnit}> / {total} {t('footerLabel')}</span></>}
             </span>
             <span className={styles.footerSub}>
-              {t('footerRequests', { count: totals.requests.toLocaleString() })}
+              {t('footerRequests', { count: overview.requests.toLocaleString() })}
               {' · '}
-              {compact(totals.tokens)} tok
+              {compact(overview.tokens)} tok
               {/* The pool's own decode speed (live request 2026-10-14). Hidden
                   at 0 — nothing has streamed yet, and "0 tok/s" reads as a
                   stall rather than an empty counter. */}
-              {totals.speed > 0 && <>{' · '}{t('footerSpeed', { count: totals.speed.toLocaleString() })}</>}
+              {overview.speed > 0 && <>{' · '}{t('footerSpeed', { count: overview.speed.toLocaleString() })}</>}
             </span>
           </span>
         )}
@@ -309,9 +334,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         */}
         <span
           className={wide ? styles.footerCompactOnNarrow : styles.footerCompact}
-          title={`${t('footerRequests', { count: totals.requests.toLocaleString() })} · ${compact(totals.tokens)} tok${totals.speed > 0 ? ` · ${t('footerSpeed', { count: totals.speed.toLocaleString() })}` : ''}`}
+          title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
         >
-          {status === null ? '—' : `${compact(totals.tokens)} tok`}
+          {status === null ? '—' : `${compact(overview.tokens)} tok`}
         </span>
       </button>
       <Modal
@@ -323,6 +348,29 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         className={styles.statsModal}
         contentClassName={styles.statsContent}
       >
+        {/* Two panes: the per-exit table, and the persisted traffic
+            breakdown (live request 2026-10-14). The tab bar sits above the
+            chips so switching panes never moves the modal's own controls. */}
+        <div className={styles.tabBar} role="tablist" aria-label={t('statsTitle')}>
+          {(['exits', 'usage'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              className={tab === key ? `${styles.tab} ${styles.tabActive}` : styles.tab}
+              onClick={() => setTab(key)}
+            >
+              {key === 'exits' ? t('tabExits') : t('tabUsage')}
+            </button>
+          ))}
+        </div>
+        {tab === 'usage' ? (
+          status?.usage == null
+            ? <p className={styles.status}>{t('usageNoStore')}</p>
+            : <UsagePanel usage={status.usage} t={t} />
+        ) : (
+        <>
         <div className={styles.statsSummary}>
           <span className={styles.statsChip}>{poolOff ? t('footerDisabled') : t('footerUsable', { usable, total })}</span>
           <span className={styles.statsChip}>{t('statsSummaryRequests', { count: totals.requests.toLocaleString() })}</span>
@@ -520,6 +568,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               </tbody>
             </table>
           </div>
+        )}
+        </>
         )}
       </Modal>
     </>

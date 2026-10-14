@@ -95,7 +95,12 @@ export interface IpPoolSettingsValue {
   pinnedExitId: string
   pinnedStrict: boolean
   proxyHosts: string[]
+  /** 'total' = the persisted ledger, 'run' = this host process. */
+  usageScope: UsageScopeView
 }
+
+/** The two usage scopes the UI switches between. */
+export type UsageScopeView = 'total' | 'run'
 
 /** Bridge /status view (mirrors src/ip-pool-settings/bridge.ts). */
 export interface PoolStatusView {
@@ -151,7 +156,39 @@ export interface PoolStatusView {
    *  direct fallbacks): the modal's 本机 row. Optional so a client bundle can
    *  talk to a host snapshot from before this field existed. */
   local?: { requests: number; tokens: TokenTotalsView; lastUsedAt: number }
+  /** The persistent usage ledger (absent on a host from before it existed). */
+  usage?: UsageView | null
   at: number
+}
+
+/**
+ * The persistent usage ledger as /status serves it (mirrors
+ * src/ip-pool-settings/bridge.ts UsageView). Optional on the view so a bundle
+ * can still read a host snapshot from before the ledger existed.
+ */
+export interface UsageView {
+  scope: UsageScopeView
+  retentionDays: number
+  /** When this process started (the run scope's origin). */
+  runSince: number
+  /** All-time persisted totals — the footer's 总览 figure. */
+  total: TokenTotalsView
+  /** Totals for the scope being shown. */
+  scoped: TokenTotalsView
+  days: Array<{ day: string; requests: number; tokens: number; outputTokens: number; outputMs: number }>
+  sessions: Array<{
+    id: string
+    label: string
+    requests: number
+    tokens: number
+    outputTokens: number
+    outputMs: number
+    firstAt: number
+    lastAt: number
+    project: { id: string; title: string; path: string } | null
+  }>
+  projects: Array<{ id: string; title: string; path: string; requests: number; tokens: number; sessions: number; lastAt: number }>
+  stored: { sessions: number; days: number; exits: number }
 }
 
 /** Per-exit token totals (mirrors src/pool/usage.ts TokenTotals). */
@@ -193,6 +230,22 @@ const DEFAULTS: IpPoolSettingsValue = {
   pinnedExitId: '',
   pinnedStrict: false,
   proxyHosts: [],
+  usageScope: 'total',
+}
+
+/** Compact all-in token label for the usage chips (input+output+cache). */
+function usageTokens(tokens: TokenTotalsView): string {
+  const value = tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
+  return String(value)
+}
+
+/** Output speed over a cumulative decode window (0 = nothing timed). */
+function usageSpeed(tokens: TokenTotalsView): number {
+  const ms = tokens.outputMs ?? 0
+  if (ms <= 0 || tokens.outputTokens <= 0) return 0
+  return Math.round((tokens.outputTokens * 1000) / ms)
 }
 
 /** Subscription URLs never render in full — the settings doc is the only
@@ -215,6 +268,7 @@ interface FormState {
   probeModels: string[]
   maxConcurrentProbes: string
   poolSize: string
+  usageScope: UsageScopeView
 }
 
 function emptyForm(): FormState {
@@ -230,6 +284,7 @@ function emptyForm(): FormState {
     probeModels: [],
     maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
     poolSize: String(DEFAULTS.poolSize),
+    usageScope: DEFAULTS.usageScope,
   }
 }
 
@@ -246,6 +301,7 @@ function formFromValue(value: IpPoolSettingsValue): FormState {
     probeModels: [...value.probeModels],
     maxConcurrentProbes: String(value.maxConcurrentProbes),
     poolSize: String(value.poolSize ?? DEFAULTS.poolSize),
+    usageScope: value.usageScope === 'run' ? 'run' : 'total',
   }
 }
 
@@ -296,6 +352,7 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
   push('probeModels', form.probeModels, value.probeModels, base.probeModels)
   push('maxConcurrentProbes', Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes)
   push('poolSize', Number(form.poolSize), value.poolSize, base.poolSize)
+  push('usageScope', form.usageScope, value.usageScope, base.usageScope)
   return writes
 }
 
@@ -693,11 +750,15 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     }
   }, [t])
   useEffect(() => {
-    if (snapshot?.status !== 'ready' || !hydratedRef.current || !form.enabled) return
+    // Deliberately NOT gated on form.enabled: the usage ledger answers "what
+    // did this machine spend", which stays true with the pool switched off
+    // (every request then lands in the 本机 bucket), and the 用量统计 section
+    // below needs it either way (live request 2026-10-14).
+    if (snapshot?.status !== 'ready' || !hydratedRef.current) return
     void refreshStatus()
     const interval = setInterval(() => void refreshStatus(), probing ? 1_000 : 3_000)
     return () => clearInterval(interval)
-  }, [snapshot?.status, form.enabled, probing, refreshStatus, hydratedRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [snapshot?.status, probing, refreshStatus, hydratedRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (snapshot?.status === 'loading') {
     return <p className={styles.status}>{t('statusLoading')}</p>
@@ -816,6 +877,30 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       await refreshStatus()
     } catch {
       setStatusError(t('refreshError'))
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  /**
+   * Switch the usage scope. Written IMMEDIATELY rather than as a form draft:
+   * it is a view switch, not a configuration edit, and the numbers it governs
+   * are read from the bridge — requiring a 保存 press to re-read them would be
+   * a strange two-step for a control whose whole job is to change what you see.
+   */
+  const setUsageScope = async (next: UsageScopeView): Promise<void> => {
+    if (!writable || settings === undefined || snapshot === undefined) return
+    setActionBusy(true)
+    try {
+      const accepted = await settings.mutate(
+        [{ op: 'set', path: [IP_POOL_FIELD, 'usageScope'], value: next }],
+        snapshot.revision,
+      )
+      if (!accepted) throw new Error(t('saveError'))
+      setForm((current) => ({ ...current, usageScope: next }))
+      await refreshStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('saveError'))
     } finally {
       setActionBusy(false)
     }
@@ -996,6 +1081,43 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         >
           {probing ? t('probeRunning').replace('{done}', String(probeDone)).replace('{total}', String(probeTotal)) : t('probeAll')}
         </button>
+      </div>
+
+      <div className={styles.section} data-testid="usage-section">
+        <span className={styles.sectionTitle}>{t('sectionUsage')}</span>
+        <div className={styles.scopeSwitch} role="group" aria-label={t('usageScopeLabel')}>
+          {(['total', 'run'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={form.usageScope === key ? `${styles.scopeOption} ${styles.scopeOptionActive}` : styles.scopeOption}
+              aria-pressed={form.usageScope === key}
+              data-testid={`usage-scope-${key}`}
+              disabled={actionBusy || !writable}
+              onClick={() => { void setUsageScope(key) }}
+            >
+              {key === 'total' ? t('usageScopeTotal') : t('usageScopeRun')}
+            </button>
+          ))}
+        </div>
+        <span className={styles.fieldHint}>
+          {t('usageScopeHint', { days: String(status?.usage?.retentionDays ?? 90) })}
+        </span>
+        {status?.usage == null
+          ? <span className={styles.status}>{t('usageNoStore')}</span>
+          : (
+            <div className={styles.statsSummary}>
+              <span className={styles.statsChip}>{t('statsSummaryRequests', { count: status.usage.scoped.requests.toLocaleString() })}</span>
+              <span className={styles.statsChip}>
+                {t('statsSummaryTokens', { count: usageTokens(status.usage.scoped) })}
+              </span>
+              {usageSpeed(status.usage.scoped) > 0 && (
+                <span className={styles.statsChip}>{t('statsSummarySpeed', { count: usageSpeed(status.usage.scoped).toLocaleString() })}</span>
+              )}
+              <span className={styles.statsChip}>{t('usageSummarySessions', { count: status.usage.sessions.length.toLocaleString() })}</span>
+              <span className={styles.statsChip}>{t('usageSummaryDays', { count: status.usage.days.length.toLocaleString() })}</span>
+            </div>
+          )}
       </div>
 
       {form.enabled && (

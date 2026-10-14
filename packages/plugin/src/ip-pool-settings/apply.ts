@@ -21,7 +21,8 @@ import type { PluginContext } from '../index.ts'
 import type { OrdinaryPluginConfig } from '../config.ts'
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, toIpPoolConfig, type IpPoolSettings } from './namespace.ts'
-import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type WritePin } from './bridge.ts'
+import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type ProjectResolver, type WritePin } from './bridge.ts'
+import type { UsageStore } from '../pool/usage-store.ts'
 
 export interface IpPoolController {
   /** The live runtime (null until enabled and assembled). */
@@ -52,7 +53,12 @@ export function applyIpPoolSettings(
   ordinary: OrdinaryPluginConfig,
   readIpPool: () => Partial<IpPoolSettings> | undefined,
   logger: PluginContext['logger'],
-  deps: { assemble?: AssembleIpPool; listLiveModels?: () => string[] } = {},
+  deps: {
+    assemble?: AssembleIpPool
+    listLiveModels?: () => string[]
+    /** The persistent usage ledger (index.ts owns the singleton). */
+    usage?: UsageStore
+  } = {},
 ): IpPoolController {
   const assemble = deps.assemble ?? defaultAssemble
   let disposed = false
@@ -144,6 +150,32 @@ export function applyIpPoolSettings(
   }
 
   /**
+   * Session id → project, resolved through the host's workspace registry.
+   *
+   * The ledger records SESSION ids (the LLM request carries no workspace —
+   * DSH's own prompt says the cwd is not inferable), and the registry is the
+   * authority on which project each session belongs to: `list()` returns every
+   * workspace with its `sessionIds`, so this is a read-time join rather than a
+   * fact the adapter would have to guess at record time. Optional service: a
+   * composition without the registry simply reports no project.
+   */
+  let projectOf: ProjectResolver | undefined
+  if (typeof ctx.inject === 'function') {
+    void Promise.resolve(ctx.inject(['workspaceRegistry'], (sctx: PluginContext) => {
+      const registry = sctx.workspaceRegistry
+      if (registry === undefined || typeof registry.list !== 'function') return
+      projectOf = (sessionId: string) => {
+        if (sessionId === '') return null
+        for (const workspace of registry.list?.() ?? []) {
+          if (!(workspace.sessionIds ?? []).includes(sessionId)) continue
+          return { id: String(workspace.id), title: workspace.title, path: workspace.path }
+        }
+        return null
+      }
+    })) as unknown as Promise<unknown>
+  }
+
+  /**
    * Persist one pin value into this plugin's own namespace. `pinnedExitId` is
    * a volatile field of the entry's Config, so the path carries the field name
    * in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
@@ -194,6 +226,10 @@ export function applyIpPoolSettings(
           // to the whole pool (a subscription-only profile used to sit on
           // "emergency" forever, live-observed 2026-10-12).
           freeEnabled: controller.settings().free.enabled,
+          // The usage switch the card owns: every usage surface (this bridge's
+          // per-exit numbers, the modal's tabs) follows it, while the footer
+          // stays pinned to 总览 (live request 2026-10-14).
+          usageScope: controller.settings().usageScope,
         }),
         {
           // Probe-model dropdown rows: the plugin's live Zen catalog when one
@@ -201,6 +237,10 @@ export function applyIpPoolSettings(
           listLiveModels: deps.listLiveModels,
           // The modal's 固定 button persists `pinnedExitId` here.
           writePin,
+          // The persistent ledger + the project join for the 流量 tab.
+          usage: deps.usage,
+          projectOf: (sessionId: string) => projectOf?.(sessionId) ?? null,
+          runSince: () => Date.now() - Math.round(process.uptime() * 1000),
         },
       )
       const disposers: Array<() => void> = []

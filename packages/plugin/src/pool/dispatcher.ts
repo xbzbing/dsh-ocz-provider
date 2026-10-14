@@ -46,6 +46,16 @@ export interface RoutingContext {
   /** Inbound session id (stickiness key, 3.3). */
   session?: string
   /**
+   * Session id the usage ledger files this response under (live request
+   * 2026-10-14: 按会话/项目记录流量). Separate from {@link session}: that one is
+   * the routing stickiness key, while this one prefers the HOST's session id
+   * (the adapter's own digest id is a fallback), which is the id the workspace
+   * registry can resolve back to a project.
+   */
+  usageSession?: string
+  /** Readable label for that session (its first user turn, truncated). */
+  usageLabel?: string
+  /**
    * The exit this request was routed through, stamped at pick() (exit-stats
    * surface). The adapter reads it back when the response's `usage` lands so
    * tokens attribute to the exit that actually carried the request;

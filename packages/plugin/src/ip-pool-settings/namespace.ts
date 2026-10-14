@@ -127,6 +127,14 @@ export const IpPoolConfigSchema = Schema.object({
   proxyPathPrefixes: Schema.array(Schema.string()).default([]),
   /** Same-request rotate attempts on pre-content transport/429 failures (§3.4). */
   maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3),
+  /**
+   * Which population the usage surfaces report (live request 2026-10-14):
+   * `total` = the persisted ledger (up to 90 days, survives restarts), `run` =
+   * this host process only. A string rather than a union schema so a hand-edited
+   * profile cannot make the field unreadable; anything but 'run' resolves to
+   * `total`.
+   */
+  usageScope: Schema.string().default('total'),
 })
 
 /** The resolved ip-pool settings value (schema defaults → base → user). */
@@ -144,6 +152,16 @@ export interface IpPoolSettings {
   proxyHosts: string[]
   proxyPathPrefixes: string[]
   maxRotateAttempts: number
+  /** 'total' (persisted ledger) or 'run' (this process); see the schema field. */
+  usageScope: UsageScopeSetting
+}
+
+/** The two usage scopes the UI switches between. */
+export type UsageScopeSetting = 'total' | 'run'
+
+/** Anything but 'run' resolves to the persisted scope. */
+export function resolveUsageScope(value: unknown): UsageScopeSetting {
+  return value === 'run' ? 'run' : 'total'
 }
 
 /** Resolve the schema-level default for the probe model set (§4.6). */
@@ -179,6 +197,7 @@ export interface AnyIpPoolSection {
   maxConcurrentProbes?: number
   poolSize?: number
   maxRotateAttempts?: number
+  usageScope?: string
 }
 
 /**
@@ -224,6 +243,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     proxyHosts: raw.proxyHosts ?? [],
     proxyPathPrefixes: raw.proxyPathPrefixes ?? [],
     maxRotateAttempts: raw.maxRotateAttempts ?? 3,
+    usageScope: resolveUsageScope(raw.usageScope),
   }
 }
 
@@ -247,6 +267,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   maxConcurrentProbes: number
   poolSize: number
   maxRotateAttempts: number
+  usageScope: UsageScopeSetting
 } {
   return {
     enabled: value.enabled,
@@ -267,5 +288,6 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     maxConcurrentProbes: value.maxConcurrentProbes,
     poolSize: value.poolSize,
     maxRotateAttempts: value.maxRotateAttempts,
+    usageScope: value.usageScope,
   }
 }

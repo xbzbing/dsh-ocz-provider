@@ -4,7 +4,7 @@ import * as openaiResponses from '@earendil-works/pi-ai/api/openai-responses'
 
 import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
 import { toStreamChunks, type HarnessChunk, type PiDoneMessage, type PiEvent } from './events.ts'
-import { deriveRequestIDs, disguiseHeaders } from './ids.ts'
+import { conversationLabel, deriveRequestIDs, disguiseHeaders } from './ids.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
@@ -510,7 +510,18 @@ export class ZenAdapter {
     // IP-pool routing context (docs/ip-pool.md 3.3): pi-ai builds the request
     // body and dispatches it on separate layers with no channel for "which
     // model is this fetch for", so the per-request context rides AsyncLocalStorage.
-    const contextStore: RoutingContext = { model: options.model, session: ids.session }
+    // The ledger's session key prefers the HOST's session id (GenerateOptions
+    // carries it since DSH 0.2): that is the id the workspace registry can map
+    // back to a project, while our digest id is conversation-derived and known
+    // only to us. The stickiness key stays `ids.session` — changing it would
+    // change routing behaviour, which is not what this accounting is for.
+    const hostSession = typeof options.sessionId === 'string' ? options.sessionId : ''
+    const contextStore: RoutingContext = {
+      model: options.model,
+      session: ids.session,
+      usageSession: hostSession !== '' ? hostSession : ids.session,
+      usageLabel: conversationLabel(options.messages),
+    }
     const self = this
     const MAX_ROTATES = 3
     // Watchdog windows (live-observed 2026-09-07): the OpenAI SDK timeout

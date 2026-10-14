@@ -6,9 +6,13 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { IpPoolConfigSchema, resolveIpPoolSettings, resolveProbeModels, toIpPoolConfig, IP_POOL_NAMESPACE } from '../src/ip-pool-settings/namespace.ts'
-import { buildStatusView, isTrustedBridgeRequest, makeBridgeHandlers, makeBridgeRoutes, IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
+import { buildStatusView, buildUsageView, isTrustedBridgeRequest, makeBridgeHandlers, makeBridgeRoutes, IP_POOL_BRIDGE_PREFIX } from '../src/ip-pool-settings/bridge.ts'
+import { UsageStore } from '../src/pool/usage-store.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, usageTracker } from '../src/pool/usage.ts'
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
 
@@ -585,4 +589,109 @@ test('status view marks the local pin so the modal can render 取消固定 on th
   pool.pinLocal()
   const view = buildStatusView(runtime as never, false, [])
   assert.deepEqual(view.pinned, { id: 'local', strict: false, local: true })
+})
+
+// -- bridge: the persistent usage ledger (流量 tab) --------------------------------
+
+/** A store over an in-memory-only ledger (readOnly skips every disk touch). */
+function ledger(): UsageStore {
+  return new UsageStore({ readOnly: true, flushMs: 0, now: () => Date.UTC(2026, 9, 14, 3, 0, 0) })
+}
+
+test('usage view: days, sessions and the scope switch come from the ledger', () => {
+  const store = ledger()
+  store.record('a:1', { inputTokens: 100, outputTokens: 50, durationMs: 1000 }, { session: 'ses_1', label: 'first conversation' })
+  store.record('a:1', { inputTokens: 10, outputTokens: 10, durationMs: 500 }, { session: 'ses_2', label: 'second conversation' })
+  store.record('local', { inputTokens: 1, outputTokens: 1 }, { session: 'ses_2', label: 'second conversation' })
+
+  const total = buildUsageView(store, 'total', { runSince: 123 })
+  assert.ok(total)
+  assert.equal(total.scope, 'total')
+  assert.equal(total.retentionDays, 90)
+  assert.equal(total.runSince, 123)
+  assert.equal(total.total.requests, 3, 'the all-time figure rides along whatever the scope is')
+  assert.equal(total.scoped.requests, 3)
+  assert.deepEqual(total.days.map((row) => row.day), ['2026-10-14'])
+  assert.equal(total.days[0]!.tokens, 172, 'all-in: input + output + cache')
+  // Ordered by TOKENS, not requests: the first conversation sent 150 tokens in
+  // one response, the second sent 22 across two.
+  assert.deepEqual(total.sessions.map((row) => [row.label, row.tokens]), [
+    ['first conversation', 150],
+    ['second conversation', 22],
+  ], 'heaviest session first')
+  assert.deepEqual(total.projects, [], 'no resolver = no project claims')
+  assert.deepEqual(total.stored, { sessions: 2, days: 1, exits: 2 })
+})
+
+test('usage view: sessions are joined to projects at read time', () => {
+  const store = ledger()
+  store.record('a:1', { inputTokens: 100, outputTokens: 50 }, { session: 'ses_1', label: 'alpha work' })
+  store.record('a:1', { inputTokens: 100, outputTokens: 50 }, { session: 'ses_2', label: 'more alpha' })
+  store.record('a:1', { inputTokens: 10, outputTokens: 5 }, { session: 'ses_3', label: 'beta work' })
+
+  const projects: Record<string, { id: string; title: string; path: string }> = {
+    ses_1: { id: 'w1', title: 'opencode2dsh', path: '/Users/ankh/workspace/private/opencode2dsh' },
+    ses_2: { id: 'w1', title: 'opencode2dsh', path: '/Users/ankh/workspace/private/opencode2dsh' },
+    ses_3: { id: 'w2', title: 'other-project', path: '/tmp/other' },
+  }
+  const view = buildUsageView(store, 'total', { projectOf: (sessionId) => projects[sessionId] ?? null })
+  assert.ok(view)
+  assert.equal(view.sessions.find((row) => row.id === 'ses_1')?.project?.title, 'opencode2dsh')
+  assert.equal(view.sessions.find((row) => row.id === 'ses_unknown'), undefined)
+  assert.deepEqual(view.projects.map((row) => [row.title, row.sessions, row.requests]), [
+    ['opencode2dsh', 2, 2],
+    ['other-project', 1, 1],
+  ], 'rolled up per project, heaviest first')
+})
+
+test('usage view: the scope switch changes the scoped numbers, never the all-time one', () => {
+  const store = ledger()
+  store.record('a:1', { inputTokens: 10, outputTokens: 10 }, { session: 'ses_1', label: 'x' })
+  const total = buildUsageView(store, 'total', {})
+  const run = buildUsageView(store, 'run', {})
+  assert.equal(total!.scoped.requests, 1)
+  assert.equal(run!.scoped.requests, 1, 'the same process recorded it, so both scopes see it')
+  assert.equal(run!.total.requests, 1, 'the footer figure is scope-independent')
+  assert.equal(buildUsageView(undefined, 'total', {}), null, 'no ledger = no usage view (the tab says so)')
+})
+
+test('status view: per-exit usage numbers follow the scope, and the footer figure does not', () => {
+  // A ledger written by an EARLIER process (this is the restart story): the
+  // file has the exit's bucket, the fresh store's run scope is empty.
+  const dir = mkdtempSync(join(tmpdir(), 'usage-scope-'))
+  try {
+    const path = join(dir, 'usage.json')
+    const bucket = { requests: 1, inputTokens: 900, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 1000, outputMs: 2000 }
+    writeFileSync(path, JSON.stringify({
+      version: 1,
+      totals: bucket,
+      days: { '2026-10-13': bucket },
+      sessions: { ses_old: { label: 'previous run', firstAt: 1, lastAt: 2, totals: bucket } },
+      exits: { '127.0.0.1:30001': { lastAt: 2, totals: bucket } },
+      savedAt: 2,
+    }), 'utf8')
+    const store = new UsageStore({ path, flushMs: 0 })
+    const { runtime } = rowActionRuntime({ exits: [exitNode({ id: '127.0.0.1:30001' })] })
+
+    const total = buildStatusView(runtime as never, false, [], { usage: store, usageScope: 'total', runSince: 42 })
+    const run = buildStatusView(runtime as never, false, [], { usage: store, usageScope: 'run', runSince: 42 })
+    const row = (view: typeof total): number => view.exits.find((entry) => entry.id === '127.0.0.1:30001')!.tokens.inputTokens
+
+    assert.equal(row(total), 900, '总览 shows the persisted bucket')
+    assert.equal(row(run), 0, '本次重启 shows nothing until this process records something')
+    assert.equal(total.usage?.total.requests, 1, 'the footer figure is the same in both views')
+    assert.equal(run.usage?.total.requests, 1, '总览 rides along even while the modal shows 本次重启')
+    assert.equal(run.usage?.scoped.requests, 0)
+    assert.equal(run.usage?.runSince, 42, 'the run origin is served for the 本次重启 label')
+    assert.deepEqual(run.usage?.days.map((row) => row.day), [], 'a fresh process has no days of its own yet')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('status view: a host without a ledger still reports the in-process numbers', () => {
+  const { runtime } = rowActionRuntime()
+  const view = buildStatusView(runtime as never, false, [])
+  assert.equal(view.usage, null, 'the client hides the 流量 tab instead of inventing data')
+  assert.equal(typeof view.exits[0]!.tokens.inputTokens, 'number')
 })

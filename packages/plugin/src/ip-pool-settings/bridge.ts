@@ -15,6 +15,7 @@
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
+import type { UsageScope, UsageStore } from '../pool/usage-store.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
 export const IP_POOL_BRIDGE_PREFIX = '/api/opencode2dsh/ip-pool'
@@ -53,6 +54,69 @@ export interface ExitRowView {
   /** Token totals attributed to this exit by the adapter (process lifetime). */
   tokens: TokenTotals
 }
+
+/**
+ * One project as the 流量 tab groups it. Resolved at READ time from the host's
+ * workspace registry (session id → workspace), never stored: the ledger keeps
+ * session ids, and the registry is the authority on which project each one
+ * belongs to (live request 2026-10-14: 按会话/项目记录流量).
+ */
+export interface UsageProjectView {
+  id: string
+  title: string
+  path: string
+}
+
+/** One day's row in the 流量 tab. */
+export interface UsageDayView {
+  /** Local calendar day, `YYYY-MM-DD`. */
+  day: string
+  requests: number
+  /** input + output + cache read/write (the all-in figure the UI shows). */
+  tokens: number
+  outputTokens: number
+  /** Cumulative decode window, the tok/s denominator. */
+  outputMs: number
+}
+
+/** One session's row in the 流量 tab's top list. */
+export interface UsageSessionView {
+  id: string
+  label: string
+  requests: number
+  tokens: number
+  outputTokens: number
+  outputMs: number
+  firstAt: number
+  lastAt: number
+  /** The project this session belongs to (null when unresolvable). */
+  project: UsageProjectView | null
+}
+
+/** The persisted-ledger view (live request 2026-10-14). */
+export interface UsageView {
+  /** Which population the scoped numbers came from. */
+  scope: UsageScope
+  /** Day-bucket retention in force (90). */
+  retentionDays: number
+  /** When this process started — the run scope's origin. */
+  runSince: number
+  /** All-time persisted totals: the footer's 总览 figure, scope-independent. */
+  total: TokenTotals
+  /** Totals for the scope being shown. */
+  scoped: TokenTotals
+  /** Day buckets, oldest first (the UI charts the tail of this). */
+  days: UsageDayView[]
+  /** Heaviest sessions first. */
+  sessions: UsageSessionView[]
+  /** Sessions rolled up by project, heaviest first. */
+  projects: Array<UsageProjectView & { requests: number; tokens: number; sessions: number; lastAt: number }>
+  /** How much the ledger is holding (the tab's footnote). */
+  stored: { sessions: number; days: number; exits: number }
+}
+
+/** Session id → the project it belongs to (host workspace registry seam). */
+export type ProjectResolver = (sessionId: string) => UsageProjectView | null
 
 export interface ProberView {
   queued: number
@@ -131,6 +195,8 @@ export interface PoolStatusView {
    * event is not counted — the same basis as the per-exit token column.
    */
   local: { requests: number; tokens: TokenTotals; lastUsedAt: number }
+  /** The persistent usage ledger (null when no store is wired). */
+  usage: UsageView | null
   at: number
 }
 
@@ -154,10 +220,33 @@ export function buildStatusView(
   runtime: IpPoolRuntime | null,
   pinnedStrict: boolean,
   proxyHosts: string[],
-  options: { freeEnabled?: boolean; proxyPathPrefixes?: string[] } = {},
+  options: {
+    freeEnabled?: boolean
+    proxyPathPrefixes?: string[]
+    /** The persistent ledger (absent = a composition without one). */
+    usage?: UsageStore
+    /** Which population the per-exit/usage numbers report. */
+    usageScope?: UsageScope
+    projectOf?: ProjectResolver
+    /** Process start, for the 本次重启 label. */
+    runSince?: number
+  } = {},
 ): PoolStatusView {
   const freeEnabled = options.freeEnabled ?? true
   const proxyPathPrefixes = options.proxyPathPrefixes ?? ['/zen/v1']
+  const store = options.usage
+  const scope: UsageScope = options.usageScope ?? 'total'
+  /**
+   * Per-exit numbers follow the scope switch: the ledger's persisted buckets
+   * for 总览, the in-process tracker for 本次重启. A composition with no ledger
+   * falls back to the tracker, which is exactly the pre-ledger behaviour.
+   */
+  const tokensOf = (id: string): TokenTotals => (store === undefined ? usageTracker.totals(id) : store.exitTotals(id, scope))
+  /** 最后使用: the live dispatch stamp for 本次重启, the ledger's last recorded
+   *  response for 总览 (a dispatch that produced no usage event never reached
+   *  the ledger, so the two are not the same signal — the column says which). */
+  const lastUsedOf = (id: string, live: number): number =>
+    store === undefined || scope === 'run' ? live : store.exitLastUsedAt(id, 'total')
   const snapshot = runtime
     ? runtime.pool.snapshot()
     : { state: 'healthy' as PoolState, total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, availableFree: 0, pinned: '' }
@@ -184,10 +273,10 @@ export function buildStatusView(
           .map((b) => ({ model: b.model, state: b.ban.state as 'suspect' | 'banned', bannedAt: b.ban.bannedAt })),
         passive,
         requests: passive.ok + passive.limited + passive.refused + passive.dead + passive.transport,
-        lastUsedAt: activity.lastUsedAt,
+        lastUsedAt: lastUsedOf(entry.id, activity.lastUsedAt),
         inFlight: activity.inFlight,
         demoted: runtime.pool.demoted(entry.id),
-        tokens: usageTracker.totals(entry.id),
+        tokens: tokensOf(entry.id),
       }
     })
     : []
@@ -237,9 +326,13 @@ export function buildStatusView(
       : null,
     direct: {
       requests: runtime ? runtime.pool.directRequests : 0,
-      tokens: runtime ? usageTracker.totals(DIRECT_EXIT_ID) : emptyTotals(),
+      tokens: runtime ? tokensOf(DIRECT_EXIT_ID) : emptyTotals(),
     },
-    local: localView(),
+    local: localView(store, scope),
+    usage: buildUsageView(store, scope, {
+      projectOf: options.projectOf,
+      runSince: options.runSince,
+    }),
     at: now,
   }
 }
@@ -254,9 +347,12 @@ export function buildStatusView(
  * sees the request even when no usage event follows (an aborted turn), which
  * a token-only bucket would silently drop.
  */
-function localView(): { requests: number; tokens: TokenTotals; lastUsedAt: number } {
-  const direct = usageTracker.totals(DIRECT_EXIT_ID)
-  const local = usageTracker.totals(LOCAL_EXIT_ID)
+function localView(store: UsageStore | undefined, scope: UsageScope): { requests: number; tokens: TokenTotals; lastUsedAt: number } {
+  const read = (id: string): TokenTotals => (store === undefined ? usageTracker.totals(id) : store.exitTotals(id, scope))
+  const lastUsed = (id: string): number =>
+    store === undefined || scope === 'run' ? usageTracker.lastUsedAt(id) : store.exitLastUsedAt(id, 'total')
+  const direct = read(DIRECT_EXIT_ID)
+  const local = read(LOCAL_EXIT_ID)
   const tokens: TokenTotals = {
     requests: direct.requests + local.requests,
     inputTokens: direct.inputTokens + local.inputTokens,
@@ -269,7 +365,71 @@ function localView(): { requests: number; tokens: TokenTotals; lastUsedAt: numbe
   return {
     requests: tokens.requests,
     tokens,
-    lastUsedAt: Math.max(usageTracker.lastUsedAt(DIRECT_EXIT_ID), usageTracker.lastUsedAt(LOCAL_EXIT_ID)),
+    lastUsedAt: Math.max(lastUsed(DIRECT_EXIT_ID), lastUsed(LOCAL_EXIT_ID)),
+  }
+}
+
+/**
+ * Project the ledger for the 流量 tab. `scope` picks the population; `total`
+ * (all-time) always rides along, because the footer is pinned to 总览 while the
+ * modal follows the switch.
+ *
+ * Sessions are listed heaviest-first and their projects resolved through the
+ * registry seam — a session whose project cannot be resolved keeps a null
+ * project rather than a fabricated one.
+ */
+export function buildUsageView(
+  store: UsageStore | undefined,
+  scope: UsageScope,
+  options: { projectOf?: ProjectResolver; runSince?: number; sessionLimit?: number } = {},
+): UsageView | null {
+  if (store === undefined) return null
+  const sessionLimit = options.sessionLimit ?? 20
+  const sessions: UsageSessionView[] = store.sessions(scope, sessionLimit).map((row) => ({
+    id: row.id,
+    label: row.label,
+    requests: row.totals.requests,
+    tokens: row.totals.inputTokens + row.totals.outputTokens + row.totals.cacheReadTokens + row.totals.cacheWriteTokens,
+    outputTokens: row.totals.outputTokens,
+    outputMs: row.totals.outputMs,
+    firstAt: row.firstAt,
+    lastAt: row.lastAt,
+    project: options.projectOf?.(row.id) ?? null,
+  }))
+
+  const byProject = new Map<string, UsageView['projects'][number]>()
+  for (const session of sessions) {
+    if (session.project === null) continue
+    const row = byProject.get(session.project.id) ?? {
+      ...session.project,
+      requests: 0,
+      tokens: 0,
+      sessions: 0,
+      lastAt: 0,
+    }
+    row.requests += session.requests
+    row.tokens += session.tokens
+    row.sessions += 1
+    row.lastAt = Math.max(row.lastAt, session.lastAt)
+    byProject.set(session.project.id, row)
+  }
+
+  return {
+    scope,
+    retentionDays: store.retentionDays,
+    runSince: options.runSince ?? 0,
+    total: store.totals(),
+    scoped: scope === 'run' ? store.runTotals() : store.totals(),
+    days: store.days(scope).map((row) => ({
+      day: row.day,
+      requests: row.totals.requests,
+      tokens: row.totals.inputTokens + row.totals.outputTokens + row.totals.cacheReadTokens + row.totals.cacheWriteTokens,
+      outputTokens: row.totals.outputTokens,
+      outputMs: row.totals.outputMs,
+    })),
+    sessions,
+    projects: [...byProject.values()].sort((left, right) => right.tokens - left.tokens),
+    stored: store.size(),
   }
 }
 
@@ -399,8 +559,24 @@ export type ListLiveModels = () => string[]
 /** Build the bridge handlers over the runtime + current settings. */
 export function makeBridgeHandlers(
   runtime: () => IpPoolRuntime | null,
-  settings: () => { pinnedStrict: boolean; proxyHosts: string[]; proxyPathPrefixes?: string[]; freeEnabled?: boolean },
-  deps: { listLiveModels?: ListLiveModels; writePin?: WritePin } = {},
+  settings: () => {
+    pinnedStrict: boolean
+    proxyHosts: string[]
+    proxyPathPrefixes?: string[]
+    freeEnabled?: boolean
+    /** 'total' (ledger) or 'run' (this process) — the card's switch. */
+    usageScope?: UsageScope
+  },
+  deps: {
+    listLiveModels?: ListLiveModels
+    writePin?: WritePin
+    /** The persistent ledger (absent = a composition without one). */
+    usage?: UsageStore
+    /** Session id → project, resolved from the host's workspace registry. */
+    projectOf?: ProjectResolver
+    /** Process start, for the 本次重启 label. */
+    runSince?: () => number
+  } = {},
 ): BridgeHandlers {
   return {
     async status() {
@@ -410,6 +586,10 @@ export function makeBridgeHandlers(
         value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, {
           freeEnabled: current.freeEnabled,
           proxyPathPrefixes: current.proxyPathPrefixes,
+          usage: deps.usage,
+          usageScope: current.usageScope,
+          projectOf: deps.projectOf,
+          runSince: deps.runSince?.(),
         }),
       }
     },

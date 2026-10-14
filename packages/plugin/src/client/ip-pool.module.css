@@ -416,6 +416,223 @@
   }
 }
 
+/* —— 弹窗 tab（出口 / 流量）—— */
+.tabBar {
+  display: inline-flex;
+  margin-bottom: 10px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.tab {
+  padding: 4px 14px;
+  border: none;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tab + .tab {
+  border-left: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.tab:hover {
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.tabActive {
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  font-weight: 600;
+}
+
+/* —— 设置卡：用量口径切换（和 tab 同一种分段控件语言）—— */
+.scopeSwitch {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.scopeOption {
+  padding: 4px 12px;
+  border: none;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scopeOption + .scopeOption {
+  border-left: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.scopeOption:hover:not(:disabled) {
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.scopeOptionActive {
+  background: var(--dsw-alias-bg-layer-1, #fff);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  font-weight: 600;
+}
+
+.scopeOption:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* —— 流量 tab —— */
+.usagePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.usageScopeChip {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+  font-weight: 600;
+}
+
+.usageSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usageSectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.dayList {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dayRow {
+  display: grid;
+  grid-template-columns: 44px 1fr 76px 60px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.dayLabel {
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.dayTrack {
+  height: 10px;
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  overflow: hidden;
+}
+
+.dayBar {
+  display: block;
+  height: 100%;
+  border-radius: 5px;
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.dayValue {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary, #1f2329);
+}
+
+.dayRequests {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.usageTableWrap {
+  overflow-x: hidden;
+}
+
+/* Auto layout, unlike the exit table's fixed one: the session labels are free
+   text and the columns are few. */
+.usageTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.usageTable th:nth-child(1) { width: 40%; }
+.usageTable th:nth-child(2) { width: 18%; }
+.usageTable th:nth-child(3) { width: 12%; }
+.usageTable th:nth-child(4) { width: 12%; }
+.usageTable th:nth-child(5) { width: 18%; }
+
+.usageTable th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.usageTable td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usageTable tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.sessionLabel,
+.projectLabel {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.projectList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.projectRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.projectMeta {
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.usageFootnote {
+  margin: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
 .statsSummary {
   display: flex;
   flex-wrap: wrap;
