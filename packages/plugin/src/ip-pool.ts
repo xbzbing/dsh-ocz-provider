@@ -14,7 +14,6 @@
 
 import type { Opencode2dshConfig } from './config.ts'
 
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
@@ -27,10 +26,11 @@ import { RefillScheduler } from './pool/refill.ts'
 import { SubscriptionFetcher } from './pool/subscription-fetcher.ts'
 import { SingBoxSupervisor } from './pool/singbox.ts'
 import { createRotateDelegate, setRotateDelegate } from './pool/rotate.ts'
+import { stateDir } from './paths.ts'
 
 /** Data dir shared with the catalog cache (config.ts convention). */
 function dataDir(): string {
-  return join(homedir(), '.opencode2dsh')
+  return stateDir()
 }
 
 /**

@@ -1,9 +1,8 @@
 import "./catalog-GckqcHsV.js";
-import "./messages-CLaBfusR.js";
+import "./messages-CSPxuQuG.js";
 import { s as LOCAL_EXIT_ID } from "./dispatcher-BfnX7k6I.js";
-import { i as createRotateDelegate, n as parseSubscription, o as setRotateDelegate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
-import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-Mwz77oRI.js";
-import { homedir } from "node:os";
+import { a as createRotateDelegate, n as DEFAULT_SUBSCRIPTION_USER_AGENT, r as parseSubscription, s as setRotateDelegate, t as stateDir } from "./paths-Czv1ZEwZ.js";
+import { a as ExitPool, i as coarseScreenBatch, n as admitTrusted, o as UNVERIFIED_QUALITY, r as coarseScreen, s as gradeOf, t as admitCandidate } from "./admission-Cb4Pg8rM.js";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
@@ -1707,7 +1706,7 @@ var SubscriptionFetcher = class {
 //#region src/ip-pool.ts
 /** Data dir shared with the catalog cache (config.ts convention). */
 function dataDir() {
-	return join(homedir(), ".opencode2dsh");
+	return stateDir();
 }
 /**
 * docs/ip-pool.md §4.6 probe timing. `PROBE_INTERVAL_MS` is the documented
@@ -1974,7 +1973,7 @@ async function startIpPool(config, logger, deps = {}) {
 	* periodic due-probe) so the three can never drift apart.
 	*/
 	const probeOne = async (entry, models) => {
-		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-7kgNOfFq.js");
+		const { admitCandidate: admitCandidate$1, admitTrusted: admitTrusted$1 } = await import("./admission-BURMZnZt.js");
 		for (const model of models) {
 			admissionDeps.smokeModel = model;
 			const verdict = entry.source === "free" ? await admitCandidate$1(admissionDeps, {

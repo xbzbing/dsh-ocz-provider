@@ -1,8 +1,7 @@
 import { d as conversationLabel, f as deriveRequestIDs, n as ModelCatalog, o as defaultCachePath, p as disguiseHeaders, r as ZEN_BASE_URL } from "./catalog-GckqcHsV.js";
-import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CLaBfusR.js";
+import { c as isResponsesModel, i as ensureResponsesFreeLaneShape, n as GATE_TOOL_ALIASES, o as toPiContext, r as ensureFreeLaneShape, s as apiForModel } from "./messages-CSPxuQuG.js";
 import { a as routingContext, c as UsageTracker, d as setUsageRecorder, f as usageTracker, l as attributeUsage, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as emptyTotals } from "./dispatcher-BfnX7k6I.js";
-import { a as isRegionBlocked, r as classifyStreamFailure, s as shouldRotate, t as DEFAULT_SUBSCRIPTION_USER_AGENT } from "./subscription-BqCp-T2Z.js";
-import { homedir } from "node:os";
+import { c as shouldRotate, i as classifyStreamFailure, n as DEFAULT_SUBSCRIPTION_USER_AGENT, o as isRegionBlocked, t as stateDir } from "./paths-Czv1ZEwZ.js";
 import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -1782,7 +1781,7 @@ function makeBridgeRoutes(handlers, deps = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-CZYBmUOT.js");
+	const { startIpPool } = await import("./ip-pool-1EPTlPjl.js");
 	return startIpPool(config, logger);
 };
 /**
@@ -1971,14 +1970,17 @@ function localDay(at) {
 	const day = String(date.getDate()).padStart(2, "0");
 	return `${date.getFullYear()}-${month}-${day}`;
 }
-/** The default ledger path (same data dir as the catalog cache). */
+/**
+* The default ledger path (same data dir as the catalog cache). Resolved on
+* every call, so `OPENCODE2DSH_HOME` set after import still redirects it.
+*/
 function defaultUsagePath() {
-	return join(homedir(), ".opencode2dsh", "usage.json");
+	return join(stateDir(), "usage.json");
 }
 var UsageStore = class {
 	/** This process's buckets — the 本次重启 scope, unchanged from before. */
 	run = new UsageTracker();
-	#path;
+	#pathOverride;
 	#retentionDays;
 	#flushMs;
 	#now;
@@ -1993,15 +1995,20 @@ var UsageStore = class {
 	/** Run-scope session buckets (this process only). */
 	#runSessions = /* @__PURE__ */ new Map();
 	constructor(options = {}) {
-		this.#path = options.path ?? defaultUsagePath();
+		this.#pathOverride = options.path;
 		this.#retentionDays = options.retentionDays ?? USAGE_RETENTION_DAYS;
 		this.#flushMs = options.flushMs ?? FLUSH_DEBOUNCE_MS;
 		this.#now = options.now ?? Date.now;
 		this.#readOnly = options.readOnly ?? false;
 	}
-	/** Where this ledger lives (diagnostics / the UI's footnote). */
+	/**
+	* Where this ledger lives (diagnostics / the UI's footnote). Without an
+	* injected path this resolves per call, so a test that drives the real entry
+	* — `apply()` installs the process-wide store at import time — can still
+	* redirect it by setting `OPENCODE2DSH_HOME` in its own body (paths.ts).
+	*/
 	get path() {
-		return this.#path;
+		return this.#pathOverride ?? defaultUsagePath();
 	}
 	get retentionDays() {
 		return this.#retentionDays;
@@ -2013,7 +2020,7 @@ var UsageStore = class {
 		if (this.#readOnly) return;
 		let raw;
 		try {
-			raw = readFileSync(this.#path, "utf8");
+			raw = readFileSync(this.path, "utf8");
 		} catch {
 			return;
 		}
@@ -2195,11 +2202,11 @@ var UsageStore = class {
 			exits: Object.fromEntries(this.#exits),
 			savedAt: this.#now()
 		};
-		const temp = `${this.#path}.tmp`;
+		const temp = `${this.path}.tmp`;
 		try {
-			mkdirSync(dirname(this.#path), { recursive: true });
+			mkdirSync(dirname(this.path), { recursive: true });
 			writeFileSync(temp, JSON.stringify(document), "utf8");
-			renameSync(temp, this.#path);
+			renameSync(temp, this.path);
 			this.#dirty = false;
 		} catch {
 			try {
@@ -2381,7 +2388,7 @@ function applyAdapter(ctx, config, readIpPool) {
 		logger.error("opencode2dsh: llm service unavailable; adapter mode cannot register");
 		return { ready };
 	}
-	const dataDir = join(homedir(), ".opencode2dsh");
+	const dataDir = stateDir();
 	const statusPath = join(dataDir, "adapter-status.json");
 	const writeStatus = (status, lastError) => {
 		writeFile(statusPath, JSON.stringify({
@@ -2438,7 +2445,7 @@ function applyAdapter(ctx, config, readIpPool) {
 }
 function applySidecar(ctx, config) {
 	const cfg = resolveConfig(config);
-	const paths = configPaths(join(homedir(), ".opencode2dsh"));
+	const paths = configPaths(stateDir());
 	const logger = ctx.logger;
 	let agent = null;
 	let refreshTimer = null;

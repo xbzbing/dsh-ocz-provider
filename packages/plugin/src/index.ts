@@ -1,4 +1,3 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
@@ -11,6 +10,7 @@ import { applyIpPoolSettings } from './ip-pool-settings/apply.ts'
 import { setUsageRecorder } from './pool/usage.ts'
 import { usageStore } from './pool/usage-store.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
+import { stateDir } from './paths.ts'
 import { fetchHealth, fetchModels, registerProvider, removeProviderRoute } from './provider.ts'
 
 /**
@@ -127,7 +127,7 @@ function applyAdapter(
   // cordis.patch.yml; disabled keeps the process byte-for-byte on direct.
   // Lifecycle (assembly on first enable, live reconfigure, dispose) is owned
   // by applyIpPoolSettings through the plugin fiber.
-  const dataDir = join(homedir(), '.opencode2dsh')
+  const dataDir = stateDir()
   const statusPath = join(dataDir, 'adapter-status.json')
   const writeStatus = (status: CatalogSnapshot, lastError: string): void => {
     void writeFile(
@@ -229,7 +229,7 @@ function applyAdapter(
 
 function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: Promise<ReadyInfo> } {
   const cfg = resolveConfig(config)
-  const paths = configPaths(join(homedir(), '.opencode2dsh'))
+  const paths = configPaths(stateDir())
   const logger = ctx.logger
 
   let agent: AgentProcess | null = null
