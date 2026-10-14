@@ -1,6 +1,6 @@
-import { d as conversationLabel, f as deriveRequestIDs, n as ModelCatalog, o as defaultCachePath, p as disguiseHeaders, r as ZEN_BASE_URL } from "./catalog-GckqcHsV.js";
-import { a as GATE_TOOL_ALIASES, d as isResponsesModel, l as toPiContext, n as normalizeSmokeContents, o as ensureFreeLaneShape, s as ensureResponsesFreeLaneShape, t as DEFAULT_SMOKE_CONTENT, u as apiForModel } from "./smoke-content-CfTGy8JU.js";
-import { a as routingContext, c as UsageTracker, d as setUsageRecorder, f as usageTracker, l as attributeUsage, o as DIRECT_EXIT_ID, s as LOCAL_EXIT_ID, u as emptyTotals } from "./dispatcher-BfnX7k6I.js";
+import { f as conversationLabel, m as disguiseHeaders, n as ModelCatalog, o as defaultCachePath, p as deriveRequestIDs, r as ZEN_BASE_URL } from "./catalog-BNFQ3XW4.js";
+import { a as freeLaneGateFlatTool, c as isGenuineFlatGateTool, i as FREE_LANE_GATE_TOOL_NAMES, l as isGenuineGateTool, n as normalizeSmokeContents, o as freeLaneGateTool, s as gateToolArgumentBridge, t as DEFAULT_SMOKE_CONTENT } from "./smoke-content-3O2qKne8.js";
+import { c as LOCAL_EXIT_ID, d as emptyTotals, f as setUsageRecorder, l as UsageTracker, o as routingContext, p as usageTracker, s as DIRECT_EXIT_ID, t as DEFAULT_PROXY_PATH_PREFIXES, u as attributeUsage } from "./dispatcher-CuJu-myX.js";
 import { c as shouldRotate, i as classifyStreamFailure, n as DEFAULT_SUBSCRIPTION_USER_AGENT, o as isRegionBlocked, t as stateDir } from "./paths-Czv1ZEwZ.js";
 import { dirname, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { createProvider } from "@earendil-works/pi-ai";
 import * as openaiCompletions from "@earendil-works/pi-ai/api/openai-completions";
 import * as openaiResponses from "@earendil-works/pi-ai/api/openai-responses";
+import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
@@ -85,9 +86,11 @@ function mapUsage(usage) {
 * mid-stream: failures arrive as `error` events and become error/aborted
 * finish chunks.
 */
-async function* toStreamChunks(events, contextWindow, toolNameAlias) {
+async function* toStreamChunks(events, contextWindow, toolNameAlias, toolArgumentBridge) {
 	const toolIds = /* @__PURE__ */ new Map();
 	const mapName = (name$1) => toolNameAlias?.[name$1] ?? name$1;
+	/** Raw argument fragments of a bridged call, held back until its end. */
+	const withheld = /* @__PURE__ */ new Map();
 	for await (const event of events) switch (event.type) {
 		case "start": break;
 		case "text_start":
@@ -155,6 +158,12 @@ async function* toStreamChunks(events, contextWindow, toolNameAlias) {
 		}
 		case "toolcall_delta": {
 			const known = toolIds.get(event.contentIndex);
+			if (toolArgumentBridge?.names.has(known?.name ?? "")) {
+				const parts = withheld.get(event.contentIndex) ?? [];
+				parts.push(event.delta);
+				withheld.set(event.contentIndex, parts);
+				break;
+			}
 			yield {
 				type: "tool-call-delta",
 				index: event.contentIndex,
@@ -164,18 +173,40 @@ async function* toStreamChunks(events, contextWindow, toolNameAlias) {
 			};
 			break;
 		}
-		case "toolcall_end":
+		case "toolcall_end": {
+			const name$1 = mapName(event.toolCall.name);
+			const rewritten = toolArgumentBridge?.rewrite(name$1, event.toolCall.arguments);
+			const argumentsJson = JSON.stringify(rewritten ?? event.toolCall.arguments);
+			const parts = withheld.get(event.contentIndex);
+			if (parts !== void 0) {
+				withheld.delete(event.contentIndex);
+				if (rewritten !== void 0) yield {
+					type: "tool-call-delta",
+					index: event.contentIndex,
+					id: event.toolCall.id,
+					...name$1.length > 0 ? { name: name$1 } : {},
+					argumentsDelta: argumentsJson
+				};
+				else for (const delta of parts) yield {
+					type: "tool-call-delta",
+					index: event.contentIndex,
+					id: event.toolCall.id,
+					...name$1.length > 0 ? { name: name$1 } : {},
+					argumentsDelta: delta
+				};
+			}
 			yield {
 				type: "block-end",
 				index: event.contentIndex,
 				block: {
 					type: "tool-call",
 					id: event.toolCall.id,
-					name: mapName(event.toolCall.name),
-					arguments: JSON.stringify(event.toolCall.arguments)
+					name: name$1,
+					arguments: argumentsJson
 				}
 			};
 			break;
+		}
 		case "done":
 			yield {
 				type: "usage",
@@ -198,6 +229,361 @@ async function* toStreamChunks(events, contextWindow, toolNameAlias) {
 			return;
 	}
 	throw new Error("opencode2dsh: pi-ai event stream ended without done/error");
+}
+
+//#endregion
+//#region src/adapter/routing.ts
+const RESPONSES_ONLY_PREFIX = "muse-spark";
+function isResponsesModel(id) {
+	return String(id ?? "").toLowerCase().startsWith(RESPONSES_ONLY_PREFIX);
+}
+function apiForModel(id) {
+	return isResponsesModel(id) ? "openai-responses" : "openai-completions";
+}
+
+//#endregion
+//#region src/adapter/messages.ts
+function zeroUsage() {
+	return {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			total: 0
+		}
+	};
+}
+function parseArguments(raw) {
+	if (typeof raw !== "string" || raw.length === 0) return {};
+	try {
+		const parsed = JSON.parse(raw);
+		return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : { value: parsed };
+	} catch {
+		return { raw };
+	}
+}
+/**
+* Harness attachment root (mirrors dsh-attachment-local's resolveDshHome).
+* DSH_HOME is always set by the harness child; the homedir fallback covers
+* direct invocation (tests, tooling).
+*/
+function dshHome() {
+	const configured = process.env.DSH_HOME?.trim();
+	if (configured) return configured;
+	return join(homedir(), ".dsh");
+}
+/**
+* Convert one harness image block to pi-ai ImageContent by reading the
+* content-addressed normalized object (DSH_HOME/attachments/v1/objects/<2>/<sha>).
+* Falls back to stable text on any failure so a missing object can never
+* fail the whole stream.
+*/
+async function toPiImage(ref) {
+	const attachment = ref ?? {};
+	const id = typeof attachment.attachmentId === "string" ? attachment.attachmentId : "";
+	const sha = id.startsWith("sha256:") ? id.slice(7) : id;
+	if (!/^[0-9a-f]{64}$/.test(sha)) return {
+		type: "text",
+		text: `[image omitted: unreadable attachment reference ${JSON.stringify(id)}]`
+	};
+	const path = join(dshHome(), "attachments", "v1", "objects", sha.slice(0, 2), sha);
+	try {
+		return {
+			type: "image",
+			data: (await readFile(path)).toString("base64"),
+			mimeType: typeof attachment.mediaType === "string" && attachment.mediaType.length > 0 ? attachment.mediaType : "image/png"
+		};
+	} catch {
+		return {
+			type: "text",
+			text: `[image omitted: failed to read normalized attachment ${JSON.stringify(id)}]`
+		};
+	}
+}
+/**
+* Host-budget-offloaded images were routed out of the request by dsh-llm on
+* purpose (`offloaded: true`); re-reading their bytes from disk would defy the
+* image budget the host already enforced. Emit a stable placeholder instead —
+* the same semantics as the host adapter's projectOffloadedImages.
+*/
+function offloadedImagePart(ref) {
+	const id = ref?.attachmentId;
+	return {
+		type: "text",
+		text: `[image omitted: offloaded to fit the request image budget${typeof id === "string" && id.length > 0 ? ` ${id.slice(0, 30)}` : ""}]`
+	};
+}
+/** One image block, respecting the host's offload flag. */
+async function imagePart(block) {
+	return block.offloaded === true ? offloadedImagePart(block.attachment) : toPiImage(block.attachment);
+}
+/** Text/image parts of one user message's content, in block order. */
+async function userParts(blocks) {
+	const parts = [];
+	for (const block of blocks) if (block.type === "text") {
+		if (block.text.length > 0) parts.push({
+			type: "text",
+			text: block.text
+		});
+	} else if (block.type === "image") parts.push(await imagePart(block));
+	return parts;
+}
+/** Text/image parts of one tool result's content, walking nested results. */
+async function toolResultParts(blocks) {
+	const parts = [];
+	for (const block of blocks) if (block.type === "text") parts.push({
+		type: "text",
+		text: block.text
+	});
+	else if (block.type === "image") parts.push(await imagePart(block));
+	else if (block.type === "tool-result") parts.push(...await toolResultParts(block.content));
+	return parts;
+}
+function toPiAssistant(message, providerId) {
+	const content = [];
+	for (const block of message.content) switch (block.type) {
+		case "text":
+			content.push({
+				type: "text",
+				text: block.text
+			});
+			break;
+		case "reasoning":
+			content.push({
+				type: "thinking",
+				thinking: block.text
+			});
+			break;
+		case "tool-call":
+			content.push({
+				type: "toolCall",
+				id: block.id,
+				name: block.name,
+				arguments: parseArguments(block.arguments)
+			});
+			break;
+		case "image": break;
+		default: break;
+	}
+	const source = message.source;
+	const model = source?.kind === "model" && typeof source.model === "string" ? source.model : providerId;
+	return {
+		role: "assistant",
+		content,
+		api: apiForModel(model),
+		provider: source?.kind === "model" && typeof source.provider === "string" ? source.provider : providerId,
+		model,
+		usage: zeroUsage(),
+		stopReason: content.some((block) => block.type === "toolCall") ? "toolUse" : "stop",
+		timestamp: 0
+	};
+}
+function flattenText(message) {
+	return message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
+}
+/**
+* Call id of a message-level tool result (DSH >= 0.2: `role: 'tool'`,
+* `toolCallId` on the message, plain content blocks, `source.callId` as a
+* mirror). Returns undefined for ordinary user/system messages. Only consult
+* `source.callId` when the source is a tool, so model/user provenance can
+* never be mistaken for a tool result.
+*/
+function messageToolCallId(message) {
+	if (typeof message.toolCallId === "string" && message.toolCallId.length > 0) return message.toolCallId;
+	const source = message.source;
+	if (source?.kind === "tool" && typeof source.callId === "string" && source.callId.length > 0) return source.callId;
+}
+/** Emit one pi-ai toolResult, substituting a placeholder for empty output. */
+async function pushToolResult(messages, toolNames, toolCallId, content, isError) {
+	let rparts = await toolResultParts(content);
+	const hasImage = rparts.some((part) => part.type === "image");
+	const hasText = rparts.some((part) => part.type === "text" && part.text.length > 0);
+	if (!hasImage && !hasText) rparts = [{
+		type: "text",
+		text: "(no output)"
+	}];
+	messages.push({
+		role: "toolResult",
+		toolCallId,
+		toolName: toolNames.get(toolCallId) ?? "unknown",
+		content: rparts,
+		isError,
+		timestamp: 0
+	});
+}
+/**
+* Convert the harness conversation into a pi-ai Context. User and tool-result
+* messages keep text AND image blocks (images load from the harness
+* attachment store); tool results as toolResult messages, assistant history as
+* pi-ai assistant messages. Async because image bytes are read from disk.
+*/
+async function toPiContext(options) {
+	const providerId = options.provider;
+	const toolNames = /* @__PURE__ */ new Map();
+	const messages = [];
+	for (const message of options.messages) {
+		if (message.role === "system") {
+			const text = flattenText(message);
+			if (text.length > 0) messages.push({
+				role: "user",
+				content: text,
+				timestamp: 0
+			});
+			continue;
+		}
+		if (message.role === "assistant") {
+			const assistant = toPiAssistant(message, providerId);
+			for (const block of assistant.content) if (block.type === "toolCall") toolNames.set(block.id, block.name);
+			messages.push(assistant);
+			continue;
+		}
+		const results = message.content.filter((block) => block.type === "tool-result");
+		if (results.length === 0) {
+			const toolCallId = messageToolCallId(message);
+			if (toolCallId !== void 0) {
+				await pushToolResult(messages, toolNames, toolCallId, message.content, message.isError ?? false);
+				continue;
+			}
+		}
+		const parts = await userParts(message.content);
+		if (parts.length > 0 || results.length === 0) {
+			const first = parts[0];
+			let content;
+			if (parts.length === 0) content = "";
+			else if (parts.length === 1 && first?.type === "text") content = first.text;
+			else content = parts;
+			messages.push({
+				role: "user",
+				content,
+				timestamp: 0
+			});
+		}
+		for (const result of results) await pushToolResult(messages, toolNames, result.toolCallId, result.content, result.isError ?? false);
+	}
+	const context = { messages };
+	if (typeof options.system === "string" && options.system.length > 0) context.systemPrompt = options.system;
+	const tools = options.tools?.map((tool) => ({
+		name: tool.name,
+		description: tool.description,
+		parameters: tool.parameters
+	}));
+	if (tools && tools.length > 0) context.tools = tools;
+	return context;
+}
+/**
+* The anonymous free-lane gate, as re-probed on 2026-10-14 against
+* `POST https://opencode.ai/inference/v1/chat/completions` — the lane moved
+* there the same day (adapter/catalog.ts `ZEN_BASE_URL`). A chat request
+* answers 200 only when ALL of these hold:
+*
+*   1. the endpoint is `/inference/v1`: the old `/zen/v1` now answers 403
+*      FreeTierError for EVERY shape, including a byte-copy of the client's
+*      own request. `/zen/v1/models` alone still answers 200, which is why
+*      the catalog and the settings card's `/status` stayed green while every
+*      chat died;
+*   2. a canonical `ses_*` id rides `x-opencode-session` (or
+*      `x-opencode-session-id`) — and NOT `x-session-affinity` /
+*      `X-Session-Id`, which the client sends only for its other providers and
+*      which now mark a foreign client (adapter/ids.ts);
+*   3. `x-opencode-request` is a `msg_*` message id and `x-opencode-project`
+*      is the prefix-less project id (`global`, or a 40-hex worktree hash) —
+*      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts);
+*   4. a streaming body (`stream: true`);
+*   5. a `tools` array carrying `bash` AND `read` with the GENUINE definitions
+*      (adapter/gate-tools.ts — the placeholder stubs this file used to inject
+*      are now themselves a rejection signal), while extra tools are ignored;
+*   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass).
+*
+* NOT gates, measured the same day: `Bearer public`, the User-Agent's exact
+* version (a bare `opencode/1.19.0` fails but `opencode/1.18.31 (darwin
+* arm64; node24.21.0)` passes — keep the platform/parenthetical tail),
+* `max_tokens`, `temperature`, and the system prompt's content (the client's
+* title prompt must not ride WITH tools — that pair 403s — but any other
+* prompt passes).
+*
+* The two shapes are mutually exclusive at the edges: a no-tools request is
+* only accepted with the client's exact title-generator prompt, which is why
+* this adapter always ensures the gate tools are present rather than ever
+* sending an empty `tools` array.
+*/
+const GATE_TOOL_ALIASES = {};
+/** The name of a tool entry in either lane's shape (chat nests it, responses
+*  hoists it). */
+function toolEntryName(entry, flat) {
+	if (typeof entry !== "object" || entry === null) return void 0;
+	const record = entry;
+	const name$1 = flat ? record.name : record.function?.name;
+	return typeof name$1 === "string" ? name$1 : void 0;
+}
+/** Responses uses flat function tools and its Zen gateway accepts auto only. */
+function ensureResponsesFreeLaneShape(payload) {
+	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return void 0;
+	const body = payload;
+	if (!Array.isArray(body.input)) return void 0;
+	const tools = Array.isArray(body.tools) ? [...body.tools] : [];
+	let changed = false;
+	for (const name$1 of FREE_LANE_GATE_TOOL_NAMES) {
+		const index = tools.findIndex((tool) => toolEntryName(tool, true) === name$1);
+		if (index === -1) {
+			tools.push(freeLaneGateFlatTool(name$1));
+			changed = true;
+		} else if (!isGenuineFlatGateTool(name$1, tools[index])) {
+			tools[index] = freeLaneGateFlatTool(name$1);
+			changed = true;
+		}
+	}
+	const invalidChoice = body.tool_choice !== void 0 && body.tool_choice !== "auto";
+	if (!changed && !invalidChoice) return void 0;
+	return {
+		...body,
+		tools,
+		tool_choice: "auto"
+	};
+}
+/**
+* Rewrite an outgoing chat-completions payload so it satisfies the free-lane
+* gate (wired through pi-ai's onPayload).
+*
+* The gate tools must be the GENUINE definitions, so an entry that already
+* carries a gate name is REPLACED unless it is already genuine: the host's own
+* `bash`/`read` (DSH's are named exactly that) would otherwise ride out with
+* the host's schema and draw a 403. The adapter bridges the call's arguments
+* back to the host's shape on the way in (gate-tools.ts
+* `gateToolArgumentBridge`). Missing gate tools are appended, a
+* `tool_choice: 'none'` is dropped (the gate rejects it), and the function
+* returns undefined when nothing had to change — pi-ai then keeps the
+* original payload untouched.
+*/
+function ensureFreeLaneShape(payload) {
+	if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return void 0;
+	const body = payload;
+	if (!Array.isArray(body.messages)) return void 0;
+	const tools = Array.isArray(body.tools) ? [...body.tools] : [];
+	let changed = false;
+	for (const name$1 of FREE_LANE_GATE_TOOL_NAMES) {
+		const index = tools.findIndex((tool) => toolEntryName(tool, false) === name$1);
+		if (index === -1) {
+			tools.push(freeLaneGateTool(name$1));
+			changed = true;
+		} else if (!isGenuineGateTool(name$1, tools[index])) {
+			tools[index] = freeLaneGateTool(name$1);
+			changed = true;
+		}
+	}
+	const dropsNone = body.tool_choice === "none";
+	if (!changed && !dropsNone) return void 0;
+	const next = {
+		...body,
+		tools
+	};
+	if (dropsNone) delete next.tool_choice;
+	return next;
 }
 
 //#endregion
@@ -355,16 +741,16 @@ function terminalErrorEvent(errorMessage, model) {
 	};
 }
 /**
-* Responses-only models on Zen (issue #7): `muse-spark-*` return a bare 500
-* on `POST /zen/v1/chat/completions` but 200 on `POST /zen/v1/responses`
-* (opencode #44659/#44847, DSH #3957). Route by model id; extend this list
-* if Zen moves more models (candidates: gpt-5.6-luna, grok-4.6).
+* Responses-only models (issue #7): `muse-spark-*` return a bare 500 on
+* `POST /inference/v1/chat/completions` but 200 on
+* `POST /inference/v1/responses` (opencode #44659/#44847, DSH #3957). Route by
+* model id; extend this list if the lane moves more models (candidates:
+* gpt-5.6-luna, grok-4.6).
 *
-* Issue #56 (2026-10-09): the gate added a canonical-session-header half on
-* BOTH surfaces (adapter/messages.ts has the probed matrix); the official CLI
-* v2 also calls /inference/openai directly for chat, but /zen/v1 stays the
-* lane of record for this adapter — it answers 200 with the recipe and keeps
-* `Bearer public` valid, which the inference surface 401s.
+* The gate covers BOTH surfaces: since 2026-10-14 the chat lane validates the
+* request's content (adapter/gate-tools.ts, adapter/messages.ts) and the whole
+* lane lives at `/inference/v1` — the old `/zen/v1` answers 403 for every
+* shape, so it is no longer "the lane of record" for anything.
 */
 /**
 * Vision gate: whether a model accepts image input on the Zen lane.
@@ -626,6 +1012,7 @@ var ZenAdapter = class {
 	async *#streamAttempt(options, onTerminal) {
 		const context = await toPiContext(options);
 		const ids = deriveRequestIDs(options.messages);
+		const argumentBridge = gateToolArgumentBridge(context.tools);
 		const model = toPiModel(options.model, this.#catalog.reasoningCapability(options.model)?.reasoning === true, this.#catalog.limits?.(options.model), this.#catalog.modalities?.(options.model));
 		const hostSession = typeof options.sessionId === "string" ? options.sessionId : "";
 		const contextStore = {
@@ -714,13 +1101,13 @@ var ZenAdapter = class {
 			}
 			clearTimeout(deadlineTimer);
 			if (preContentFailure === null && deliveredContent) {
-				yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES));
+				yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge));
 				return;
 			}
 			if (preContentFailure === null && !deliveredContent) {
 				yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() {
 					for (const e of buffered) yield e;
-				})(), model.contextWindow, GATE_TOOL_ALIASES));
+				})(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge));
 				return;
 			}
 			const failureMessage = preContentFailure.message;
@@ -742,7 +1129,7 @@ var ZenAdapter = class {
 				}
 				yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() {
 					for (const e of buffered) yield e;
-				})(), model.contextWindow, GATE_TOOL_ALIASES));
+				})(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge));
 				return;
 			}
 		}
@@ -1244,7 +1631,7 @@ async function writeAgentConfig(paths, options) {
 		anonymous: true,
 		zen_keys: [],
 		go_keys: [],
-		upstream: { zen: "https://opencode.ai/zen" },
+		upstream: { zen: "https://opencode.ai/inference" },
 		models: { refresh_seconds: options.refreshSeconds },
 		retry: {
 			max_attempts: 2,
@@ -1289,7 +1676,7 @@ function stateOfRatio(available, capacity) {
 /** Build the /status view over the live runtime (or a disabled stub). */
 function buildStatusView(runtime, pinnedStrict, proxyHosts, options = {}) {
 	const freeEnabled = options.freeEnabled ?? true;
-	const proxyPathPrefixes = options.proxyPathPrefixes ?? ["/zen/v1"];
+	const proxyPathPrefixes = options.proxyPathPrefixes ?? [...DEFAULT_PROXY_PATH_PREFIXES];
 	const store = options.usage;
 	const scope = options.usageScope ?? "total";
 	/**
@@ -1643,7 +2030,7 @@ function makeBridgeHandlers(runtime, settings, deps = {}) {
 			};
 		},
 		async models() {
-			const { staticFreeModels } = await import("./catalog-DuRFDtLA.js");
+			const { staticFreeModels } = await import("./catalog-2HUpbXaQ.js");
 			const rows = staticFreeModels.map((id) => ({
 				id,
 				verified: true
@@ -1921,7 +2308,7 @@ function makeSessionTitleResolver(query, options = {}) {
 //#endregion
 //#region src/ip-pool-settings/apply.ts
 const defaultAssemble = async (config, logger) => {
-	const { startIpPool } = await import("./ip-pool-7gGGDMON.js");
+	const { startIpPool } = await import("./ip-pool-B2KfR2Dr.js");
 	return startIpPool(config, logger);
 };
 /**
@@ -2058,7 +2445,7 @@ function applyIpPoolSettings(ctx, ordinary, readIpPool, logger, deps = {}) {
 		const handlers = makeBridgeHandlers(() => controller.runtime, () => ({
 			pinnedStrict: controller.settings().pinnedStrict,
 			proxyHosts: controller.runtime?.installer?.proxyHosts !== void 0 ? [...controller.runtime.installer.proxyHosts] : controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ["opencode.ai"],
-			proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== void 0 ? [...controller.runtime.installer.proxyPathPrefixes] : controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : ["/zen/v1"],
+			proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== void 0 ? [...controller.runtime.installer.proxyPathPrefixes] : controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : [...DEFAULT_PROXY_PATH_PREFIXES],
 			freeEnabled: controller.settings().free.enabled,
 			usageScope: controller.settings().usageScope
 		}), {

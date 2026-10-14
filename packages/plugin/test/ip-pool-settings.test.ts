@@ -189,9 +189,9 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal(view.enabled, true)
   // The routing scope is part of the answer to "what is this pool carrying?",
   // so /status must carry both halves of the rule (live 2026-10-13: host-only
-  // routing silently proxied another provider's /zen/go lane).
+  // routing silently proxied another provider's go lane).
   assert.deepEqual(view.proxyHosts, ['opencode.ai'])
-  assert.deepEqual(view.proxyPathPrefixes, ['/zen/v1'], 'the path scope defaults to this plugin lane')
+  assert.deepEqual(view.proxyPathPrefixes, ['/inference/v1'], 'the path scope defaults to this plugin lane')
   assert.equal(view.state, 'warning')
   assert.equal(view.total, 2)
   assert.equal(view.availableFree, 1)

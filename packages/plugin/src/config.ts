@@ -69,7 +69,7 @@ export interface IpPoolConfig {
   pinnedStrict?: boolean
   /** Hosts whose traffic goes through the pool (default opencode.ai). */
   proxyHosts?: string[]
-  /** Path prefixes on those hosts the pool carries (default /zen/v1). */
+  /** Path prefixes on those hosts the pool carries (default /inference/v1). */
   proxyPathPrefixes?: string[]
   /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
   free?: {
@@ -270,7 +270,7 @@ export async function writeAgentConfig(
     anonymous: true,
     zen_keys: [],
     go_keys: [],
-    upstream: { zen: 'https://opencode.ai/zen' },
+    upstream: { zen: 'https://opencode.ai/inference' },
     models: { refresh_seconds: options.refreshSeconds },
     retry: { max_attempts: 2, timeout_seconds: 300 },
     proxies: ['direct'],

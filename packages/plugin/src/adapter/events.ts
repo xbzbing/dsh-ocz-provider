@@ -3,12 +3,27 @@
  * dsh-llm-pi-ai toStreamChunks (verified against its source, index.js:1342-1452):
  * the chunk stream must end with `usage` then `finish`.
  *
- * `toolNameAlias` (issue #56 seam): inbound wire tool names rewritten before
- * the chunks leave the adapter — e.g. { shell: 'bash' } if a future gate
- * spelling forces the `shell` alias for the host's bash tool. The shipped
- * recipe needs no alias (adapter/messages.ts), so the adapter passes its
- * (empty) GATE_TOOL_ALIASES and names pass through unchanged.
+ * Two inbound rewrites live here, both seams for the free-lane gate's spelling:
+ *
+ *  - `toolNameAlias` (issue #56): wire tool names rewritten before the chunks
+ *    leave the adapter — e.g. { shell: 'bash' } if a future gate spelling
+ *    forces the `shell` alias for the host's bash tool. Empty on the shipped
+ *    recipe (adapter/messages.ts `GATE_TOOL_ALIASES`): the wire names ARE the
+ *    host's names, so nothing needs a rename.
+ *  - `toolArgumentBridge` (2026-10-14): the gate validates the CONTENT of the
+ *    `bash`/`read` definitions, so the adapter must put ITS definitions on the
+ *    wire (adapter/gate-tools.ts) and map the model's arguments back to the
+ *    host's declared shape — `filePath` -> `file_path`, `timeout` ->
+ *    `timeoutMs`. A bridged call's argument deltas are withheld until
+ *    `toolcall_end`, because the mapping is a whole-object rewrite while the
+ *    deltas are JSON fragments; and the durable replay record joins the deltas
+ *    (dsh-llm `expandAssistantStream`), so emitting raw deltas plus a corrected
+ *    `block-end` would leave a resumed session showing arguments that never
+ *    ran. Execution is correct either way: dsh-llm's BlockAssembler prefers the
+ *    `block-end` block when one arrived (`assemble()` returns `partial.block`).
  */
+
+import type { GateToolArgumentBridge } from './gate-tools.ts'
 
 export type HarnessChunk =
   | { type: 'block-start'; index: number; blockType: 'text' | 'reasoning' | 'tool-call' }
@@ -139,9 +154,12 @@ export async function* toStreamChunks(
   events: AsyncIterable<PiEvent>,
   contextWindow: number,
   toolNameAlias?: Record<string, string>,
+  toolArgumentBridge?: GateToolArgumentBridge,
 ): AsyncGenerator<HarnessChunk> {
   const toolIds = new Map<number, { id: string; name: string }>()
   const mapName = (name: string): string => toolNameAlias?.[name] ?? name
+  /** Raw argument fragments of a bridged call, held back until its end. */
+  const withheld = new Map<number, string[]>()
   for await (const event of events) {
     switch (event.type) {
       case 'start':
@@ -174,6 +192,12 @@ export async function* toStreamChunks(
       }
       case 'toolcall_delta': {
         const known = toolIds.get(event.contentIndex)
+        if (toolArgumentBridge?.names.has(known?.name ?? '')) {
+          const parts = withheld.get(event.contentIndex) ?? []
+          parts.push(event.delta)
+          withheld.set(event.contentIndex, parts)
+          break
+        }
         yield {
           type: 'tool-call-delta',
           index: event.contentIndex,
@@ -183,18 +207,49 @@ export async function* toStreamChunks(
         }
         break
       }
-      case 'toolcall_end':
+      case 'toolcall_end': {
+        const name = mapName(event.toolCall.name)
+        const rewritten = toolArgumentBridge?.rewrite(name, event.toolCall.arguments)
+        const argumentsJson = JSON.stringify(rewritten ?? event.toolCall.arguments)
+        const parts = withheld.get(event.contentIndex)
+        if (parts !== undefined) {
+          withheld.delete(event.contentIndex)
+          if (rewritten !== undefined) {
+            // One fragment: the durable record must carry the arguments that
+            // actually reach the host, not the wire shape they arrived in.
+            yield {
+              type: 'tool-call-delta',
+              index: event.contentIndex,
+              id: event.toolCall.id,
+              ...(name.length > 0 ? { name } : {}),
+              argumentsDelta: argumentsJson,
+            }
+          } else {
+            // Nothing to rewrite after all: replay the fragments exactly as
+            // they streamed, so granularity is unchanged.
+            for (const delta of parts) {
+              yield {
+                type: 'tool-call-delta',
+                index: event.contentIndex,
+                id: event.toolCall.id,
+                ...(name.length > 0 ? { name } : {}),
+                argumentsDelta: delta,
+              }
+            }
+          }
+        }
         yield {
           type: 'block-end',
           index: event.contentIndex,
           block: {
             type: 'tool-call',
             id: event.toolCall.id,
-            name: mapName(event.toolCall.name),
-            arguments: JSON.stringify(event.toolCall.arguments),
+            name,
+            arguments: argumentsJson,
           },
         }
         break
+      }
       case 'done':
         yield { type: 'usage', usage: mapUsage(event.message.usage) }
         yield { type: 'finish', reason: mapStopReason(event.message, contextWindow) }

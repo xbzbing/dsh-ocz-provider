@@ -199,7 +199,7 @@ export interface IpPoolRuntime {
     /** Live re-apply of the proxied-host list; optional so a test seam can
      *  stand in without implementing the running router's forwarding. */
     setProxyHosts?(hosts?: string[]): void
-    /** The path scope in force on those hosts (default `/zen/v1`). */
+    /** The path scope in force on those hosts (default `/inference/v1`). */
     readonly proxyPathPrefixes?: readonly string[]
     /** Live re-apply of the path scope; optional for the same reason. */
     setProxyPathPrefixes?(prefixes?: string[]): void

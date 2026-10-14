@@ -6,6 +6,7 @@ import * as realUndici from 'undici'
 
 import { ExitPool } from '../src/pool/pool.ts'
 import { admitCandidate, admitTrusted, coarseScreen, type AdmissionDeps } from '../src/pool/admission.ts'
+import { GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
 
 /**
  * A fake per-request transport: the seam `undici.request` would hit. Each
@@ -129,8 +130,9 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   assert.ok(!result.admitted)
   assert.match(result.reason!, /zen smoke HTTP 403/)
 
-  // the smoke body must satisfy the free-lane gate (issue #56): streaming,
-  // bash+read stubs call-disabled, and a canonical ses_* session header
+  // the smoke body must satisfy the free-lane gate (2026-10-14 recipe):
+  // streaming, the GENUINE bash+read definitions, and a canonical ses_* session
+  // header. `tool_choice` is left to the model — the gate rejects `'none'`.
   const okTransport = fakeTransport(okScript())
   const okResult = await admitCandidate(deps(okTransport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
   assert.ok(okResult.admitted)
@@ -138,15 +140,22 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
     stream?: boolean
     tool_choice?: string
     messages?: Array<{ role: string; content: string }>
-    tools?: Array<{ type: string; function: { name: string } }>
+    tools?: Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
   }
   assert.equal(smokeBody.stream, true)
-  assert.equal(smokeBody.tool_choice, 'none')
+  assert.equal(smokeBody.tool_choice, undefined, 'none is a 403 of its own since 2026-10-14')
   assert.deepEqual(smokeBody.messages, [{ role: 'user', content: 'hello' }], 'the unconfigured probe content is hello (live request 2026-10-14)')
   const smokeToolNames = smokeBody.tools?.map((t) => t.function.name) ?? []
   assert.deepEqual([...smokeToolNames].sort(), ['bash', 'read'])
+  for (const tool of smokeBody.tools ?? []) {
+    const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'bash' | 'read']
+    assert.deepEqual(tool.function, genuine.function, 'the smoke carries the genuine gate definitions')
+  }
   const smokeHeaders = okTransport.headers.get(CHAT_URL)!
   assert.match(smokeHeaders['x-opencode-session'] ?? '', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/, 'canonical session header')
+  assert.match(smokeHeaders['x-opencode-request'] ?? '', /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/, 'the request id is a message id')
+  assert.equal(smokeHeaders['x-opencode-project'], 'global', 'the prefix-less project id')
+  assert.equal(smokeHeaders['x-session-affinity'], undefined, 'the 2026-10-09 workaround is now poison')
 
   // transport errors surface as reasons (timeout / reset)
   transport = fakeTransport({ '*': new Error('connect ECONNREFUSED') })

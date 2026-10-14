@@ -14,7 +14,28 @@ import { opencodeUserAgent } from './ids.ts'
  * /v1/models-equivalent exposure = S1 ∩ S2-allowed (or S3 while S1 is pending).
  */
 
-export const ZEN_BASE_URL = 'https://opencode.ai/zen'
+/**
+ * The anonymous lane's base URL (every caller appends `/v1`).
+ *
+ * It was `https://opencode.ai/zen` until 2026-10-14, when OpenCode moved the
+ * whole lane — free models included — to `https://opencode.ai/inference/v1`.
+ * Four independent sources agree: the client's runtime catalog
+ * (`https://models.opencode.ai/api.json`, read at every boot, whose `opencode`
+ * provider entry now carries `api: https://opencode.ai/inference/v1`),
+ * models.dev's `opencode` entry (the same URL), the Console model table at
+ * `https://opencode.ai/v2/docs/console/models/` (every free id is listed with
+ * an `/inference/v1/...` endpoint), and the client's own request, captured
+ * 2026-10-14 from OpenCode Desktop 1.19.0 (a `POST` to
+ * `/inference/v1/chat/completions` that answered 200).
+ *
+ * Live-probed the same day: a request that passes on `/inference/v1` — the
+ * genuine gate tools, a `msg_*` request id, the real project id, the minted
+ * `ses_*` session — answers **403 FreeTierError** on `/zen/v1`, so the old
+ * lane is closed rather than merely deprecated. `/zen/v1/models` alone still
+ * answers 200, which is why this plugin's catalog stayed green (and its
+ * `adapter-status.json` reported `ready`) while every chat request failed.
+ */
+export const ZEN_BASE_URL = 'https://opencode.ai/inference'
 
 /**
  * Free-lane blocklist (issue #56 live matrix, 2026-10-10): models the live

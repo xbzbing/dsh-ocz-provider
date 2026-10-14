@@ -100,7 +100,7 @@ test('dispatcher: non-pool hosts and loopback go direct; pool hosts route to pic
   assert.deepEqual(hops, ['direct'])
 
   routingContext.run({ model: 'm', session: 's' }, () => {
-    router.dispatch({ origin: 'https://opencode.ai/zen/v1/chat/completions' } as never, {} as never)
+    router.dispatch({ origin: 'https://opencode.ai/inference/v1/chat/completions' } as never, {} as never)
   })
   assert.equal(hops.length, 2)
   assert.match(hops[1]!, /^proxy:/)
@@ -129,30 +129,30 @@ test('dispatcher: the path scope keeps other lanes on the host out of the pool',
   const proxied = (): string[] => hops.filter((hop) => hop.startsWith('proxy:'))
 
   // our own lane: through an exit
-  dispatch('/zen/v1/chat/completions')
+  dispatch('/inference/v1/chat/completions')
   assert.deepEqual(proxied(), ['proxy:http://a:1'], 'the plugin lane is proxied')
 
   // the separate provider's paid lane on the same host: direct, and not one
   // byte of pool state moves
-  dispatch('/zen/go/v1/chat/completions')
+  dispatch('/inference/go/v1/chat/completions')
   assert.equal(proxied().length, 1, 'the go lane must not touch an exit')
   assert.equal(hops.at(-1), 'direct')
-  dispatch('/zen/go/v1/usage')
+  dispatch('/inference/go/v1/usage')
   assert.equal(proxied().length, 1, 'nor the usage poll')
 
   // query strings do not defeat the match, and a prefix never leaks into a
   // longer sibling segment
-  dispatch('/zen/v1/responses?stream=1')
+  dispatch('/inference/v1/responses?stream=1')
   assert.equal(proxied().length, 2)
-  dispatch('/zen/v10/chat/completions')
-  assert.equal(proxied().length, 2, '/zen/v10 is not /zen/v1')
+  dispatch('/inference/v10/chat/completions')
+  assert.equal(proxied().length, 2, '/inference/v10 is not /inference/v1')
 
   // Empty resolves to the default (never to "no path is in scope"); '/' opts
   // the whole host back in, which is the documented knob for that.
   router.setProxyPathPrefixes([])
-  assert.deepEqual(router.proxyPathPrefixes, ['/zen/v1'])
+  assert.deepEqual(router.proxyPathPrefixes, ['/inference/v1'])
   router.setProxyPathPrefixes(['/'])
-  dispatch('/zen/go/v1/chat/completions')
+  dispatch('/inference/go/v1/chat/completions')
   assert.equal(proxied().length, 3, "'/' puts the whole host back in scope")
 
   // A caller that exposes no path stays IN scope: guessing "out" would
@@ -165,15 +165,15 @@ test('dispatcher: the path scope keeps other lanes on the host out of the pool',
 })
 
 test('proxy path prefixes: empty means the default, entries normalize, matching is segment-aware', () => {
-  assert.deepEqual(resolveProxyPathPrefixes(undefined), ['/zen/v1'])
-  assert.deepEqual(resolveProxyPathPrefixes([]), ['/zen/v1'])
-  assert.deepEqual(resolveProxyPathPrefixes(['', '   ']), ['/zen/v1'])
-  assert.deepEqual(resolveProxyPathPrefixes(['zen/v1/', '/zen/go/v1?x=1']), ['/zen/v1', '/zen/go/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes(undefined), ['/inference/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes([]), ['/inference/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes(['', '   ']), ['/inference/v1'])
+  assert.deepEqual(resolveProxyPathPrefixes(['inference/v1/', '/inference/go/v1?x=1']), ['/inference/v1', '/inference/go/v1'])
 
-  assert.ok(matchesPathPrefix('/zen/v1', '/zen/v1'))
-  assert.ok(matchesPathPrefix('/zen/v1/chat/completions?a=1', '/zen/v1'))
-  assert.ok(!matchesPathPrefix('/zen/v10', '/zen/v1'))
-  assert.ok(!matchesPathPrefix('/zen/go/v1/chat/completions', '/zen/v1'))
+  assert.ok(matchesPathPrefix('/inference/v1', '/inference/v1'))
+  assert.ok(matchesPathPrefix('/inference/v1/chat/completions?a=1', '/inference/v1'))
+  assert.ok(!matchesPathPrefix('/inference/v10', '/inference/v1'))
+  assert.ok(!matchesPathPrefix('/inference/go/v1/chat/completions', '/inference/v1'))
   assert.ok(matchesPathPrefix('/anything', '/'))
 
   // both dispatch shapes undici hands over: fetch builds origin+path,
@@ -308,9 +308,9 @@ test('end-to-end: builtin fetch routes through a real local proxy via the instal
     // The pinned exit points at the same server, but through ProxyAgent the
     // request arrives with an absolute URI — the server can tell the two
     // paths apart even though they land on one port. The path is the plugin's
-    // own lane: the scope defaults to /zen/v1, so anything else on the host
-    // is deliberately left out of the pool.
-    const response = await fetch(`http://example.test:${port}/zen/v1/chat/completions`)
+    // own lane: the scope defaults to /inference/v1, so anything else on the
+    // host is deliberately left out of the pool.
+    const response = await fetch(`http://example.test:${port}/inference/v1/chat/completions`)
     assert.equal(response.status, 200)
     assert.ok(proxied >= 1, 'builtin fetch did not go through the proxy')
   } finally {

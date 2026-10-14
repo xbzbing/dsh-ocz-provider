@@ -5,6 +5,7 @@ import * as openaiResponses from '@earendil-works/pi-ai/api/openai-responses'
 import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
 import { toStreamChunks, type HarnessChunk, type PiDoneMessage, type PiEvent } from './events.ts'
 import { conversationLabel, deriveRequestIDs, disguiseHeaders } from './ids.ts'
+import { gateToolArgumentBridge } from './gate-tools.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
@@ -194,16 +195,16 @@ function terminalErrorEvent(errorMessage: string, model: Model<Api>): PiEvent {
 }
 
 /**
- * Responses-only models on Zen (issue #7): `muse-spark-*` return a bare 500
- * on `POST /zen/v1/chat/completions` but 200 on `POST /zen/v1/responses`
- * (opencode #44659/#44847, DSH #3957). Route by model id; extend this list
- * if Zen moves more models (candidates: gpt-5.6-luna, grok-4.6).
+ * Responses-only models (issue #7): `muse-spark-*` return a bare 500 on
+ * `POST /inference/v1/chat/completions` but 200 on
+ * `POST /inference/v1/responses` (opencode #44659/#44847, DSH #3957). Route by
+ * model id; extend this list if the lane moves more models (candidates:
+ * gpt-5.6-luna, grok-4.6).
  *
- * Issue #56 (2026-10-09): the gate added a canonical-session-header half on
- * BOTH surfaces (adapter/messages.ts has the probed matrix); the official CLI
- * v2 also calls /inference/openai directly for chat, but /zen/v1 stays the
- * lane of record for this adapter — it answers 200 with the recipe and keeps
- * `Bearer public` valid, which the inference surface 401s.
+ * The gate covers BOTH surfaces: since 2026-10-14 the chat lane validates the
+ * request's content (adapter/gate-tools.ts, adapter/messages.ts) and the whole
+ * lane lives at `/inference/v1` — the old `/zen/v1` answers 403 for every
+ * shape, so it is no longer "the lane of record" for anything.
  */
 
 
@@ -506,6 +507,16 @@ export class ZenAdapter {
   async *#streamAttempt(options: HarnessGenerateOptions, onTerminal?: (message: PiDoneMessage) => void): AsyncGenerator<HarnessChunk> {
     const context = await toPiContext(options)
     const ids = deriveRequestIDs(options.messages)
+    // The gate demands the GENUINE `bash`/`read` definitions on the wire, so
+    // the host's own definitions for those two names are replaced by
+    // ensureFreeLaneShape/ensureResponsesFreeLaneShape (messages.ts). The
+    // model is therefore told what the WIRE schema declares (`filePath`,
+    // `timeout`) while the host validates its own (`file_path`, `timeoutMs`):
+    // this bridge maps a finished call back before the chunks leave the
+    // adapter. It is derived from the host's declared tool schemas, so a host
+    // that renames a field still pairs, and a call whose shape already matches
+    // is passed through untouched.
+    const argumentBridge = gateToolArgumentBridge(context.tools)
     const model = toPiModel(options.model, this.#catalog.reasoningCapability(options.model)?.reasoning === true, this.#catalog.limits?.(options.model), this.#catalog.modalities?.(options.model))
     // IP-pool routing context (docs/ip-pool.md 3.3): pi-ai builds the request
     // body and dispatches it on separate layers with no channel for "which
@@ -655,13 +666,13 @@ export class ZenAdapter {
       if (preContentFailure === null && deliveredContent) {
         // attributeUsage: this attempt's usage rides the exit the dispatcher
         // stamped into contextStore (exit-stats accounting, pool/usage.ts).
-        yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES))
+        yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       if (preContentFailure === null && !deliveredContent) {
         // stream ended cleanly with no content and no error: pass through
         // (pi-ai's empty-response classification owns this case)
-        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES))
+        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       // Exit-shaped failure before content: ask the pool whether rotating is
@@ -692,7 +703,7 @@ export class ZenAdapter {
             break
           }
         }
-        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES))
+        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       // rotate: loop re-runs #eventsFor inside the same ALS store; the pool

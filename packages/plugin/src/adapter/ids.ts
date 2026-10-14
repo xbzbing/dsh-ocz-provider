@@ -14,12 +14,6 @@ export interface RequestIDs {
   parentSession: string
 }
 
-/** sha256("prefix\0value") truncated to 12 bytes: stable, non-reversible. */
-export function stableID(prefix: string, value: string): string {
-  const sum = createHash('sha256').update(prefix + '\x00' + value).digest()
-  return `${prefix}_${sum.subarray(0, 12).toString('hex')}`
-}
-
 export function randomID(prefix: string, size: number): string {
   return `${prefix}_${randomBytes(size).toString('hex')}`
 }
@@ -74,16 +68,36 @@ export function conversationLabel(messages: Array<{ role: string; content: unkno
 }
 
 /**
+ * The project id sent upstream. `ProjectID` in the client is a PLAIN string —
+ * `"global"` for a directory that is not a git worktree, otherwise the 40-hex
+ * worktree hash (`ids.ts` `init_project_id`; live-observed `global` and
+ * `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`). It has no prefix: the client's
+ * id prefix table lists job/event/session/message/permission/question/part/
+ * pty/tool/workspace and NOT project. The `prj_<24hex>` this adapter used to
+ * mint is now a rejection signal — live-probed 2026-10-14 against
+ * `/inference/v1` with an otherwise-passing request: `prj_*` -> 403
+ * FreeTierError, `global` / a 40-hex id / the header omitted -> 200. The
+ * adapter has no worktree, so it sends what the client sends for a non-git
+ * directory.
+ */
+export const DEFAULT_PROJECT_ID = 'global'
+
+/**
  * Derive the correlation ids for one upstream request. In adapter mode there
  * are no inbound opencode headers, so the seed is the conversation itself.
+ *
+ * Both non-session ids are now shape-checked by the gate (live-probed
+ * 2026-10-14): `x-opencode-request` must be a `msg_*` MESSAGE id — the client
+ * sends `input.user.id`, i.e. the user turn's id — and a `req_<hex>` there
+ * answers 403; `x-opencode-project` must be the prefix-less project id above.
  */
 export function deriveRequestIDs(messages: Array<{ role: string; content: unknown }>): RequestIDs {
   let signal = conversationSeed(messages)
   if (signal === '' || signal === '{}') signal = randomID('fallback', 16)
   return {
     session: canonicalSessionID(signal),
-    request: randomID('req', 16),
-    project: stableID('prj', 'opencode2dsh:default-project'),
+    request: mintedMessageID(),
+    project: DEFAULT_PROJECT_ID,
     parentSession: '',
   }
 }
@@ -149,6 +163,28 @@ function mintedTimePrefix(): string {
   return hex
 }
 
+/** Clock state for the ascending message-id prefix (kept apart from sessions). */
+let messageCounter = 0
+
+/**
+ * A `msg_*` request id, shaped exactly like the client's
+ * `Session.Message.ID.create()`: `"msg_" + ascending()`, where the ascending
+ * scheme is the same `unix_ms * 0x1000 + counter` low-48-bit encoding as the
+ * session prefix WITHOUT the inversion, plus a random Base62 tail. The gate
+ * only ever sees it as the `x-opencode-request` header, so the tail carries no
+ * affinity: one fresh id per request is what the client does (`input.user.id`
+ * is that request's own user turn).
+ */
+export function mintedMessageID(): string {
+  messageCounter = (messageCounter + 1) & 0xfff
+  const value = BigInt(Date.now()) * 0x1000n + BigInt(messageCounter)
+  let hex = ''
+  for (let bit = 40; bit >= 0; bit -= 8) {
+    hex += Number((value >> BigInt(bit)) & 0xffn).toString(16).padStart(2, '0')
+  }
+  return `msg_${hex}${base62Fixed(BigInt('0x' + randomBytes(10).toString('hex')), 14)}`
+}
+
 /**
  * The session id sent upstream. A signal that already carries an official
  * OpenCode session passes through unchanged (preserving upstream prompt-cache
@@ -179,15 +215,25 @@ export function opencodeUserAgent(): string {
 
 /**
  * The full disguise header set sent with every upstream request
- * (design.md 2.4; gateway.go newUpstreamRequest:640-669).
+ * (design.md 2.4; gateway.go newUpstreamRequest:640-669), as re-derived from
+ * the real client on 2026-10-14.
+ *
+ * For a provider whose id starts with `opencode` the client sends exactly
+ * `x-opencode-session-id`, `x-opencode-session`, `x-opencode-request`,
+ * `x-opencode-client` and `User-Agent`; `x-session-affinity` and `X-Session-Id`
+ * belong to its OTHER providers' branch. The 2026-10-09 gate accepted any one
+ * of the three session spellings, so this adapter sent all three — but the
+ * 2026-10-14 gate treats them as a foreign-client signal: live-probed against
+ * `/inference/v1` with an otherwise-passing request, adding
+ * `x-session-affinity` and/or `X-Session-Id` -> 403 FreeTierError, while
+ * `x-opencode-session` alone (or with `x-opencode-session-id`) -> 200.
  */
 export function disguiseHeaders(ids: RequestIDs): Record<string, string> {
   return {
     'user-agent': opencodeUserAgent(),
     'x-opencode-client': 'cli',
     'x-opencode-session': ids.session,
-    'x-session-affinity': ids.session,
-    'X-Session-Id': ids.session,
+    'x-opencode-session-id': ids.session,
     'x-opencode-request': ids.request,
     'x-opencode-project': ids.project,
   }

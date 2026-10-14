@@ -122,16 +122,18 @@ ZenAdapter (registered LlmAdapter)
    │  pi-ai openai-completions stream (chat models)
    │  pi-ai openai-responses stream (`muse-spark-*`, Responses-only on Zen)
    ▼
-https://opencode.ai/zen/v1        ← Authorization: Bearer public
+https://opencode.ai/inference/v1   ← Authorization: Bearer public
    with CLI-identical headers:
      user-agent: opencode/…
-     x-opencode-client, x-opencode-session, x-session-affinity,
-     X-Session-Id, x-opencode-request, x-opencode-project
+     x-opencode-client, x-opencode-session, x-opencode-session-id,
+     x-opencode-request, x-opencode-project
 ```
 
-- **Session correlation** — session/project ids are SHA-256 derived from the
-  conversation's first user turn (stable per conversation, non-reversible),
-  and each request gets a fresh random id, mirroring the CLI.
+- **Session correlation** — the session id is a canonical `ses_*` (a
+  conversation-stable Base62 tail plus a clock-minted time prefix, so upstream
+  prompt-cache affinity is stable and non-reversible), the per-request id is a
+  fresh `msg_*` message id, and the project id is the client's prefix-less
+  `global`, mirroring the CLI.
 - **Catalog fallback chain** — S1: live `GET /v1/models`; S2: models.dev
   pricing metadata decides "free"; S3: a compile-time verified static list.
   A disk cache (~7-day TTL) covers upstream outages.
