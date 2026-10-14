@@ -27,6 +27,14 @@ import { attributeUsage } from '../pool/usage.ts'
 
 export const PROVIDER_ID = 'opencode-zen'
 
+/**
+ * The provider's DISPLAY name — the model picker's group label. Deliberately
+ * separate from the route id above: the id keys llm-pi-ai settings, adapter
+ * registration and the request header, and renaming it would split every
+ * existing session's model selection; the label is free to move.
+ */
+export const PROVIDER_NAME = 'op-zen2dsh'
+
 export interface ZenModelInfo {
   id: string
   name: string
@@ -322,7 +330,7 @@ export class ZenAdapter {
     }
     this.#provider = createProvider<Api>({
       id: PROVIDER_ID,
-      name: PROVIDER_ID,
+      name: PROVIDER_NAME,
       baseUrl,
       auth,
       models: [],
@@ -330,7 +338,7 @@ export class ZenAdapter {
     })
     this.#responsesProvider = createProvider<Api>({
       id: PROVIDER_ID,
-      name: PROVIDER_ID,
+      name: PROVIDER_NAME,
       baseUrl,
       auth,
       models: [],
@@ -339,7 +347,7 @@ export class ZenAdapter {
   }
 
   providerInfo(provider: string): { id: string; name: string } {
-    return { id: provider, name: PROVIDER_ID }
+    return { id: provider, name: PROVIDER_NAME }
   }
 
   /**

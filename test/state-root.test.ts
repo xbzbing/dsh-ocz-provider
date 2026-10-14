@@ -4,7 +4,7 @@
  *
  * `apply()` is the production wiring — it installs the real on-disk ledger and
  * points the catalog status, the sing-box dir and the sidecar configs at the
- * plugin's state root (`~/.opencode-zen`). A test file that calls it and then
+ * plugin's state root (`~/.dsh/opencode-zen2dsh`). A test file that calls it and then
  * streams a request therefore accounts that request in the USER's own 流量统计:
  * the bug of 2026-10-14, which surfaced as a phantom 「hi」 session with 36
  * requests and 0 tokens (test/watchdog-config.test.ts streams a real sample

@@ -2,7 +2,7 @@ import { normalizeResponsesPayload } from '../src/adapter/zen-adapter.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ModelCatalog } from '../src/adapter/catalog.ts'
-import { isResponsesModel, PROVIDER_ID, reasoningEfforts, reasoningEffortWire, WATCHDOG_FIRST_MESSAGE, ZenAdapter } from '../src/adapter/zen-adapter.ts'
+import { isResponsesModel, PROVIDER_ID, PROVIDER_NAME, reasoningEfforts, reasoningEffortWire, WATCHDOG_FIRST_MESSAGE, ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import { Config, resolveConfig } from '../src/config.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
 
@@ -18,9 +18,13 @@ test('ZenAdapter implements the full dsh-llm adapter surface', () => {
   }
 })
 
-test('providerInfo preserves the route id and names the provider', () => {
+test('providerInfo keeps the route id and the picker label apart', () => {
   const adapter = new ZenAdapter(new ModelCatalog())
-  assert.deepEqual(adapter.providerInfo('opencode-zen'), { id: 'opencode-zen', name: PROVIDER_ID })
+  // the route id keys settings/adapter registration; the display name is the
+  // model picker's group label and is free to move without touching the id.
+  assert.deepEqual(adapter.providerInfo('opencode-zen'), { id: 'opencode-zen', name: PROVIDER_NAME })
+  assert.equal(PROVIDER_NAME, 'op-zen2dsh')
+  assert.notEqual(PROVIDER_NAME, PROVIDER_ID)
 })
 
 test('providerRetryPolicy tunes the host retry for free-lane 429 bursts (issue #51)', () => {

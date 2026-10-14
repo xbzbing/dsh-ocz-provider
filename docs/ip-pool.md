@@ -655,7 +655,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 **动机**（2026-10-14 用户口径）：「目前流量是重启后丢失，增加改为持久记录，最长 90 天」，并按会话/项目记录，弹窗加一个展示每天数据与 Top 会话的 tab。
 
-`src/pool/usage-store.ts`（`UsageStore`）是唯一写入方与读取方，落盘 `~/.opencode-zen/usage.json`（单文档，原子写：临时文件 + rename；写操作去抖 10s，进程退出时 flush）：
+`src/pool/usage-store.ts`（`UsageStore`）是唯一写入方与读取方，落盘 `~/.dsh/opencode-zen2dsh/usage.json`（单文档，原子写：临时文件 + rename；写操作去抖 10s，进程退出时 flush）：
 
 | 字段 | 内容 | 保留策略 |
 | --- | --- | --- |

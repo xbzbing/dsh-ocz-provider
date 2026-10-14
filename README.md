@@ -70,7 +70,7 @@ upstream npm package, it resolves to the same package name, and installing it
 would replace this fork's copy with code that does not carry these fixes.
 
 **Verify**: restart `dsh web`, open the model picker, and pick a model from
-the **opencode-zen** group.
+the **op-zen2dsh** group (the route id itself stays `opencode-zen`).
 
 ### Working from source
 
@@ -155,7 +155,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 The plugin writes a health snapshot after every refresh round:
 
 ```
-~/.opencode-zen/adapter-status.json
+~/.dsh/opencode-zen2dsh/adapter-status.json
 ```
 
 ```json

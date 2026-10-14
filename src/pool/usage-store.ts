@@ -7,7 +7,7 @@
  * restarts, with three breakdowns the operator asked for: per day, per session
  * (the 流量 tab's top list), and per exit.
  *
- * Shape on disk (`~/.opencode-zen/usage.json`, one JSON document):
+ * Shape on disk (`~/.dsh/opencode-zen2dsh/usage.json`, one JSON document):
  *  - `totals`   — all-time cumulative, never trimmed: the footer's 总览 figure
  *                 has to stay honest past the retention window.
  *  - `days`     — one bucket per local calendar day, trimmed to

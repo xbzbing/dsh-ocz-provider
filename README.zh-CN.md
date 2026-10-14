@@ -63,7 +63,7 @@ dsh plugin --profile web add ./dsh-opencode-zen-provider-<version>.tgz
 
 注意不要和 `dsh plugin add dsh-opencode-zen-provider` 混用：那是上游发到 npm 的包，包名与本 fork 相同，装上会把本 fork 的副本替换成不含这些修复的代码。
 
-**验证**：重启 `dsh web`，打开模型选择器，在 **opencode-zen** 分组里选模型即可。
+**验证**：重启 `dsh web`，打开模型选择器，在 **op-zen2dsh** 分组里选模型即可（路由 id 仍为 `opencode-zen`）。
 
 ### 从源码开发
 
@@ -136,7 +136,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 插件在每轮刷新后写入健康快照：
 
 ```
-~/.opencode-zen/adapter-status.json
+~/.dsh/opencode-zen2dsh/adapter-status.json
 ```
 
 ```json

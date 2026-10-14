@@ -161,7 +161,7 @@ export async function registerProvider(
   }
 
   const route = {
-    displayName: 'opencode-zen',
+    displayName: 'op-zen2dsh', // picker label only; the route id stays `opencode-zen`
     apiKeyEnv: target.apiKeyEnv,
     api: 'openai-completions',
     baseURL: providerBaseURL(target.port),

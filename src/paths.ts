@@ -2,7 +2,10 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /**
- * The plugin's on-disk state root — `~/.opencode-zen` unless overridden.
+ * The plugin's on-disk state root — `~/.dsh/opencode-zen2dsh` unless
+ * overridden. It lives INSIDE the host's own `~/.dsh` root on purpose: one
+ * directory tree holds everything this install persists, and a profile
+ * backup/removal takes the plugin's state with it.
  *
  * Everything the plugin persists outside the host lives under here: the usage
  * ledger (`usage.json`), the catalog status (`adapter-status.json`), the
@@ -20,5 +23,5 @@ import { join } from 'node:path'
 export function stateDir(): string {
   const configured = process.env.OPENCODE_ZEN_HOME?.trim()
   if (configured) return configured
-  return join(homedir(), '.opencode-zen')
+  return join(homedir(), '.dsh', 'opencode-zen2dsh')
 }

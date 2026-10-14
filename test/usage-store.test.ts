@@ -136,7 +136,7 @@ test('OPENCODE_ZEN_HOME redirects the default ledger path, and is read lazily', 
   const dir = mkdtempSync(join(tmpdir(), 'opencode-zen-home-'))
   try {
     delete process.env.OPENCODE_ZEN_HOME
-    assert.equal(defaultUsagePath(), join(homedir(), '.opencode-zen', 'usage.json'), 'the production default is untouched')
+    assert.equal(defaultUsagePath(), join(homedir(), '.dsh', 'opencode-zen2dsh', 'usage.json'), 'the production default is untouched')
     const store = new UsageStore({ flushMs: 0 }) // no injected path: follows the env
     process.env.OPENCODE_ZEN_HOME = dir
     assert.equal(defaultUsagePath(), join(dir, 'usage.json'))

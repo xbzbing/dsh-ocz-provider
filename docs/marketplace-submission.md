@@ -76,7 +76,7 @@ free models (big-pickle, hy3-free, ...) appear in the model picker without
 any API key. Catalog comes from the live `/v1/models` list
 intersected with models.dev free-by-metadata, falling back to a disk cache
 and a verified static list; the plugin auto-refreshes and writes a health
-snapshot to `~/.opencode-zen/adapter-status.json`.
+snapshot to `~/.dsh/opencode-zen2dsh/adapter-status.json`.
 
 **Install source** — published to npm as
 [`dsh-opencode-zen-provider`](https://www.npmjs.com/package/dsh-opencode-zen-provider);
