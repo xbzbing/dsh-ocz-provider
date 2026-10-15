@@ -94,7 +94,7 @@ export function apply(ctx: ClientContext): void {
         // provider's controller itself (bundleConfigCard).
         const bundle = slots.inject('plugins.bundle.config', () => {
           const card = bundleConfigCard(formCtx.configForms.get(SETTINGS_NAMESPACE))
-          const disposers = ['dsh-opencode-zen-provider', 'oc2dsh'].map((pkg) => slots.register({
+          const disposers = ['dsh-opencode-free-provider', 'oc2dsh'].map((pkg) => slots.register({
             name: 'plugins.bundle.config',
             key: pkg,
             locale: NS,

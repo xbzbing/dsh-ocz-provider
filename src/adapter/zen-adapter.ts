@@ -33,7 +33,7 @@ export const PROVIDER_ID = 'oc2dsh'
  * registration and the request header, and renaming it would split every
  * existing session's model selection; the label is free to move.
  */
-export const PROVIDER_NAME = 'OpenCode-Zen'
+export const PROVIDER_NAME = 'OpenCode-Zen-Free'
 
 export interface ZenModelInfo {
   id: string

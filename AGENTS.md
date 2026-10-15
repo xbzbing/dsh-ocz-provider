@@ -67,11 +67,11 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 
 | Setting | Value | Where |
 | --- | --- | --- |
-| Package name (installable unit) | `dsh-opencode-zen-provider` | package.json |
-| Cordis patch row | `id: oc2dsh`, `name: dsh-opencode-zen-provider` (the row name must equal the package name — the loader imports it) | cordis.patch.yml |
+| Package name (installable unit) | `dsh-opencode-free-provider` | package.json |
+| Cordis patch row | `id: oc2dsh`, `name: dsh-opencode-free-provider` (the row name must equal the package name — the loader imports it) | cordis.patch.yml |
 | Loader entry id / settings namespace | `oc2dsh` | src/index.ts `name`, src/ip-pool-settings/namespace.ts `IP_POOL_NAMESPACE`, src/client/index.ts `SETTINGS_NAMESPACE` |
 | Provider route id (llm-pi-ai, request header) | `oc2dsh` | src/adapter/zen-adapter.ts `PROVIDER_ID` |
-| Provider display name (model picker group) | `OpenCode-Zen` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
+| Provider display name (model picker group) | `OpenCode-Zen-Free` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
 | Loopback bridge prefix | `/api/oc2dsh/ip-pool` | src/ip-pool-settings/bridge.ts `IP_POOL_BRIDGE_PREFIX` (mirrored in src/client/IpPoolCard.tsx) |
 | On-disk state root | `~/.dsh/oc2dsh` (env `OC2DSH_HOME` redirects) | src/paths.ts `stateDir()` |
 | Credential env var (sidecar only) | `OC2DSH_TOKEN` | src/config.ts |

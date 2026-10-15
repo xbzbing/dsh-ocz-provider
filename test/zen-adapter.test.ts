@@ -23,7 +23,7 @@ test('providerInfo names the provider for the picker', () => {
   // the route id keys settings/adapter registration; the display name is the
   // model picker's group label and is free to move without the id.
   assert.deepEqual(adapter.providerInfo('oc2dsh'), { id: 'oc2dsh', name: PROVIDER_NAME })
-  assert.equal(PROVIDER_NAME, 'OpenCode-Zen')
+  assert.equal(PROVIDER_NAME, 'OpenCode-Zen-Free')
   assert.notEqual(PROVIDER_NAME, PROVIDER_ID)
 })
 
