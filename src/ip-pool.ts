@@ -291,6 +291,8 @@ export async function startIpPool(
     smokeContents: ipPool.probeContents ?? [],
   }
   const probeModels = ipPool.probeModels ?? []
+  /** The probe-model list in force: the configured set, or the S3 default. */
+  const probeModelsOrDefault = (): string[] => (probeModels.length > 0 ? probeModels : ['big-pickle'])
   // Same in-place-mutated list as probeModels: reconfigure() splices the new
   // setting in and the admission deps keep pointing at this array.
   const probeContents = ipPool.probeContents ?? []
@@ -494,7 +496,7 @@ export async function startIpPool(
   }
 
   const probeAll = async (): Promise<number> => {
-    const models = probeModels.length > 0 ? probeModels : ['big-pickle']
+    const models = probeModelsOrDefault()
     const tasks = pool.list().map((entry): import('./pool/prober.ts').ProbeTask => ({
       exitId: entry.id,
       kind: 'probe-all',
@@ -508,7 +510,7 @@ export async function startIpPool(
   const probeExitTask = (exitId: string, entry: ReturnType<ExitPool['list']>[number]): import('./pool/prober.ts').ProbeTask => ({
     exitId,
     kind: 'probe-exit',
-    run: () => probeOne(entry, probeModels.length > 0 ? [...probeModels] : ['big-pickle']),
+    run: () => probeOne(entry, [...probeModelsOrDefault()]),
   })
 
   const probeExit = async (exitId: string): Promise<number> => {
@@ -539,7 +541,7 @@ export async function startIpPool(
     const due = pool.dueForProbe(Date.now(), { intervalMs: PROBE_INTERVAL_MS, deadRetryMs: DEAD_RETRY_MS })
     if (due.length === 0) return 0
     const byId = new Map(pool.list().map((entry) => [entry.id, entry]))
-    const models = probeModels.length > 0 ? probeModels : ['big-pickle']
+    const models = probeModelsOrDefault()
     const tasks = due.flatMap((id): Array<import('./pool/prober.ts').ProbeTask> => {
       const entry = byId.get(id)
       return entry === undefined ? [] : [{ exitId: id, kind: 'probe-due', run: () => probeOne(entry, models) }]

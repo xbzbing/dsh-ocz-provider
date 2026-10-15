@@ -299,6 +299,17 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     return this.#proxyPathPrefixes.some((prefix) => matchesPathPrefix(path, prefix))
   }
 
+  /**
+   * Pool-host traffic that could not ride an exit (no pick, or no agent):
+   * stamp the direct bucket so the stats modal's 直连兜底 row stays honest,
+   * then dispatch direct — never fail closed (3.3).
+   */
+  #directFallback(context: RoutingContext, options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
+    context.exitId = DIRECT_EXIT_ID
+    this.#pool.recordDirectRequest()
+    return this.#direct.dispatch(options, handler)
+  }
+
   /** The agent for one exit, LRU-capped (docs/ip-pool.md 2). */
   #agentFor(exitId: string): Dispatcher | null {
     const cached = this.#agents.get(exitId)
@@ -378,15 +389,11 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // Pool unusable (empty / all cooling): direct, never fail closed (3.3).
       // Still stamped + counted: pool-host traffic that dodged the pool is
       // exactly what the stats modal's 直连兜底 row exists to surface.
-      context.exitId = DIRECT_EXIT_ID
-      this.#pool.recordDirectRequest()
-      return this.#direct.dispatch(options, handler)
+      return this.#directFallback(context, options, handler)
     }
     const agent = this.#agentFor(exitId)
     if (!agent) {
-      context.exitId = DIRECT_EXIT_ID
-      this.#pool.recordDirectRequest()
-      return this.#direct.dispatch(options, handler)
+      return this.#directFallback(context, options, handler)
     }
     // Stamp the attribution key for the adapter's usage accounting and book
     // the request lifecycle (begin at pick, end in the observer's terminals).

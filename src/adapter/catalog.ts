@@ -382,6 +382,20 @@ export class ModelCatalog {
     }
   }
 
+  /**
+   * Adopt a fresh disk cache as the prices baseline. False when there is no
+   * cache path, the prices are already ready, or the file is missing/empty —
+   * the caller then keeps whatever state it had.
+   */
+  async #adoptCachedPrices(): Promise<boolean> {
+    if (!this.#cachePath || this.#pricesReady) return false
+    const cached = await loadMetadataCache(this.#cachePath, this.#now).catch(() => null)
+    if (cached === null || cached.size === 0) return false
+    this.#prices = cached
+    this.#pricesReady = true
+    return true
+  }
+
   async refreshMetadata(): Promise<void> {
     // Stale-while-revalidate (issue #55): on a cold boot a slow-but-healthy
     // models.dev (23s observed) outlives warm()'s window and never touches the
@@ -391,13 +405,7 @@ export class ModelCatalog {
     // baseline FIRST, then let the online fetch replace it whenever it lands.
     // Only the refresh-triggered path does this; start()'s first round is
     // exactly that path, so cold boots are covered.
-    if (this.#cachePath && !this.#pricesReady) {
-      const cached = await loadMetadataCache(this.#cachePath, this.#now).catch(() => null)
-      if (cached && cached.size > 0) {
-        this.#prices = cached
-        this.#pricesReady = true
-      }
-    }
+    await this.#adoptCachedPrices()
     try {
       const response = await withTimeout(this.#fetch(this.#metadataUrl, { headers: { accept: 'application/json' } }))
       if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`)
@@ -409,14 +417,7 @@ export class ModelCatalog {
       if (this.#cachePath) await saveMetadataCache(this.#cachePath, prices, this.#now())
     } catch (err) {
       // Network failure with a cached copy is not fatal: load the cache.
-      if (this.#cachePath && !this.#pricesReady) {
-        const cached = await loadMetadataCache(this.#cachePath, this.#now).catch(() => null)
-        if (cached && cached.size > 0) {
-          this.#prices = cached
-          this.#pricesReady = true
-          return
-        }
-      }
+      if (await this.#adoptCachedPrices()) return
       this.#lastError = err instanceof Error ? err.message : String(err)
     }
   }

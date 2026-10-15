@@ -58,6 +58,11 @@ export interface RefillProgress {
   admitted: number
 }
 
+/** Fresh all-zero progress (field init + the "nothing to do" reset). */
+const idleProgress = (): RefillProgress => ({
+  running: false, stage: 'idle', sourcesDone: 0, sourcesTotal: 0, fetched: 0, candidates: 0, coarsePassed: 0, coarseDone: 0, admissions: 0, admitted: 0,
+})
+
 export class RefillScheduler {
   readonly #pool: ExitPool
   readonly #deps: RefillDeps
@@ -71,9 +76,7 @@ export class RefillScheduler {
   #stopped = false
   #lastRound = { admitted: 0, rejected: 0, fetched: 0, coarsePassed: 0, state: 'healthy' as string, at: 0 }
   /** Live progress of the in-flight round (settings page 立即补充 feedback). */
-  #progress: { running: boolean; stage: 'fetch' | 'coarse' | 'admit' | 'idle'; sourcesDone: number; sourcesTotal: number; fetched: number; candidates: number; coarsePassed: number; coarseDone: number; admissions: number; admitted: number } = {
-    running: false, stage: 'idle', sourcesDone: 0, sourcesTotal: 0, fetched: 0, candidates: 0, coarsePassed: 0, coarseDone: 0, admissions: 0, admitted: 0,
-  }
+  #progress: RefillProgress = idleProgress()
   /** Notified after every real admission — the runtime assembly uses it to
    *  engage routing the moment a free-source pool stops being empty (the
    *  initial install is skipped exactly then, live-observed 2026-09-09). */
@@ -142,7 +145,7 @@ export class RefillScheduler {
     const quota = Math.min(this.#pool.admissionQuota(), this.#maxPerRound)
     this.#lastRound = { ...this.#lastRound, state, at: Date.now() }
     if (state === 'healthy' || quota <= 0) {
-      this.#progress = { running: false, stage: 'idle', sourcesDone: 0, sourcesTotal: 0, fetched: 0, candidates: 0, coarsePassed: 0, coarseDone: 0, admissions: 0, admitted: 0 }
+      this.#progress = idleProgress()
       return
     }
 

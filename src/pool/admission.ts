@@ -271,6 +271,19 @@ export async function admitCandidate(
       facts = verdict
     }
 
+    // One admitted node shape, shared by the full-pass and 429-limited paths.
+    const admittedNode = (): ExitNode => ({
+      id: candidate.address,
+      protocol: candidate.protocol,
+      source: candidate.source,
+      pinned: options.pinned ?? false,
+      exitIP: facts.exitIP,
+      exitLocation: facts.exitLocation,
+      latencyMs: facts.latencyMs,
+      quality: gradeOf(facts.latencyMs),
+      addedAt: Date.now(),
+    })
+
     // Step 3: HTTPS tunnel to the real upstream (models list, Bearer public).
     const models = await request(`${zenBase.replace(/\/+$/, '')}/v1/models`, {
       headers: { authorization: 'Bearer public', 'user-agent': opencodeUserAgent(), 'x-opencode-client': 'cli', accept: 'application/json', ...probeHeaders },
@@ -311,36 +324,13 @@ export async function admitCandidate(
           admitted: true,
           limited: true,
           reason: `zen smoke HTTP 429`,
-          node: {
-            id: candidate.address,
-            protocol: candidate.protocol,
-            source: candidate.source,
-            pinned: options.pinned ?? false,
-            exitIP: facts.exitIP,
-            exitLocation: facts.exitLocation,
-            latencyMs: facts.latencyMs,
-            quality: gradeOf(facts.latencyMs),
-            addedAt: Date.now(),
-          },
+          node: admittedNode(),
         }
       }
       return { admitted: false, reason: `zen smoke HTTP ${smoke.statusCode}` }
     }
 
-    return {
-      admitted: true,
-      node: {
-        id: candidate.address,
-        protocol: candidate.protocol,
-        source: candidate.source,
-        pinned: options.pinned ?? false,
-        exitIP: facts.exitIP,
-        exitLocation: facts.exitLocation,
-        latencyMs: facts.latencyMs,
-        quality: gradeOf(facts.latencyMs),
-        addedAt: Date.now(),
-      },
-    }
+    return { admitted: true, node: admittedNode() }
   } catch (err) {
     return { admitted: false, reason: err instanceof Error ? err.message : String(err) }
   } finally {

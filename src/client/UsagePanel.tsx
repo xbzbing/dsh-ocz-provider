@@ -18,24 +18,7 @@ import { useState, type ReactNode } from 'react'
 import type { IpPoolCardLocale } from './IpPoolCard.tsx'
 import type { TokenTotalsView, UsageView } from './IpPoolCard.tsx'
 import styles from './ip-pool.module.css'
-
-/** The all-in token figure the UI shows (input + output + cache read/write). */
-function grandTotal(tokens: TokenTotalsView): number {
-  return tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
-}
-
-/** Compact token label: 1_234_567 → 1.2M, 856 → 856. */
-function compact(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
-  return String(value)
-}
-
-/** Output speed in tok/s over a cumulative decode window (0 = nothing timed). */
-function speedOf(outputTokens: number, outputMs: number): number {
-  if (outputMs <= 0 || outputTokens <= 0) return 0
-  return Math.round((outputTokens * 1000) / outputMs)
-}
+import { compact, grandTotal, outputSpeed } from './usage-format.ts'
 
 /** `2026-10-14` → `10-14` (the year is noise in a 14-day window). */
 function shortDay(day: string): string {
@@ -73,7 +56,7 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
   const days = usage.days.slice(-windowDays)
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
-  const speed = speedOf(scoped.outputTokens, scoped.outputMs ?? 0)
+  const speed = outputSpeed(scoped)
   const sessions = usage.sessions
   const projects = usage.projects
 

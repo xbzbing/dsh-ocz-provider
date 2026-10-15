@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 
 import { ModelCatalog, defaultCachePath, type CatalogSnapshot } from './adapter/catalog.ts'
 import { setUserAgentOverride } from './adapter/ids.ts'
@@ -176,9 +177,8 @@ function applyAdapter(
   // enables the pool still gets its numbers. The recorder seam keeps usage.ts
   // from importing the ledger (that would be an import cycle).
   setUsageRecorder(usageStore)
-  const maybeLedgerEffect = (ctx as { effect?: PluginContext['effect'] }).effect
-  if (typeof maybeLedgerEffect === 'function') {
-    maybeLedgerEffect.call(ctx, () => () => { void usageStore.dispose() })
+  if (typeof ctx.effect === 'function') {
+    ctx.effect.call(ctx, () => () => { void usageStore.dispose() })
   } else {
     void usageStore.load()
   }
@@ -236,9 +236,8 @@ function applyAdapter(
     })) as unknown as Promise<unknown>
   }
 
-  const maybeEffect = (ctx as { effect?: PluginContext['effect'] }).effect
-  if (typeof maybeEffect === 'function') {
-    maybeEffect.call(ctx, () => () => {
+  if (typeof ctx.effect === 'function') {
+    ctx.effect.call(ctx, () => () => {
       catalog.stop()
     })
   }
@@ -376,9 +375,8 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
 
   // Register disposer on the plugin fiber so reload/unload/shutdown reaps the
   // child process (design.md §7 sidecar contract: no orphans).
-  const maybeEffect = (ctx as { effect?: PluginContext['effect'] }).effect
-  if (typeof maybeEffect === 'function') {
-    maybeEffect.call(ctx, () => () => {
+  if (typeof ctx.effect === 'function') {
+    ctx.effect.call(ctx, () => () => {
       void teardown()
     })
   }
@@ -415,8 +413,6 @@ export function defaultAgentPath(): string {
   }
   return exe
 }
-
-import { fileURLToPath } from 'node:url'
 
 function __dirnameSafe(): string {
   try {

@@ -110,6 +110,9 @@ export function gradeOf(latencyMs: number): ExitNode['quality'] {
  */
 export const UNVERIFIED_QUALITY: ExitNode['quality'] = 'C'
 
+/** Quality rank for worst-first eviction (lower grade = keep longer). */
+const GRADE_RANK: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3 }
+
 const banKey = (exitId: string, model: string) => `${exitId}\u0000${model}`
 
 export class ExitPool {
@@ -211,7 +214,6 @@ export class ExitPool {
    * caller has to close that exit's local listener too — see `Onboarder.trim()`.
    */
   evictWorst(): string | null {
-    const gradeRank: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3 }
     let worst: ExitNode | null = null
     for (const node of this.#nodes.values()) {
       if (node.pinned) continue
@@ -219,7 +221,7 @@ export class ExitPool {
         worst = node
         continue
       }
-      const byGrade = gradeRank[node.quality] - gradeRank[worst.quality]
+      const byGrade = GRADE_RANK[node.quality] - GRADE_RANK[worst.quality]
       const byLatency = node.latencyMs - worst.latencyMs
       const worse = byGrade > 0
         || (byGrade === 0 && byLatency > 0)
@@ -642,11 +644,7 @@ export class ExitPool {
 
   #countPassive(id: string, kind: 'ok' | 'limited' | 'refused' | 'dead' | 'transport'): void {
     const bucket = this.#passive.get(id) ?? { ok: 0, limited: 0, refused: 0, dead: 0, transport: 0 }
-    if (kind === 'limited') bucket.limited += 1
-    else if (kind === 'refused') bucket.refused += 1
-    else if (kind === 'dead') bucket.dead += 1
-    else if (kind === 'transport') bucket.transport += 1
-    else bucket.ok += 1
+    bucket[kind] += 1
     this.#passive.set(id, bucket)
   }
 
@@ -815,8 +813,7 @@ export class ExitPool {
         worst = node
         continue
       }
-      const gradeRank: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3 }
-      const byGrade = gradeRank[node.quality] - gradeRank[worst.quality]
+      const byGrade = GRADE_RANK[node.quality] - GRADE_RANK[worst.quality]
       if (byGrade > 0 || (byGrade === 0 && node.addedAt < worst.addedAt)) worst = node
     }
     if (!worst) return false

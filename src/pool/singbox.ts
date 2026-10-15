@@ -418,7 +418,12 @@ export class SingBoxSupervisor {
    * every kept node stays on its own stable port. Absent = every node.
    */
   async reload(input: ParsedNode[], keep?: readonly number[]): Promise<ConvertedExit[]> {
-    const unroutable = input.filter((node) => !isDialableServer(node.server))
+    // One pass splits dialable nodes from placeholder servers (private /
+    // loopback / link-local literals a public subscription should never hand
+    // out); only the dialable half reaches the config.
+    const nodes: ParsedNode[] = []
+    const unroutable: ParsedNode[] = []
+    for (const node of input) (isDialableServer(node.server) ? nodes : unroutable).push(node)
     if (unroutable.length > 0) {
       const sample = unroutable
         .slice(0, 5)
@@ -428,7 +433,6 @@ export class SingBoxSupervisor {
         `oc2dsh: sing-box conversion skipped ${unroutable.length} node(s) whose server address cannot be dialled from this machine (${sample}${unroutable.length > 5 ? ', …' : ''})`,
       )
     }
-    const nodes = input.filter((node) => isDialableServer(node.server))
     // no tunnel nodes -> stop and clean (GoProxy Reload empty case). A keep
     // selection that matches nothing is the same state: nothing to run.
     const emit = keep === undefined ? nodes.length : keep.length

@@ -23,6 +23,7 @@ import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPo
 import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import { UsagePanel } from './UsagePanel.tsx'
+import { compact, grandTotal, outputSpeed } from './usage-format.ts'
 import styles from './ip-pool.module.css'
 
 /**
@@ -31,37 +32,18 @@ import styles from './ip-pool.module.css'
  * cache buckets upstream), which read ~3x smaller than the Agent's own
  * all-in count (live 2026-10-13) — the footer and the modal show the
  * all-in number so the two agree; the breakdown stays in the table notes.
+ * (The number itself lives in usage-format.ts so the footer, modal and
+ * usage panel render the same figure.)
  */
-function grandTotal(tokens: TokenTotalsView): number {
-  return tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
-}
 
 /** Cache share of one bucket, for the per-row note (0 hides the note). */
 function cacheTotal(tokens: TokenTotalsView): number {
   return tokens.cacheReadTokens + tokens.cacheWriteTokens
 }
 
-/**
- * Output speed in tok/s: output tokens over the recorded decode window.
- * A bucket with no timed response (nothing ever streamed, or a host from
- * before the field existed) reads 0 and the caller hides the note.
- */
-function outputSpeed(tokens: TokenTotalsView): number {
-  const ms = tokens.outputMs ?? 0
-  if (ms <= 0 || tokens.outputTokens <= 0) return 0
-  return Math.round((tokens.outputTokens * 1000) / ms)
-}
-
 export type ExitStatsEntryProps =
   PropsRuntime<'sidebar.footer.action'>
   & PropsLocale<'settings.ip-pool'>
-
-/** Compact token label: 1_234_567 → 1.2M, 856 → 856. */
-function compact(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
-  return String(value)
-}
 
 /**
  * The outcome toast's two clocks (live request 2026-10-14: the old note above

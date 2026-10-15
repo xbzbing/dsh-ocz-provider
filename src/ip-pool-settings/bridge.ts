@@ -777,7 +777,9 @@ export function makeBridgeRoutes(
   } = {},
 ): Array<{ kind: 'exact'; path: string; handler: (req: never, res: never) => void | Promise<void> }> {
   const guard = deps.guard ?? isTrustedBridgeRequest
-  const check = (req: { method?: string } & Parameters<typeof isTrustedBridgeRequest>[0], res: { writeHead(status: number, headers: Record<string, string>): void; end(body: string): void }): boolean => {
+  type Req = { method?: string } & Parameters<typeof isTrustedBridgeRequest>[0]
+  type Res = { writeHead(status: number, headers: Record<string, string>): void; end(body: string): void }
+  const check = (req: Req, res: Res): boolean => {
     if (!guard(req)) {
       writeJson(res, 403, { error: 'forbidden' })
       return false
@@ -788,81 +790,41 @@ export function makeBridgeRoutes(
     }
     return true
   }
+  /** One guard-checked POST route with no request body (/status, /models). */
+  const postRoute = (path: string, run: (res: Res) => Promise<unknown> | unknown): BridgeRoute => ({
+    kind: 'exact',
+    path,
+    handler: async (req, res) => {
+      const rawRes = res as unknown as Res
+      if (!check(req as unknown as Req, rawRes)) return
+      writeJson(rawRes, 200, await run(rawRes))
+    },
+  })
+  /** One guard-checked POST route that reads a JSON object body. */
+  const jsonRoute = (path: string, handle: (body: Record<string, unknown>) => Promise<BridgeResult>): BridgeRoute => ({
+    kind: 'exact',
+    path,
+    handler: async (req, res) => {
+      const rawRes = res as unknown as Res
+      if (!check(req as unknown as Req, rawRes)) return
+      let body: unknown
+      try {
+        body = await readJsonBody(req as never)
+      } catch {
+        body = undefined
+      }
+      if (body === undefined || typeof body !== 'object' || body === null) {
+        writeJson(rawRes, 400, { ok: false, code: 'settings-rejected', message: 'unreadable JSON body' })
+        return
+      }
+      writeJson(rawRes, 200, await handle(body as Record<string, unknown>))
+    },
+  })
   return [
-    {
-      kind: 'exact',
-      path: `${IP_POOL_BRIDGE_PREFIX}/status`,
-      handler: async (req, res) => {
-        if (!check(req as never, res as never)) return
-        const result = await handlers.status()
-        writeJson(res as never, 200, result)
-      },
-    },
-    {
-      kind: 'exact',
-      path: `${IP_POOL_BRIDGE_PREFIX}/models`,
-      handler: async (req, res) => {
-        if (!check(req as never, res as never)) return
-        const result = await handlers.models()
-        writeJson(res as never, 200, result)
-      },
-    },
-    {
-      kind: 'exact',
-      path: `${IP_POOL_BRIDGE_PREFIX}/probe`,
-      handler: async (req, res) => {
-        if (!check(req as never, res as never)) return
-        let body: unknown
-        try {
-          body = await readJsonBody(req as never)
-        } catch {
-          body = undefined
-        }
-        if (body === undefined || typeof body !== 'object' || body === null) {
-          writeJson(res as never, 400, { ok: false, code: 'settings-rejected', message: 'unreadable JSON body' })
-          return
-        }
-        const result = await handlers.probe(body as { scope?: unknown; exitId?: unknown })
-        writeJson(res as never, 200, result)
-      },
-    },
-    {
-      kind: 'exact',
-      path: `${IP_POOL_BRIDGE_PREFIX}/exit`,
-      handler: async (req, res) => {
-        if (!check(req as never, res as never)) return
-        let body: unknown
-        try {
-          body = await readJsonBody(req as never)
-        } catch {
-          body = undefined
-        }
-        if (body === undefined || typeof body !== 'object' || body === null) {
-          writeJson(res as never, 400, { ok: false, code: 'settings-rejected', message: 'unreadable JSON body' })
-          return
-        }
-        const result = await handlers.exit(body as { action?: unknown; exitId?: unknown })
-        writeJson(res as never, 200, result)
-      },
-    },
-    {
-      kind: 'exact',
-      path: `${IP_POOL_BRIDGE_PREFIX}/usage`,
-      handler: async (req, res) => {
-        if (!check(req as never, res as never)) return
-        let body: unknown
-        try {
-          body = await readJsonBody(req as never)
-        } catch {
-          body = undefined
-        }
-        if (body === undefined || typeof body !== 'object' || body === null) {
-          writeJson(res as never, 400, { ok: false, code: 'settings-rejected', message: 'unreadable JSON body' })
-          return
-        }
-        const result = await handlers.usage(body as { action?: unknown })
-        writeJson(res as never, 200, result)
-      },
-    },
+    postRoute(`${IP_POOL_BRIDGE_PREFIX}/status`, () => handlers.status()),
+    postRoute(`${IP_POOL_BRIDGE_PREFIX}/models`, () => handlers.models()),
+    jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/probe`, (body) => handlers.probe(body as { scope?: unknown; exitId?: unknown })),
+    jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/exit`, (body) => handlers.exit(body as { action?: unknown; exitId?: unknown })),
+    jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/usage`, (body) => handlers.usage(body as { action?: unknown })),
   ]
 }

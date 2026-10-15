@@ -87,15 +87,7 @@ interface PersistedDocument {
 /** Sum a list of buckets into one. */
 export function sumTotals(buckets: Iterable<TokenTotals>): TokenTotals {
   const total = emptyTotals()
-  for (const bucket of buckets) {
-    total.requests += bucket.requests
-    total.inputTokens += bucket.inputTokens
-    total.outputTokens += bucket.outputTokens
-    total.cacheReadTokens += bucket.cacheReadTokens
-    total.cacheWriteTokens += bucket.cacheWriteTokens
-    total.totalTokens += bucket.totalTokens
-    total.outputMs += bucket.outputMs
-  }
+  for (const bucket of buckets) addInto(total, bucket)
   return total
 }
 
