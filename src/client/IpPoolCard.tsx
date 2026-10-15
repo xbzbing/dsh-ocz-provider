@@ -15,7 +15,19 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import type { ReactNode } from 'react'
-import { SettingsForm, type SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  Button,
+  DisclosureRow,
+  IconChevronDownOutlineRegular,
+  IconCloseFillMedium,
+  Input,
+  SegmentedControl,
+  SettingsForm,
+  StateDot,
+  Switch,
+  Tag,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the Plugins page's SlotMap merge (the 'plugins.bundle.config'
 // keyed entry, whose owner embeds this form on the bundle's detail page, and
@@ -376,7 +388,7 @@ function normalizedUserAgent(value: string): string {
   return trimmed === '' ? DEFAULTS.subscription.userAgent : trimmed
 }
 
-/** One labeled input. */
+/** One labeled input (the Input primitive carries the box chrome). */
 function TextField(props: {
   label: string
   hint?: string
@@ -388,19 +400,31 @@ function TextField(props: {
   min?: number
   max?: number
   step?: number
+  invalid?: boolean
+  disabled?: boolean
+  /** A trailing action on the label line (立即刷新 / 解除固定); falsy = none. */
+  action?: ReactNode
 }): ReactNode {
-  const { label, hint, value, onChange, placeholder, testId, type = 'text', min, max, step } = props
+  const { label, hint, value, onChange, placeholder, testId, type = 'text', min, max, step, invalid, disabled, action } = props
   return (
     <label className={styles.field}>
-      <span className={styles.fieldLabel}>{label}</span>
-      <input
-        className={styles.input}
+      {action == null
+        ? <span className={styles.fieldLabel}>{label}</span>
+        : (
+          <span className={styles.fieldHead}>
+            <span className={styles.fieldLabel}>{label}</span>
+            <span className={styles.fieldHeadAction}>{action}</span>
+          </span>
+        )}
+      <Input
+        className={invalid === true ? `${styles.fieldControl} ${styles.inputWrapInvalid}` : styles.fieldControl}
         type={type}
         value={value}
         placeholder={placeholder}
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
         data-testid={testId}
         onChange={(event) => onChange(event.target.value)}
       />
@@ -409,65 +433,89 @@ function TextField(props: {
   )
 }
 
-/** One editable string-list (manual proxies / subscription URLs / probe models). */
-function StringList(props: {
-  /** Optional: a section that already renders a heading passes none, so the
-   *  same text never appears twice in a row (live 2026-10-14: the manual and
-   *  subscription sections showed their title AND this label, both identical). */
+/**
+ * One editable string list (manual proxies / subscription URLs / probe
+ * contents). Items are one-per-line capsule rows with a remove button; the
+ * add row is an Input + 添加 Button (Enter also adds). A duplicate add is
+ * refused with an inline note; a fresh add flashes the new row so the append
+ * is visible at the bottom of a long list.
+ */
+function ListEditor(props: {
   label?: string
   hint: string
   values: string[]
   placeholder: string
   testId: string
   redacted?: boolean
+  disabled?: boolean
+  t: IpPoolCardProps['t']
   onChange: (next: string[]) => void
 }): ReactNode {
-  const { label, hint, values, placeholder, testId, redacted, onChange } = props
+  const { label, hint, values, placeholder, testId, redacted, disabled, t, onChange } = props
   const [draft, setDraft] = useState('')
+  const [dup, setDup] = useState(false)
+  const [fresh, setFresh] = useState<string | null>(null)
+  const freshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (freshTimer.current !== null) clearTimeout(freshTimer.current) }, [])
   const add = (): void => {
     const entry = draft.trim()
-    if (entry === '' || values.includes(entry)) return
+    if (entry === '') return
+    if (values.includes(entry)) {
+      setDup(true)
+      return
+    }
+    setDup(false)
     onChange([...values, entry])
     setDraft('')
+    setFresh(entry)
+    if (freshTimer.current !== null) clearTimeout(freshTimer.current)
+    freshTimer.current = setTimeout(() => setFresh(null), 400)
   }
   return (
     <div className={styles.field} data-testid={testId}>
       {label !== undefined && label !== '' && <span className={styles.fieldLabel}>{label}</span>}
       <span className={styles.fieldHint}>{hint}</span>
       {values.length > 0 && (
-        <ul className={styles.rowList}>
+        <ul className={styles.listItems}>
           {values.map((entry) => (
-            <li key={entry} className={styles.row}>
-              <span className={styles.rowLabel} title={redacted ? entry : undefined}>
+            <li key={entry} className={entry === fresh ? `${styles.listItem} ${styles.listItemNew}` : styles.listItem}>
+              <span className={styles.listItemText} title={redacted ? entry : undefined}>
                 {redacted ? redactUrl(entry) : entry}
               </span>
-              <button
-                type="button"
-                className={styles.rowRemove}
-                onClick={() => onChange(values.filter((v) => v !== entry))}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={disabled === true}
+                aria-label={t('listRemove')}
+                title={t('listRemove')}
+                onClick={() => { setDup(false); onChange(values.filter((v) => v !== entry)) }}
               >
-                ✕
-              </button>
+                <IconCloseFillMedium />
+              </Button>
             </li>
           ))}
         </ul>
       )}
-      <div className={styles.row}>
-        <input
-          className={styles.rowInput}
+      <div className={styles.listAddRow}>
+        <Input
+          className={styles.listAddInput}
           value={draft}
           placeholder={placeholder}
-          onChange={(event) => setDraft(event.target.value)}
+          disabled={disabled === true}
+          onChange={(event) => { setDraft(event.target.value); if (dup) setDup(false) }}
           onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); add() } }}
         />
-        <button type="button" className={styles.rowAdd} onClick={add}>+</button>
+        <Button variant="outline" size="sm" disabled={disabled === true || draft.trim() === ''} onClick={add}>
+          {t('listAdd')}
+        </Button>
       </div>
+      {dup && <span className={styles.listDup} role="status">{t('listExists')}</span>}
     </div>
   )
 }
 
 /**
- * Probe-model multi-select over the bridge /models rows: selected models as
+ * Probe-model picker over the bridge /models rows: selected models as
  * removable chips above a dropdown of S3-verified + live-catalog options
  * (docs §5.2 探活模型). Empty selection = the S3-first default (big-pickle).
  */
@@ -476,10 +524,11 @@ function ModelPicker(props: {
   hint: string
   models: Array<{ id: string; verified: boolean }>
   loading: boolean
+  disabled?: boolean
   t: IpPoolCardProps['t']
   onChange: (next: string[]) => void
 }): ReactNode {
-  const { value, hint, models, loading, t, onChange } = props
+  const { value, hint, models, loading, disabled, t, onChange } = props
   const toggle = (id: string): void => {
     onChange(value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id])
   }
@@ -489,39 +538,47 @@ function ModelPicker(props: {
       <span className={styles.fieldLabel}>{t('probeModels')}</span>
       <span className={styles.fieldHint}>{hint}</span>
       {value.length > 0 && (
-        <ul className={styles.rowList}>
+        <div className={styles.chipRow}>
           {value.map((id) => {
             const row = models.find((m) => m.id === id)
             return (
-              <li key={id} className={styles.row}>
-                <span className={styles.rowLabel}>
-                  {id}{row?.verified === false ? ` · ${t('probeModelUnverified')}` : ''}
+              <span key={id} className={styles.chip}>
+                <span className={styles.chipText}>
+                  {id}
+                  {row?.verified === false && <span className={styles.chipSub}>{t('probeModelUnverified')}</span>}
                 </span>
-                <button type="button" className={styles.rowRemove} aria-label="remove" onClick={() => toggle(id)}>✕</button>
-              </li>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={disabled === true}
+                  aria-label={t('listRemove')}
+                  title={t('listRemove')}
+                  onClick={() => toggle(id)}
+                >
+                  <IconCloseFillMedium />
+                </Button>
+              </span>
             )
           })}
-        </ul>
+        </div>
       )}
-      <div className={styles.row}>
-        <select
-          className={styles.select}
-          data-testid="probe-model-select"
-          value=""
-          disabled={options.length === 0}
-          onChange={(event) => {
-            const id = event.target.value
-            if (id !== '') toggle(id)
-            // native select re-shows the list while focused; value stays ''
-            // so the placeholder keeps prompting for the next pick
-          }}
-        >
-          <option value="">{loading ? t('statusLoading') : options.length === 0 ? '—' : t('probeModelPick')}</option>
-          {options.map((row) => (
-            <option key={row.id} value={row.id}>{row.id}{row.verified === false ? ` · ${t('probeModelUnverified')}` : ''}</option>
-          ))}
-        </select>
-      </div>
+      <select
+        className={styles.select}
+        data-testid="probe-model-select"
+        value=""
+        disabled={disabled === true || options.length === 0}
+        onChange={(event) => {
+          const id = event.target.value
+          if (id !== '') toggle(id)
+          // native select re-shows the list while focused; value stays ''
+          // so the placeholder keeps prompting for the next pick
+        }}
+      >
+        <option value="">{loading ? t('statusLoading') : options.length === 0 ? '—' : t('probeModelPick')}</option>
+        {options.map((row) => (
+          <option key={row.id} value={row.id}>{row.id}{row.verified === false ? ` · ${t('probeModelUnverified')}` : ''}</option>
+        ))}
+      </select>
       {value.length === 0 && (
         <span className={styles.fieldHint}>{t('probeModelsDefault')}</span>
       )}
@@ -529,7 +586,7 @@ function ModelPicker(props: {
   )
 }
 
-/** Pool overview strip: four-state badge + counts + pinned badge. */
+/** Pool overview strip: Tag status badge + counts + pinned badge. */
 function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps['t'] }): ReactNode {
   const { status, t } = props
   if (status === null) return null
@@ -539,47 +596,37 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
     critical: t('poolStateCritical'),
     emergency: t('poolStateEmergency'),
   }
-  const stateClass: Record<PoolStatusView['state'], string> = {
-    healthy: styles.badgeHealthy!,
-    warning: styles.badgeWarning!,
-    critical: styles.badgeCritical!,
-    emergency: styles.badgeEmergency!,
+  const stateTone: Record<PoolStatusView['state'], 'success' | 'warning' | 'danger'> = {
+    healthy: 'success',
+    warning: 'warning',
+    critical: 'danger',
+    emergency: 'danger',
   }
   return (
     <div className={styles.overviewBar} data-testid="ip-pool-overview">
-      <span
-        className={`${styles.badge} ${stateClass[status.state]}`}
-        title={status.stateBasis === 'pool' ? t('stateBasisPool') : t('stateBasisFree')}
-      >
-        {stateLabel[status.state]}
-      </span>
+      <Tag tone={stateTone[status.state]}>{stateLabel[status.state]}</Tag>
       {status.deferredReason !== '' && (
-        <span className={`${styles.badge} ${styles.badgeCritical}`}>
-          {t('deferredNotice').replace('{reason}', status.deferredReason)}
-        </span>
+        <Tag tone="danger">{t('deferredNotice').replace('{reason}', status.deferredReason)}</Tag>
       )}
-      {/* The headline number is the WHOLE pool's usable count; the free-source
-          subset is spelled out separately (rendering it bare as "可用 n/20"
-          reads as "nothing is usable" to anyone without free sources). */}
+      {/* The headline number is the WHOLE pool's usable count (the free-source
+          subset was dropped from the copy when the page stopped configuring
+          free sources — d388ffa). */}
       <span>{t('poolAvailable')
         .replace('{available}', String(status.availableTotal))
         .replace('{total}', String(status.total))
-        .replace('{freeAvailable}', String(status.availableFree))
-        .replace('{capacity}', String(status.targetSize))
         .replace('{poolSize}', String(status.poolSize ?? status.targetSize))}</span>
       <span>
         {t('poolSources')
-          .replace('{free}', String(status.bySource.free))
           .replace('{manual}', String(status.bySource.manual))
           .replace('{subscription}', String(status.bySource.subscription))}
       </span>
       {status.pinned !== null && (
-        <span className={`${styles.badge} ${styles.badgePinned}`}>
+        <Tag tone="info">
           {/* A pin to the 本机 sentinel has no exit address to show, so the
               badge says what it does instead (2026-10-14). */}
           {status.pinned.local === true ? t('pinnedBadgeLocal') : t('pinnedBadge')}
           {status.pinned.strict && status.pinned.local !== true ? ' (' + t('pinnedStrict') + ')' : ''}
-        </span>
+        </Tag>
       )}
     </div>
   )
@@ -591,13 +638,14 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
   const [bansOpen, setBansOpen] = useState(false)
   if (status === null) return null
   const stateCell = (exit: PoolStatusView['exits'][number]): ReactNode => {
-    if (exit.state === 'dead') return <span className={styles.stateDead}>{t('stateDead')}</span>
+    // StateDot carries the semantic colour; the label stays as text beside it.
+    if (exit.state === 'dead') return <span className={styles.stateCell}><StateDot state="error" />{t('stateDead')}</span>
     // A demoted exit is kept but ranked last (upstream refused it and no
     // reserve was left): saying so beats reading it as a healthy row.
-    if (exit.demoted === true) return <span className={styles.stateCooling}>{t('stateDemoted')}</span>
-    if (exit.cooling) return <span className={styles.stateCooling}>{t('stateCooling')}</span>
-    if (exit.state === 'ok') return <span className={styles.stateOk}>{t('stateOk')}</span>
-    return <span className={styles.stateUnknown}>{t('stateUnknown')}</span>
+    if (exit.demoted === true) return <span className={styles.stateCell}><StateDot state="warning" />{t('stateDemoted')}</span>
+    if (exit.cooling) return <span className={styles.stateCell}><StateDot state="warning" />{t('stateCooling')}</span>
+    if (exit.state === 'ok') return <span className={styles.stateCell}><StateDot state="done" />{t('stateOk')}</span>
+    return <span className={styles.stateCell}><StateDot state="idle" />{t('stateUnknown')}</span>
   }
   const allBans = status.exits.flatMap((exit) =>
     exit.bannedModels.map((ban) => ({ exitId: exit.id, ...ban })),
@@ -634,7 +682,7 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
                     : '—'}
                 </td>
                 <td>
-                  <button type="button" className={styles.rowRemove} disabled={busy} onClick={() => onProbe(exit.id)}>{t('exitProbe')}</button>
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => onProbe(exit.id)}>{t('exitProbe')}</Button>
                   {/* Icon actions, the same pair the stats modal carries
                       (2026-10-14): 固定 (padlock) and 轮换 (circular arrow).
                       The word 删除 was wrong — nothing is deleted: a reserve
@@ -700,6 +748,74 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
   )
 }
 
+/** The collapsible group ids, in display order. */
+type GroupId = 'sources' | 'scheduling' | 'probe' | 'usage' | 'headers' | 'exits'
+
+/** First-visit fold state: high-frequency groups open, advanced ones folded. */
+const GROUP_DEFAULTS: Record<GroupId, boolean> = {
+  sources: true,
+  scheduling: false,
+  probe: false,
+  usage: true,
+  headers: false,
+  exits: true,
+}
+
+/** localStorage key holding the operator's fold preferences (schema v1). */
+const GROUP_STATE_KEY = 'oc2dsh:form-groups:v1'
+
+/** Read the persisted fold map; a missing/corrupt entry falls back to defaults. */
+function loadGroupState(): Record<GroupId, boolean> {
+  try {
+    const raw = localStorage.getItem(GROUP_STATE_KEY)
+    if (raw === null) return { ...GROUP_DEFAULTS }
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null) return { ...GROUP_DEFAULTS }
+    return { ...GROUP_DEFAULTS, ...(parsed as Partial<Record<GroupId, boolean>>) }
+  } catch {
+    return { ...GROUP_DEFAULTS }
+  }
+}
+
+/** Validation outcome: the message plus the group that must reveal it. */
+interface ValidationFailure { message: string; group: GroupId }
+
+/**
+ * One collapsible settings group: a DisclosureRow header carrying the title
+ * plus a folded-state summary, and a body that stays MOUNTED while folded
+ * (display:none) so half-typed list drafts and focus survive a fold.
+ */
+function Group(props: {
+  id: GroupId
+  title: string
+  summary: string
+  open: boolean
+  highlight: boolean
+  onToggle: () => void
+  children: ReactNode
+}): ReactNode {
+  const { id, title, summary, open, highlight, onToggle, children } = props
+  return (
+    <section
+      className={highlight ? `${styles.group} ${styles.groupHighlight}` : styles.group}
+      data-group={id}
+    >
+      <DisclosureRow
+        icon={<IconChevronDownOutlineRegular />}
+        title={title}
+        open={open}
+        expandable
+        expandOnRowClick
+        onToggle={onToggle}
+        collapsedContent={<span className={styles.groupSummary}>{summary}</span>}
+      />
+      <div className={open ? styles.groupBody : styles.groupBodyHidden}>
+        {children}
+      </div>
+    </section>
+  )
+}
+
 /** The card body. */
 function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardProps['t'] }): ReactNode {
   const { settings, t } = props
@@ -716,9 +832,18 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   const [probeModelRows, setProbeModelRows] = useState<Array<{ id: string; verified: boolean }>>([])
   const [probeModelsLoading, setProbeModelsLoading] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
+  const [groups, setGroups] = useState<Record<GroupId, boolean>>(() => loadGroupState())
+  const [highlightGroup, setHighlightGroup] = useState<GroupId | null>(null)
+  const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hydratedRef = useRef(false)
   const formRef = useRef(form)
   formRef.current = form
+
+  // Persist fold preferences across sessions.
+  useEffect(() => {
+    try { localStorage.setItem(GROUP_STATE_KEY, JSON.stringify(groups)) } catch { /* private mode: fold state is disposable */ }
+  }, [groups])
+  useEffect(() => () => { if (highlightTimer.current !== null) clearTimeout(highlightTimer.current) }, [])
 
   // The served section, with defaults filled.
   const served = servedSection(snapshot)
@@ -794,46 +919,67 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     return () => clearInterval(interval)
   }, [snapshot?.status, probing, refreshStatus, hydratedRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (snapshot?.status === 'loading') {
-    return <p className={styles.status}>{t('statusLoading')}</p>
-  }
-
-  const validate = (): string | null => {
+  // NOTE: everything above the loading early-return is hooks; the validation
+  // block below is pure computation plus one effect, so the effect rides
+  // ABOVE the early-return to keep the hook order stable across renders.
+  const validate = (): ValidationFailure | null => {
     const conc = Number(form.maxConcurrentProbes)
-    if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return t('invalidRange')
+    if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return { message: t('invalidRange'), group: 'probe' }
     const poolSize = Number(form.poolSize)
-    if (!/^\d+$/.test(form.poolSize.trim()) || poolSize < 1 || poolSize > 100) return t('invalidRange')
+    if (!/^\d+$/.test(form.poolSize.trim()) || poolSize < 1 || poolSize > 100) return { message: t('invalidRange'), group: 'probe' }
     const refresh = Number(form.refreshMs)
-    if (!/^\d+$/.test(form.refreshMs.trim()) || refresh < 60_000) return t('invalidRange')
+    if (!/^\d+$/.test(form.refreshMs.trim()) || refresh < 60_000) return { message: t('invalidRange'), group: 'sources' }
     for (const entry of form.manual) {
-      if (!/^https?:\/\/[^\s:]+:\d{1,5}$|^socks5:\/\/[^\s:]+:\d{1,5}$|^socks5h?:\/\/\[[^\]]+\]:\d{1,5}$/.test(entry)) return t('invalidProxy')
+      if (!/^https?:\/\/[^\s:]+:\d{1,5}$|^socks5:\/\/[^\s:]+:\d{1,5}$|^socks5h?:\/\/\[[^\]]+\]:\d{1,5}$/.test(entry)) return { message: t('invalidProxy'), group: 'sources' }
     }
     for (const url of form.subscriptionUrls) {
-      if (!/^https?:\/\/.+/.test(url)) return t('invalidUrl')
+      if (!/^https?:\/\/.+/.test(url)) return { message: t('invalidUrl'), group: 'sources' }
     }
     for (const model of form.probeModels) {
-      if (model.trim() === '') return t('invalidModel')
+      if (model.trim() === '') return { message: t('invalidModel'), group: 'probe' }
     }
     return null
   }
 
   const writes = diffWrites(formRef.current, served, servedBase(snapshot))
   let headerOps: ConfigPathOp[] = []
-  let headerValidation: string | null = headerConflict ? t('requestHeadersConflict') : null
+  let headerFailure: ValidationFailure | null = headerConflict
+    ? { message: t('requestHeadersConflict'), group: 'headers' }
+    : null
   try {
     headerOps = requestHeadersWriteOps(headersText,
       normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}),
       normalizeRequestHeaders((snapshot?.base as Record<string, unknown> | undefined)?.requestHeaders ?? {}))
-  } catch { headerValidation = t('requestHeadersInvalid') }
-  const validation = headerValidation ?? validate()
+  } catch { headerFailure = { message: t('requestHeadersInvalid'), group: 'headers' } }
+  const validation = headerFailure ?? validate()
   const dirty = writes.length > 0 || headerOps.length > 0 || validation !== null
   const available = snapshot?.status === 'ready' && settings !== undefined
   const writable = available && snapshot.writable
 
+  // A validation failure force-opens its group (with a brief highlight) so
+  // the erroring row is never hidden inside a folded section.
+  useEffect(() => {
+    if (validation === null) return
+    const group = validation.group
+    setGroups((current) => (current[group] ? current : { ...current, [group]: true }))
+    setHighlightGroup(group)
+    if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
+    highlightTimer.current = setTimeout(() => setHighlightGroup(null), 1200)
+  }, [validation?.group, validation?.message]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (snapshot?.status === 'loading') {
+    return <p className={styles.status}>{t('statusLoading')}</p>
+  }
+
+  /** Toggle one group's fold state. */
+  const toggleGroup = (group: GroupId): void => {
+    setGroups((current) => ({ ...current, [group]: !current[group] }))
+  }
+
   const handleSave = async (): Promise<void> => {
     if (!writable || validation !== null || settings === undefined || snapshot === undefined) {
       setSaved(false)
-      setError(validation ?? t('saveError'))
+      setError(validation?.message ?? t('saveError'))
       return
     }
     if (writes.length === 0 && headerOps.length === 0) {
@@ -955,86 +1101,113 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   const probeDone = status !== null ? status.prober.completed : 0
   const probeTotal = status !== null ? status.prober.enqueued : 0
 
+  // Collapsed-state summaries read the DRAFT (not the saved value): folding
+  // the page must still confirm what you just edited.
+  const sourcesSummary = [
+    form.manual.length > 0 ? t('summaryProxies', { count: String(form.manual.length) }) : '',
+    form.subscriptionUrls.length > 0 ? t('summarySubscriptions', { count: String(form.subscriptionUrls.length) }) : '',
+  ].filter((part) => part !== '').join(' · ') || t('summaryUnset')
+  const schedulingSummary = form.pinnedExitId !== ''
+    ? t('summaryPinned', { target: form.pinnedExitId })
+    : `${t('summaryAuto')}${form.pinnedStrict ? ` · ${t('pinnedModeAbsolute')}` : ''}`
+  const probeSummary = [
+    form.probeModels.length === 0 ? t('summaryModelsDefault') : t('summaryModelsCount', { count: String(form.probeModels.length) }),
+    form.probeContents.length > 0 ? t('summaryContentsCount', { count: String(form.probeContents.length) }) : '',
+    t('summaryConcurrency', { count: form.maxConcurrentProbes }),
+    t('summaryCapacity', { count: form.poolSize }),
+  ].filter((part) => part !== '').join(' · ')
+  const usageSummary = status?.usage == null
+    ? t('summaryUsageNone')
+    : t('summaryUsage', {
+      requests: status.usage.scoped.requests.toLocaleString(),
+      tokens: usageTokens(status.usage.scoped),
+    })
+  const headersLineCount = headersText.split('\n').filter((line) => line.trim() !== '').length
+  const headersSummary = headersLineCount === 0 ? t('summaryHeadersDefault') : t('summaryHeadersCustom', { count: String(headersLineCount) })
+  const exitsSummary = status === null
+    ? t('summaryUnset')
+    : t('footerUsable', { usable: String(status.availableTotal), total: String(status.total) })
+
   return (
     <SettingsForm labels={formLabels(t)} state={shell} onSave={() => { void handleSave() }} onDiscard={handleDiscard}>
     <div className={styles.body} data-testid="ip-pool-form">
-      <RequestHeadersEditor
-        text={headersText}
-        effectiveUserAgent={status?.zenUserAgent}
-        disabled={!writable || saving}
-        t={t}
-        onChange={(text) => { setSaved(false); setHeadersText(text) }}
-      />
-      {headerValidation !== null && <span role="alert" className={styles.saveStatusError}>{headerValidation}</span>}
+      {/* Master switch: the page's primary control, status strip right under. */}
+      <div className={styles.settingRow}>
+        <div className={styles.settingRowText}>
+          <span className={styles.settingRowTitle}>{t('enabled')}</span>
+          <span className={styles.fieldHint}>{t('enabledHint')}</span>
+        </div>
+        <span className={styles.settingRowControl} data-testid="field-enabled">
+          <Switch
+            checked={form.enabled}
+            label={t('enabled')}
+            disabled={!writable || saving}
+            onChange={(next) => { setSaved(false); setForm({ ...form, enabled: next }) }}
+          />
+        </span>
+      </div>
       <OverviewBar status={form.enabled ? status : null} t={t} />
 
-      <label className={styles.radio}>
-        <input
-          type="checkbox"
-          checked={form.enabled}
-          data-testid="field-enabled"
-          onChange={(event) => { setSaved(false); setForm({ ...form, enabled: event.target.checked }) }}
-        />
-        <span>
-          <span className={styles.fieldLabel}>{t('enabled')}</span>
-          <span className={styles.fieldHint}> {t('enabledHint')}</span>
-        </span>
-      </label>
-
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>{t('sectionManual')}</span>
-        <StringList
+      <Group
+        id="sources"
+        title={t('groupSources')}
+        summary={sourcesSummary}
+        open={groups.sources}
+        highlight={highlightGroup === 'sources'}
+        onToggle={() => toggleGroup('sources')}
+      >
+        <span className={styles.fieldLabel}>{t('sectionManual')}</span>
+        <ListEditor
           hint={t('manualHint')}
           values={form.manual}
           placeholder={t('manualPlaceholder')}
           testId="field-manual"
+          disabled={!writable || saving}
+          t={t}
           onChange={(next) => { setSaved(false); setForm({ ...form, manual: next }) }}
         />
-      </div>
-
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>{t('sectionSubscription')}</span>
-        <StringList
+        <span className={styles.fieldLabel}>{t('sectionSubscription')}</span>
+        <ListEditor
           hint={t('subscriptionHint')}
           values={form.subscriptionUrls}
           placeholder={t('subscriptionPlaceholder')}
           testId="field-subscriptions"
           redacted
+          disabled={!writable || saving}
+          t={t}
           onChange={(next) => { setSaved(false); setForm({ ...form, subscriptionUrls: next }) }}
         />
-        <div className={styles.fieldRow}>
-          <TextField
-            label={t('subscriptionRefreshMs')}
-            hint={t('subscriptionRefreshMsHint')}
-            value={form.refreshMs}
-            testId="field-refreshMs"
-            type="number"
-            min={60_000}
-            step={1}
-            onChange={(value) => { setSaved(false); setForm({ ...form, refreshMs: value }) }}
-          />
-          <div className={styles.field}>
-            <span className={styles.fieldLabel}>{' '}</span>
-            <button
-              type="button"
-              className={styles.ghostButton}
+        <TextField
+          label={t('subscriptionRefreshMs')}
+          hint={t('subscriptionRefreshMsHint')}
+          value={form.refreshMs}
+          testId="field-refreshMs"
+          type="number"
+          min={60_000}
+          step={1}
+          invalid={validation?.group === 'sources' && validation.message === t('invalidRange')}
+          disabled={!writable || saving}
+          onChange={(value) => { setSaved(false); setForm({ ...form, refreshMs: value }) }}
+          action={(
+            <Button
+              variant="outline"
+              size="sm"
               data-testid="refresh-subscriptions"
               disabled={actionBusy || !form.enabled}
               onClick={() => { void bridgeAction({ scope: 'subscription' }) }}
             >
               {t('subscriptionRefreshNow')}
-            </button>
-          </div>
-        </div>
-        <div className={styles.fieldRow}>
-          <TextField
-            label={t('subscriptionUserAgent')}
-            hint={t('subscriptionUserAgentHint')}
-            value={form.userAgent}
-            testId="field-subscriptionUserAgent"
-            onChange={(value) => { setSaved(false); setForm({ ...form, userAgent: value }) }}
-          />
-        </div>
+            </Button>
+          )}
+        />
+        <TextField
+          label={t('subscriptionUserAgent')}
+          hint={t('subscriptionUserAgentHint')}
+          value={form.userAgent}
+          testId="field-subscriptionUserAgent"
+          disabled={!writable || saving}
+          onChange={(value) => { setSaved(false); setForm({ ...form, userAgent: value }) }}
+        />
         {status?.subscription !== null && status?.subscription !== undefined && (
           <span className={styles.status}>
             {t('sectionSubscription')}: {status.subscription.pendingConversion} 待转换 · {status.subscription.convertedAdmitted} 已转换入池
@@ -1046,149 +1219,197 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           hint={t('singboxPathHint')}
           value={form.singboxPath}
           testId="field-singboxPath"
+          disabled={!writable || saving}
           onChange={(value) => { setSaved(false); setForm({ ...form, singboxPath: value }) }}
         />
-      </div>
+      </Group>
 
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>{t('sectionPinned')}</span>
+      <Group
+        id="scheduling"
+        title={t('groupScheduling')}
+        summary={schedulingSummary}
+        open={groups.scheduling}
+        highlight={highlightGroup === 'scheduling'}
+        onToggle={() => toggleGroup('scheduling')}
+      >
         <TextField
           label={t('pinnedAddress')}
           hint={t('pinnedAddressHint')}
           value={form.pinnedExitId}
           placeholder={t('manualPlaceholder')}
           testId="field-pinnedExitId"
+          disabled={!writable || saving}
           onChange={(value) => { setSaved(false); setForm({ ...form, pinnedExitId: value }) }}
+          action={form.pinnedExitId === '' ? undefined : (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="unpin"
+              disabled={saving}
+              onClick={() => { setSaved(false); setForm({ ...form, pinnedExitId: '' }) }}
+            >
+              {t('pinnedUnset')}
+            </Button>
+          )}
         />
-        <span className={styles.fieldLabel}>{t('pinnedStrict')}</span>
-        <span className={styles.fieldHint}>{t('pinnedStrictHint')}</span>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name="ip-pool-strict"
-            checked={!form.pinnedStrict}
-            onChange={() => { setSaved(false); setForm({ ...form, pinnedStrict: false }) }}
-          />
-          {t('pinnedStrictOff')}
-        </label>
-        <label className={styles.radio}>
-          <input
-            type="radio"
-            name="ip-pool-strict"
-            checked={form.pinnedStrict}
-            data-testid="field-pinnedStrict"
-            onChange={() => { setSaved(false); setForm({ ...form, pinnedStrict: true }) }}
-          />
-          {t('pinnedStrictOn')}
-        </label>
-        {form.pinnedExitId !== '' && (
-          <button
-            type="button"
-            className={styles.ghostButton}
-            data-testid="unpin"
-            disabled={saving}
-            onClick={() => { setSaved(false); setForm({ ...form, pinnedExitId: '' }) }}
-          >
-            {t('pinnedUnset')}
-          </button>
-        )}
-      </div>
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>{t('pinnedStrict')}</span>
+          <span data-testid="field-pinnedStrict">
+            <SegmentedControl<'fallback' | 'absolute'>
+              id="ip-pool-pin-mode"
+              value={form.pinnedStrict ? 'absolute' : 'fallback'}
+              options={[
+                { value: 'fallback', label: t('pinnedModeFallback') },
+                { value: 'absolute', label: t('pinnedModeAbsolute') },
+              ]}
+              label={t('pinnedStrict')}
+              disabled={!writable || saving}
+              onChange={(next) => { setSaved(false); setForm({ ...form, pinnedStrict: next === 'absolute' }) }}
+            />
+          </span>
+          <span className={styles.fieldHint}>{form.pinnedStrict ? t('pinnedStrictOn') : t('pinnedStrictOff')}</span>
+        </div>
+      </Group>
 
-      <div className={styles.section}>
-        <span className={styles.sectionTitle}>{t('sectionProbe')}</span>
+      <Group
+        id="probe"
+        title={t('groupProbe')}
+        summary={probeSummary}
+        open={groups.probe}
+        highlight={highlightGroup === 'probe'}
+        onToggle={() => toggleGroup('probe')}
+      >
         <ModelPicker
           value={form.probeModels}
           hint={t('probeModelsHint')}
           models={probeModelRows}
           loading={probeModelsLoading}
+          disabled={!writable || saving}
           t={t}
           onChange={(next) => { setSaved(false); setForm({ ...form, probeModels: next }) }}
         />
         {/* The smoke's user turn (live request 2026-10-14): a pool of
             one-liners, one picked at random per probe; empty = 'hello'. */}
-        <StringList
+        <ListEditor
           label={t('probeContents')}
           hint={t('probeContentsHint')}
           values={form.probeContents}
           placeholder={t('probeContentsPlaceholder')}
           testId="field-probeContents"
+          disabled={!writable || saving}
+          t={t}
           onChange={(next) => { setSaved(false); setForm({ ...form, probeContents: next }) }}
         />
-        <TextField
-          label={t('probeConcurrency')}
-          hint={t('probeConcurrencyHint')}
-          value={form.maxConcurrentProbes}
-          testId="field-maxConcurrentProbes"
-          type="number"
-          min={1}
-          max={8}
-          step={1}
-          onChange={(value) => { setSaved(false); setForm({ ...form, maxConcurrentProbes: value }) }}
-        />
-        <TextField
-          label={t('poolSize')}
-          hint={t('poolSizeHint')}
-          value={form.poolSize}
-          testId="field-poolSize"
-          type="number"
-          min={1}
-          max={100}
-          step={1}
-          onChange={(value) => { setSaved(false); setForm({ ...form, poolSize: value }) }}
-        />
-        <button
-          type="button"
-          className={styles.ghostButton}
-          data-testid="probe-all"
-          disabled={actionBusy || !form.enabled}
-          onClick={() => { void bridgeAction({ scope: 'all' }) }}
-        >
-          {probing ? t('probeRunning').replace('{done}', String(probeDone)).replace('{total}', String(probeTotal)) : t('probeAll')}
-        </button>
-      </div>
-
-      <div className={styles.section} data-testid="usage-section">
-        <span className={styles.sectionTitle}>{t('sectionUsage')}</span>
-        <div className={styles.scopeSwitch} role="group" aria-label={t('usageScopeLabel')}>
-          {(['total', 'run'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              className={form.usageScope === key ? `${styles.scopeOption} ${styles.scopeOptionActive}` : styles.scopeOption}
-              aria-pressed={form.usageScope === key}
-              data-testid={`usage-scope-${key}`}
-              disabled={actionBusy || !writable}
-              onClick={() => { void setUsageScope(key) }}
-            >
-              {key === 'total' ? t('usageScopeTotal') : t('usageScopeRun')}
-            </button>
-          ))}
+        <div className={styles.fieldRow}>
+          <TextField
+            label={t('probeConcurrency')}
+            hint={t('probeConcurrencyHint')}
+            value={form.maxConcurrentProbes}
+            testId="field-maxConcurrentProbes"
+            type="number"
+            min={1}
+            max={8}
+            step={1}
+            invalid={validation?.group === 'probe' && validation.message === t('invalidRange')}
+            disabled={!writable || saving}
+            onChange={(value) => { setSaved(false); setForm({ ...form, maxConcurrentProbes: value }) }}
+          />
+          <TextField
+            label={t('poolSize')}
+            hint={t('poolSizeHint')}
+            value={form.poolSize}
+            testId="field-poolSize"
+            type="number"
+            min={1}
+            max={100}
+            step={1}
+            invalid={validation?.group === 'probe' && validation.message === t('invalidRange')}
+            disabled={!writable || saving}
+            onChange={(value) => { setSaved(false); setForm({ ...form, poolSize: value }) }}
+          />
         </div>
-        <span className={styles.fieldHint}>
-          {t('usageScopeHint', { days: String(status?.usage?.retentionDays ?? 90) })}
-        </span>
-        {status?.usage == null
-          ? <span className={styles.status}>{t('usageNoStore')}</span>
-          : (
-            <div className={styles.statsSummary}>
-              <span className={styles.statsChip}>{t('statsSummaryRequests', { count: status.usage.scoped.requests.toLocaleString() })}</span>
-              <span className={styles.statsChip}>
-                {t('statsSummaryTokens', { count: usageTokens(status.usage.scoped) })}
-              </span>
-              {usageSpeed(status.usage.scoped) > 0 && (
-                <span className={styles.statsChip}>{t('statsSummarySpeed', { count: usageSpeed(status.usage.scoped).toLocaleString() })}</span>
-              )}
-              <span className={styles.statsChip}>{t('usageSummarySessions', { count: status.usage.sessions.length.toLocaleString() })}</span>
-              <span className={styles.statsChip}>{t('usageSummaryDays', { count: status.usage.days.length.toLocaleString() })}</span>
-            </div>
-          )}
-      </div>
+        <div>
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="probe-all"
+            disabled={actionBusy || !form.enabled}
+            onClick={() => { void bridgeAction({ scope: 'all' }) }}
+          >
+            {probing ? t('probeRunning').replace('{done}', String(probeDone)).replace('{total}', String(probeTotal)) : t('probeAll')}
+          </Button>
+        </div>
+      </Group>
+
+      <Group
+        id="usage"
+        title={t('groupUsage')}
+        summary={usageSummary}
+        open={groups.usage}
+        highlight={highlightGroup === 'usage'}
+        onToggle={() => toggleGroup('usage')}
+      >
+        <div data-testid="usage-section">
+          <span data-testid="usage-scope">
+            <SegmentedControl<UsageScopeView>
+              id="ip-pool-usage-scope"
+              value={form.usageScope}
+              options={[
+                { value: 'total', label: t('usageScopeTotal') },
+                { value: 'run', label: t('usageScopeRun') },
+              ]}
+              label={t('usageScopeLabel')}
+              disabled={actionBusy || !writable}
+              onChange={(next) => { void setUsageScope(next) }}
+            />
+          </span>
+          <span className={styles.fieldHint}>
+            {t('usageScopeHint', { days: String(status?.usage?.retentionDays ?? 90) })}
+          </span>
+          {status?.usage == null
+            ? <span className={styles.status}>{t('usageNoStore')}</span>
+            : (
+              <div className={styles.statsSummary}>
+                <span className={styles.statsChip}>{t('statsSummaryRequests', { count: status.usage.scoped.requests.toLocaleString() })}</span>
+                <span className={styles.statsChip}>
+                  {t('statsSummaryTokens', { count: usageTokens(status.usage.scoped) })}
+                </span>
+                {usageSpeed(status.usage.scoped) > 0 && (
+                  <span className={styles.statsChip}>{t('statsSummarySpeed', { count: usageSpeed(status.usage.scoped).toLocaleString() })}</span>
+                )}
+                <span className={styles.statsChip}>{t('usageSummarySessions', { count: status.usage.sessions.length.toLocaleString() })}</span>
+                <span className={styles.statsChip}>{t('usageSummaryDays', { count: status.usage.days.length.toLocaleString() })}</span>
+              </div>
+            )}
+        </div>
+      </Group>
+
+      <Group
+        id="headers"
+        title={t('groupHeaders')}
+        summary={headersSummary}
+        open={groups.headers}
+        highlight={highlightGroup === 'headers'}
+        onToggle={() => toggleGroup('headers')}
+      >
+        <RequestHeadersEditor
+          text={headersText}
+          effectiveUserAgent={status?.zenUserAgent}
+          disabled={!writable || saving}
+          t={t}
+          onChange={(text) => { setSaved(false); setHeadersText(text) }}
+        />
+      </Group>
 
       {form.enabled && (
-        <>
-          <div className={styles.field}>
-            <span className={styles.fieldLabel}>{t('sectionExits')}</span>
-          </div>
+        <Group
+          id="exits"
+          title={t('groupExits')}
+          summary={exitsSummary}
+          open={groups.exits}
+          highlight={highlightGroup === 'exits'}
+          onToggle={() => toggleGroup('exits')}
+        >
           <ExitTable
             status={status}
             t={t}
@@ -1197,9 +1418,10 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
             onPin={(id) => { void pinExit(id) }}
             onRotate={(id) => { void rotateExit(id) }}
           />
-        </>
+        </Group>
       )}
 
+      {validation !== null && <span role="alert" className={styles.saveStatusError}>{validation.message}</span>}
       {statusError !== null && <span className={styles.saveStatusError}>{statusError}</span>}
       {saved && error === null && <span className={`${styles.saveStatus} ${styles.saveStatusOk}`}>{t('saved')}</span>}
 

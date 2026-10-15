@@ -14,6 +14,7 @@
  * readable at the modal's width.
  */
 import { useState, type ReactNode } from 'react'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 
 import type { IpPoolCardLocale } from './IpPoolCard.tsx'
 import type { TokenTotalsView, UsageView } from './IpPoolCard.tsx'
@@ -93,26 +94,26 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
               >
                 {t('usageClearYes')}
               </button>
-              <button
-                type="button"
-                className={styles.ghostButton}
+              <Button
+                variant="ghost"
+                size="sm"
                 data-testid="usage-clear-cancel"
                 disabled={clearing}
                 onClick={() => setConfirming(false)}
               >
                 {t('usageClearCancel')}
-              </button>
+              </Button>
             </>
           ) : (
-            <button
-              type="button"
-              className={styles.ghostButton}
+            <Button
+              variant="ghost"
+              size="sm"
               data-testid="usage-clear"
               title={t('usageClearHint')}
               onClick={() => setConfirming(true)}
             >
               {t('usageClear')}
-            </button>
+            </Button>
           )}
         </span>
       </div>

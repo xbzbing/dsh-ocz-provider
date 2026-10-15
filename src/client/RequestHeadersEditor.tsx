@@ -2,7 +2,11 @@ import type { ReactNode } from 'react'
 import type { IpPoolCardLocale } from './IpPoolCard.tsx'
 import styles from './ip-pool.module.css'
 
-/** Zen headers have their own section, independent of the IP pool's enabled state. */
+/**
+ * Zen headers editor body — no section chrome of its own: the collapsible
+ * 「Zen 请求头」 group supplies the title, so this renders only the field,
+ * its hint and the effective-UA readout.
+ */
 export function RequestHeadersEditor(props: {
   text: string
   effectiveUserAgent?: string
@@ -12,8 +16,7 @@ export function RequestHeadersEditor(props: {
 }): ReactNode {
   const { text, effectiveUserAgent, disabled, t, onChange } = props
   return (
-    <section className={styles.section} aria-labelledby="zen-headers-title">
-      <h3 id="zen-headers-title" className={styles.sectionTitle}>{t('requestHeadersTitle')}</h3>
+    <>
       <label className={styles.field}>
         <span className={styles.fieldLabel}>{t('requestHeadersLabel')}</span>
         <textarea
@@ -32,6 +35,6 @@ export function RequestHeadersEditor(props: {
       <p className={styles.status} data-testid="zen-effective-user-agent" aria-live="polite">
         {t('requestHeadersEffectiveUA')} <code className={styles.headerValue}>{effectiveUserAgent ?? t('statusLoading')}</code>
       </p>
-    </section>
+    </>
   )
 }

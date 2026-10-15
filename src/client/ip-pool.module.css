@@ -1,6 +1,8 @@
 /* IP 池 settings page body — the form the Plugins page renders inside its own
-   detail section (token usage copied from dsh-llm-proxy, verified against the
-   DSH palette). The page owns the card chrome, title and save control. */
+   detail section. Controls are dsh primitives (Switch/SegmentedControl/
+   Button/Input/Tag/StateDot); this stylesheet owns layout, the list editor,
+   and the pieces the primitives do not cover. The stats modal and usage panel
+   further below predate the redesign and keep their pinned shapes. */
 
 .body {
   display: flex;
@@ -18,17 +20,22 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* Two related fields on one row (并发上限 / 池子容量). A grid keeps the columns
+   equal; a narrow container collapses them to one so long labels never squeeze
+   the inputs into each other. */
 .fieldRow {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
 }
 
-.fieldRow > .field {
-  flex: 1 1 0;
-  min-width: 0;
+@media (max-width: 720px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
 }
 
 .fieldLabel {
@@ -40,7 +47,43 @@
 .fieldHint {
   color: var(--dsw-alias-label-tertiary, #6b7280);
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.5;
+}
+
+/* Label line carrying a trailing action (立即刷新 / 解除固定): the button
+   rides WITH the label so the input below stays full-width. The old
+   fieldAction column + padding-bottom hack floated the button at the label
+   height anyway — the parent was align-items:flex-start, so the column never
+   stretched and the padding just lifted the button off the input (live
+   2026-10-15: 立即刷新 sat on the 刷新间隔 label line). */
+.fieldHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fieldHead > .fieldLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.fieldHeadAction {
+  flex: none;
+}
+
+/* Full-width host for the Input primitive inside a field column. The
+   primitive's wrap is inline-flex; forcing flex + width here makes it a
+   block-level row that fills the column. */
+.fieldControl {
+  display: flex;
+  width: 100%;
+}
+
+/* Draft fails validation: an error ring on the Input primitive's wrap. */
+.inputWrapInvalid {
+  border-color: var(--dsw-alias-state-error-primary, #d1242f);
+  outline: 1px solid var(--dsw-alias-state-error-primary, #d1242f);
+  outline-offset: -1px;
 }
 
 .input {
@@ -61,7 +104,8 @@
 }
 
 :global(body[data-ds-dark-theme]) .input,
-:global(body[data-ds-dark-theme]) .select {
+:global(body[data-ds-dark-theme]) .select,
+:global(body[data-ds-dark-theme]) .textarea {
   color-scheme: dark;
 }
 
@@ -75,82 +119,18 @@
   min-height: 56px;
   resize: vertical;
   font-family: inherit;
+  line-height: 1.5;
 }
 
-.rowList {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.rowLabel {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--dsw-alias-label-primary, #1f2329);
-  font-size: 13px;
-}
-
-.rowInput {
+/* Native select dressed like the text inputs (no Select primitive ships). */
+.select {
   composes: input;
-  flex: 1 1 0;
-}
-
-.rowRemove {
-  flex: none;
-  padding: 4px 8px;
-  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  font-size: 12px;
+  appearance: none;
+  padding-right: 24px;
   cursor: pointer;
-}
-
-.rowRemove:hover {
-  border-color: var(--dsw-alias-state-error-primary, #d1242f);
-  color: var(--dsw-alias-state-error-primary, #d1242f);
-}
-
-.rowAdd {
-  align-self: flex-start;
-  padding: 4px 10px;
-  border: 1px dashed var(--dsw-alias-border-l3, #a6adb4);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.rowAdd:hover {
-  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
-  color: var(--dsw-alias-state-business-primary, #4f8cff);
-}
-
-.ghostButton {
-  padding: 6px 12px;
-  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-  border-radius: 6px;
-  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.ghostButton:hover {
-  border-color: var(--dsw-alias-border-l3, #a6adb4);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%236b7280' stroke-width='1.5'%3E%3Cpath d='M4 6L8 10L12 6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
 }
 
 .saveStatus {
@@ -166,6 +146,202 @@
   color: var(--dsw-alias-state-error-primary, #d1242f);
 }
 
+/* -- master switch row --------------------------------------------------------- */
+
+.settingRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.settingRowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settingRowTitle {
+  color: var(--dsw-alias-label-primary, #1f2329);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.settingRowControl {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-top: 2px;
+}
+
+/* -- collapsible groups ---------------------------------------------------------- */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  padding: 6px 0 10px;
+}
+
+.groupSummary {
+  margin-left: auto;
+  padding-right: 2px;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  font-size: 12px;
+}
+
+/* Content stays MOUNTED while collapsed (display:none) so half-typed list
+   drafts, focus rings and open selects survive a fold. */
+.groupBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Align under the title: DisclosureRow's 16px leading box + 6px gap. */
+  padding: 8px 0 4px 22px;
+}
+
+.groupBodyHidden {
+  display: none;
+}
+
+/* Validation auto-expand flash: a short business-coloured ring so the eye
+   finds the group that just opened. */
+.groupHighlight {
+  animation: group-flash 1200ms ease;
+}
+
+@keyframes group-flash {
+  20% {
+    box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary, #4f8cff);
+  }
+}
+
+/* -- list editor ------------------------------------------------------------------- */
+
+.listItems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.listItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1, #fff);
+}
+
+.listItemText {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  font-size: 13px;
+}
+
+/* The list row's remove Button (sm = 28px) towers over the 13px row text;
+   shrink it so the capsule stays a single tidy line. */
+.listItem > button {
+  height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+}
+
+/* Just-added entry: a brief success tint so the append is visible at the
+   bottom of a long list. */
+.listItemNew {
+  animation: list-flash 400ms ease;
+}
+
+@keyframes list-flash {
+  30% {
+    background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #1a7f37) 10%, transparent);
+  }
+}
+
+.listAddRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.listAddInput {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The Input primitive's wrap is 32px; Button sm is 28px. Stretch the add
+   button to the input's box so the row reads as one control, not two
+   mis-stacked boxes (live 2026-10-15). */
+.listAddRow > button {
+  height: 32px;
+}
+
+.listDup {
+  color: var(--dsw-alias-state-error-primary, #d1242f);
+  font-size: 12px;
+}
+
+/* -- probe-model chips -------------------------------------------------------------- */
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 240px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary, #1f2329);
+}
+
+.chipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chipSub {
+  margin-left: 4px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  font-size: 11px;
+}
+
+/* The chip's remove Button (sm = 28px) is taller than the 12px chip text;
+   shrink it to the chip's own line so the pill stays compact. */
+.chip > button {
+  height: 20px;
+  min-width: 20px;
+  padding: 0 4px;
+}
+
 /* -- status overview strip --------------------------------------------------- */
 
 .overviewBar {
@@ -179,40 +355,6 @@
   background: var(--dsw-alias-bg-layer-2, #f6f8fa);
   font-size: 12px;
   color: var(--dsw-alias-label-secondary, #4b5563);
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-  font-size: 11px;
-  line-height: 1.5;
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  white-space: nowrap;
-}
-
-.badgeHealthy {
-  border-color: var(--dsw-alias-state-success-primary, #1a7f37);
-  color: var(--dsw-alias-state-success-primary, #1a7f37);
-}
-
-.badgeWarning {
-  border-color: var(--dsw-alias-state-warning-primary, #9a6700);
-  color: var(--dsw-alias-state-warning-primary, #9a6700);
-}
-
-.badgeCritical,
-.badgeEmergency {
-  border-color: var(--dsw-alias-state-error-primary, #d1242f);
-  color: var(--dsw-alias-state-error-primary, #d1242f);
-}
-
-.badgePinned {
-  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
-  color: var(--dsw-alias-state-business-primary, #4f8cff);
 }
 
 /* -- exit table ---------------------------------------------------------------- */
@@ -253,6 +395,12 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.stateCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .stateOk {
   color: var(--dsw-alias-state-success-primary, #1a7f37);
 }
@@ -269,7 +417,7 @@
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
-/* -- sections + radios ----------------------------------------------------------- */
+/* -- legacy section (bans list) ------------------------------------------------- */
 
 .section {
   display: flex;
@@ -281,19 +429,29 @@
   background: var(--dsw-alias-bg-layer-2, rgba(246, 248, 254, .5));
 }
 
-.sectionTitle {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary, #1f2329);
+.rowList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.radio {
+.row {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.rowLabel {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary, #1f2329);
   font-size: 13px;
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  cursor: pointer;
 }
 
 .compliance {
@@ -312,6 +470,19 @@
   color: var(--dsw-alias-state-business-primary, #4f8cff);
   font-size: 12px;
   cursor: pointer;
+}
+
+/* -- reduced motion ----------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .groupHighlight,
+  .listItemNew {
+    animation: none;
+  }
+
+  .listItemNew {
+    background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #1a7f37) 10%, transparent);
+  }
 }
 
 /* —— 左下角入口 + 出口统计弹窗 —— */
@@ -451,43 +622,6 @@
   background: var(--dsw-alias-bg-layer-1, #fff);
   color: var(--dsw-alias-label-primary, #1f2329);
   font-weight: 600;
-}
-
-/* —— 设置卡：用量口径切换（和 tab 同一种分段控件语言）—— */
-.scopeSwitch {
-  display: inline-flex;
-  align-self: flex-start;
-  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-  border-radius: 7px;
-  overflow: hidden;
-}
-
-.scopeOption {
-  padding: 4px 12px;
-  border: none;
-  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.scopeOption + .scopeOption {
-  border-left: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-}
-
-.scopeOption:hover:not(:disabled) {
-  color: var(--dsw-alias-state-business-primary, #4f8cff);
-}
-
-.scopeOptionActive {
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  color: var(--dsw-alias-label-primary, #1f2329);
-  font-weight: 600;
-}
-
-.scopeOption:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* —— 流量 tab —— */
@@ -917,8 +1051,7 @@
 }
 
 /* The settings card's exit rows: the same two icon actions, sized to the text
-   buttons beside them (探测). NOT .rowRemove — that one's hover turns red,
-   which was right for a 删除 and is wrong for a 轮换. */
+   buttons beside them (探测). */
 .rowIcon {
   display: inline-flex;
   align-items: center;
