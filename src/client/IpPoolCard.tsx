@@ -164,6 +164,9 @@ export interface PoolStatusView {
      *  resort and listed last. Optional so an older host snapshot still parses. */
     demoted?: boolean
     tokens: TokenTotalsView
+    /** Recent (3-min window) output speed in tok/s; 0 = hidden. Optional so
+     *  an older host snapshot still parses (live request 2026-10-15). */
+    speed?: number
   }>
   prober: { queued: number; inFlight: number; enqueued: number; completed: number }
   subscription: { urlCount: number; pendingConversion: number; convertedAdmitted: number; plaintextAdmitted: number; lastFetch: number; lastError: string } | null
@@ -172,9 +175,11 @@ export interface PoolStatusView {
   /** Model traffic that egressed from this machine (non-pool hosts plus the
    *  direct fallbacks): the modal's 本机 row. Optional so a client bundle can
    *  talk to a host snapshot from before this field existed. */
-  local?: { requests: number; tokens: TokenTotalsView; lastUsedAt: number }
+  local?: { requests: number; tokens: TokenTotalsView; lastUsedAt: number; speed?: number }
   /** The persistent usage ledger (absent on a host from before it existed). */
   usage?: UsageView | null
+  /** Pool-wide recent (3-min window) output speed in tok/s; 0 = hidden. */
+  recentSpeed?: number
   at: number
 }
 
@@ -192,6 +197,9 @@ export interface UsageView {
   total: TokenTotalsView
   /** Totals for the scope being shown. */
   scoped: TokenTotalsView
+  /** Recent (3-min window) output speed in tok/s — a live gauge, same number
+   *  under every scope; 0 = hidden. Optional for older host snapshots. */
+  recentSpeed?: number
   days: Array<{ day: string; requests: number; tokens: number; outputTokens: number; outputMs: number }>
   sessions: Array<{
     id: string
@@ -216,7 +224,8 @@ export interface TokenTotalsView {
   cacheReadTokens: number
   cacheWriteTokens: number
   totalTokens: number
-  /** Cumulative decode window (ms); the tok/s denominator. Hosts from
+  /** Cumulative decode window (ms); kept for diagnostics — the tok/s display
+   *  comes from the recent window fields, not from these totals. Hosts from
    *  before this field existed serve the view without it. */
   outputMs?: number
 }
@@ -259,13 +268,6 @@ function usageTokens(tokens: TokenTotalsView): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
   return String(value)
-}
-
-/** Output speed over a cumulative decode window (0 = nothing timed). */
-function usageSpeed(tokens: TokenTotalsView): number {
-  const ms = tokens.outputMs ?? 0
-  if (ms <= 0 || tokens.outputTokens <= 0) return 0
-  return Math.round((tokens.outputTokens * 1000) / ms)
 }
 
 /** Subscription URLs never render in full — the settings doc is the only
@@ -1374,8 +1376,8 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
                 <span className={styles.statsChip}>
                   {t('statsSummaryTokens', { count: usageTokens(status.usage.scoped) })}
                 </span>
-                {usageSpeed(status.usage.scoped) > 0 && (
-                  <span className={styles.statsChip}>{t('statsSummarySpeed', { count: usageSpeed(status.usage.scoped).toLocaleString() })}</span>
+                {(status.usage.recentSpeed ?? 0) > 0 && (
+                  <span className={styles.statsChip}>{t('statsSummarySpeed', { count: (status.usage.recentSpeed ?? 0).toLocaleString() })}</span>
                 )}
                 <span className={styles.statsChip}>{t('usageSummarySessions', { count: status.usage.sessions.length.toLocaleString() })}</span>
                 <span className={styles.statsChip}>{t('usageSummaryDays', { count: status.usage.days.length.toLocaleString() })}</span>

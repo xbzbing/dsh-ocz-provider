@@ -246,6 +246,7 @@ test('status view: per-exit tokens, direct and 本机 ride the bridge', () => {
       requests: 2,
       tokens: { requests: 2, inputTokens: 12, outputTokens: 4, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 16, outputMs: 0 },
       lastUsedAt: view.local.lastUsedAt,
+      speed: 0,
     })
     assert.ok(view.local.lastUsedAt > 0, 'the 本机 row carries its own last-used stamp')
     // A disabled stub reports zeros everywhere — no stale lifetime numbers.
@@ -254,6 +255,39 @@ test('status view: per-exit tokens, direct and 本机 ride the bridge', () => {
   } finally {
     usageTracker.reset()
   }
+})
+
+test('status view: recent 3-min speed rides the bridge for exits, 本机 and the pool', () => {
+  // Live request 2026-10-15: tok/s 口径改为最近 3 分钟平均（纯替换）。The
+  // bridge reads the process tracker's rolling ring — never the lifetime
+  // ledger — because the recent window only lives in this process.
+  usageTracker.record('http://10.0.0.1:3128', { outputTokens: 120, durationMs: 400 }) // 300 tok/s
+  usageTracker.record(DIRECT_EXIT_ID, { outputTokens: 20, durationMs: 100 }) // under the floor
+  try {
+    const view = buildStatusView(fakeRuntime() as never, false, [])
+    const manual = view.exits.find((e) => e.id === 'http://10.0.0.1:3128')
+    assert.equal(manual?.speed, 300, 'per-exit recent speed')
+    // 本机 merges direct+local: 20 windowed tokens is under the display
+    // floor, so the row hides its speed instead of showing noise.
+    assert.equal(view.local.speed, 0)
+    assert.equal(view.recentSpeed, 280, 'pool-wide = every timed bucket in the window (140 tok / 500 ms)')
+  } finally {
+    usageTracker.reset()
+  }
+  assert.equal(buildUsageView(undefined, 'total', {}), null, 'no ledger = no usage view')
+  const stub = buildStatusView(null, false, [])
+  assert.equal(stub.recentSpeed, 0, 'an empty tracker never reports speed')
+  assert.equal(stub.local.speed, 0)
+})
+
+test('usage view: the recent speed comes from the process ring in every scope', () => {
+  const store = ledger()
+  store.record('a:1', { inputTokens: 10, outputTokens: 10 }, { session: 'ses_1', label: 'x' })
+  store.record('a:1', { outputTokens: 100, durationMs: 500 }) // 200 tok/s
+  const total = buildUsageView(store, 'total', {})
+  const run = buildUsageView(store, 'run', {})
+  assert.equal(total!.recentSpeed, 200, 'the chip is a live gauge, same number under 总览')
+  assert.equal(run!.recentSpeed, 200)
 })
 
 test('status view: with the free source off the badge follows the whole pool', () => {

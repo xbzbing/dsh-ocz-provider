@@ -19,7 +19,7 @@ import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IpPoolCardLocale } from './IpPoolCard.tsx'
 import type { TokenTotalsView, UsageView } from './IpPoolCard.tsx'
 import styles from './ip-pool.module.css'
-import { compact, grandTotal, outputSpeed } from './usage-format.ts'
+import { compact, grandTotal } from './usage-format.ts'
 
 /** `2026-10-14` → `10-14` (the year is noise in a 14-day window). */
 function shortDay(day: string): string {
@@ -57,7 +57,10 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
   const days = usage.days.slice(-windowDays)
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
-  const speed = outputSpeed(scoped)
+  // Recent (3-min window) speed: a live process-level gauge the host
+  // computes; same number under every scope, hidden at 0 (live request
+  // 2026-10-15, 纯替换口径).
+  const speed = usage.recentSpeed ?? 0
   const sessions = usage.sessions
   const projects = usage.projects
 

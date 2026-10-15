@@ -20,13 +20,7 @@ export function compact(value: number): string {
   return String(value)
 }
 
-/**
- * Output speed in tok/s: output tokens over the recorded decode window.
- * A bucket with no timed response (nothing ever streamed, or a host from
- * before the field existed) reads 0 and the caller hides the note.
- */
-export function outputSpeed(tokens: TokenTotalsView): number {
-  const ms = tokens.outputMs ?? 0
-  if (ms <= 0 || tokens.outputTokens <= 0) return 0
-  return Math.round((tokens.outputTokens * 1000) / ms)
-}
+// The tok/s helper that used to live here (outputSpeed: lifetime output
+// tokens / lifetime decode window) is gone: as of 2026-10-15 the display
+// number is the host-side recent 3-min window (pool/usage.ts speed fields),
+// and the client only renders what /status computed.

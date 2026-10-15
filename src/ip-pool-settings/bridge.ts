@@ -63,6 +63,13 @@ export interface ExitRowView {
   demoted: boolean
   /** Token totals attributed to this exit by the adapter (process lifetime). */
   tokens: TokenTotals
+  /**
+   * Recent output speed (tok/s): the process tracker's rolling 3-minute
+   * window (pool/usage.ts), NOT the lifetime ledger — the old all-time mean
+   * had too much inertia to say how fast this exit is now (live request
+   * 2026-10-15). 0 = nothing timed in the window; the UI hides the number.
+   */
+  speed: number
 }
 
 /**
@@ -85,7 +92,8 @@ export interface UsageDayView {
   /** input + output + cache read/write (the all-in figure the UI shows). */
   tokens: number
   outputTokens: number
-  /** Cumulative decode window, the tok/s denominator. */
+  /** Cumulative decode window (ms); diagnostic only — the tok/s display
+   *  comes from the recent window, not from these totals. */
   outputMs: number
 }
 
@@ -120,6 +128,12 @@ export interface UsageView {
   total: TokenTotals
   /** Totals for the scope being shown. */
   scoped: TokenTotals
+  /**
+   * Recent output speed (tok/s) over the process tracker's rolling 3-minute
+   * window. A live gauge: same number under every scope, because the window
+   * only exists in this process (live request 2026-10-15, 纯替换口径).
+   */
+  recentSpeed: number
   /** Day buckets, oldest first (the UI charts the tail of this). */
   days: UsageDayView[]
   /** Heaviest sessions first. */
@@ -209,11 +223,17 @@ export interface PoolStatusView {
    * Requests/tokens come from the usage tracker, so a response with no usage
    * event is not counted — the same basis as the per-exit token column.
    */
-  local: { requests: number; tokens: TokenTotals; lastUsedAt: number }
+  local: { requests: number; tokens: TokenTotals; lastUsedAt: number; speed: number }
   /** The persistent usage ledger (null when no store is wired). */
   usage: UsageView | null
   /** The UA the next formal Zen request will actually use. */
   zenUserAgent: string
+  /**
+   * Pool-wide recent output speed (tok/s): every timed bucket in the
+   * process tracker's rolling 3-minute window — the modal summary chip and
+   * the footer both read this (live request 2026-10-15).
+   */
+  recentSpeed: number
   at: number
 }
 
@@ -261,6 +281,12 @@ export function buildStatusView(
    * falls back to the tracker, which is exactly the pre-ledger behaviour.
    */
   const tokensOf = (id: string): TokenTotals => (store === undefined ? usageTracker.totals(id) : store.exitTotals(id, scope))
+  /**
+   * Recent speed always reads the PROCESS tracker's rolling window — the
+   * lifetime ledger cannot answer "how fast is it now", and the window has
+   * no scope dimension (live request 2026-10-15).
+   */
+  const tracker = store === undefined ? usageTracker : store.run
   /** 最后使用: the live dispatch stamp for 本次重启, the ledger's last recorded
    *  response for 总览 (a dispatch that produced no usage event never reached
    *  the ledger, so the two are not the same signal — the column says which). */
@@ -296,6 +322,7 @@ export function buildStatusView(
         inFlight: activity.inFlight,
         demoted: runtime.pool.demoted(entry.id),
         tokens: tokensOf(entry.id),
+        speed: tracker.speed(entry.id),
       }
     })
     : []
@@ -347,13 +374,14 @@ export function buildStatusView(
       requests: runtime ? runtime.pool.directRequests : 0,
       tokens: runtime ? tokensOf(DIRECT_EXIT_ID) : emptyTotals(),
     },
-    local: localView(store, scope),
+    local: localView(store, scope, tracker),
     usage: buildUsageView(store, scope, {
       projectOf: options.projectOf,
       sessionTitles: options.sessionTitles,
       runSince: options.runSince,
     }),
     zenUserAgent: opencodeUserAgent(),
+    recentSpeed: tracker.speedAll(),
     at: now,
   }
 }
@@ -368,7 +396,11 @@ export function buildStatusView(
  * sees the request even when no usage event follows (an aborted turn), which
  * a token-only bucket would silently drop.
  */
-function localView(store: UsageStore | undefined, scope: UsageScope): { requests: number; tokens: TokenTotals; lastUsedAt: number } {
+function localView(
+  store: UsageStore | undefined,
+  scope: UsageScope,
+  tracker: { speedFor(ids: readonly string[]): number },
+): { requests: number; tokens: TokenTotals; lastUsedAt: number; speed: number } {
   const read = (id: string): TokenTotals => (store === undefined ? usageTracker.totals(id) : store.exitTotals(id, scope))
   const lastUsed = (id: string): number =>
     store === undefined || scope === 'run' ? usageTracker.lastUsedAt(id) : store.exitLastUsedAt(id, 'total')
@@ -387,6 +419,7 @@ function localView(store: UsageStore | undefined, scope: UsageScope): { requests
     requests: tokens.requests,
     tokens,
     lastUsedAt: Math.max(lastUsed(DIRECT_EXIT_ID), lastUsed(LOCAL_EXIT_ID)),
+    speed: tracker.speedFor([DIRECT_EXIT_ID, LOCAL_EXIT_ID]),
   }
 }
 
@@ -444,6 +477,7 @@ export function buildUsageView(
     runSince: options.runSince ?? 0,
     total: store.totals(),
     scoped: scope === 'run' ? store.runTotals() : store.totals(),
+    recentSpeed: store.run.speedAll(),
     days: store.days(scope).map((row) => ({
       day: row.day,
       requests: row.totals.requests,

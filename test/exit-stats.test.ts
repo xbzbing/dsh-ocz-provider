@@ -233,6 +233,56 @@ test('UsageTracker accumulates per exit, keeps cache buckets separate, resets cl
   assert.equal(tracker.totals('e:1').requests, 0)
 })
 
+test('UsageTracker recent window: 3-minute weighted tok/s with a display floor', () => {
+  // Live request 2026-10-15: tok/s 口径改为最近 3 分钟平均（纯替换）。The
+  // lifetime totals stay untouched for the ledger; the DISPLAY number comes
+  // from a rolling ring of timed samples.
+  let now = 1_000_000
+  const tracker = new UsageTracker({ now: () => now })
+  assert.equal(tracker.speed('e:1'), 0, 'nothing timed yet')
+
+  // Two timed responses inside the window: 600 tok over 2000 ms → 300 tok/s.
+  tracker.record('e:1', { outputTokens: 400, durationMs: 1_500 })
+  tracker.record('e:1', { outputTokens: 200, durationMs: 500 })
+  assert.equal(tracker.speed('e:1'), 300, 'weighted mean, not an average of averages')
+  assert.equal(tracker.speedFor(['e:1']), 300)
+  assert.equal(tracker.speedAll(), 300)
+
+  // An untimed response (aborted before any delta → no decode window) is
+  // still counted in the ledger but never enters the ring.
+  tracker.record('e:2', { outputTokens: 999 })
+  assert.equal(tracker.speed('e:2'), 0, 'no window, no speed')
+  assert.equal(tracker.totals('e:2').outputTokens, 999, 'the lifetime totals still count it')
+
+  // Below the display floor: 40 windowed tokens reads as noise, not speed.
+  tracker.record('e:3', { outputTokens: 40, durationMs: 1_000 })
+  assert.equal(tracker.speed('e:3'), 0, 'under RECENT_MIN_TOKENS the number is hidden')
+
+  // Age out: past the window the samples are gone even though totals live on.
+  now += 180_000 + 1
+  assert.equal(tracker.speed('e:1'), 0)
+  assert.equal(tracker.speedAll(), 0)
+  assert.equal(tracker.totals('e:1').outputTokens, 600, 'lifetime totals survive the window')
+
+  // reset() clears the ring together with the totals.
+  tracker.record('e:1', { outputTokens: 100, durationMs: 500 })
+  assert.equal(tracker.speed('e:1'), 200)
+  tracker.reset()
+  assert.equal(tracker.speed('e:1'), 0)
+})
+
+test('UsageTracker speedAll and speedFor weight every bucket in the window', () => {
+  const now = 5_000
+  const tracker = new UsageTracker({ now: () => now })
+  tracker.record('a', { outputTokens: 100, durationMs: 1_000 }) // 100 tok/s
+  tracker.record('b', { outputTokens: 300, durationMs: 1_000 }) // 300 tok/s
+  assert.equal(tracker.speedAll(), 200, 'pool-wide = 400 tok / 2000 ms')
+  assert.equal(tracker.speedFor([DIRECT_EXIT_ID, LOCAL_EXIT_ID]), 0, 'the 本机 merge reads its own two buckets')
+  tracker.record(DIRECT_EXIT_ID, { outputTokens: 60, durationMs: 300 })
+  assert.equal(tracker.speedFor([DIRECT_EXIT_ID, LOCAL_EXIT_ID]), 200, '本机 row = direct + local merged')
+  assert.equal(tracker.speed('b'), 300, 'per-exit windows stay independent')
+})
+
 test('attributeUsage records stamped usage and passes every chunk through untouched', async () => {
   const tracker = new UsageTracker()
   const usage: HarnessChunk = { type: 'usage', usage: { inputTokens: 7, outputTokens: 3, cacheReadTokens: 2 } }

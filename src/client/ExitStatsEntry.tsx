@@ -23,7 +23,7 @@ import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPo
 import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import { UsagePanel } from './UsagePanel.tsx'
-import { compact, grandTotal, outputSpeed } from './usage-format.ts'
+import { compact, grandTotal } from './usage-format.ts'
 import styles from './ip-pool.module.css'
 
 /**
@@ -249,11 +249,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     const requests = exits.reduce((sum, exit) => sum + exit.requests, 0) + localRequests
     const tokens = exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
     const inFlight = exits.reduce((sum, exit) => sum + exit.inFlight, 0)
-    // Pool-wide output speed: the weighted mean over every timed response
-    // (sum output tokens / sum decode window), not an average of averages.
-    const outputTokens = exits.reduce((sum, exit) => sum + exit.tokens.outputTokens, 0) + (localTokens?.outputTokens ?? 0)
-    const outputMs = exits.reduce((sum, exit) => sum + (exit.tokens.outputMs ?? 0), 0) + (localTokens?.outputMs ?? 0)
-    const speed = outputMs > 0 && outputTokens > 0 ? Math.round((outputTokens * 1000) / outputMs) : 0
+    // Pool-wide recent (3-min window) output speed, computed host-side from
+    // the process tracker's rolling ring (live request 2026-10-15: 口径改为
+    // 最近 3 分钟平均, replacing the all-time mean that never moved).
+    const speed = status?.recentSpeed ?? 0
     return { requests, tokens, inFlight, speed }
   }, [status])
 
@@ -273,9 +272,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
       requests: all.requests,
       tokens: allIn,
       inFlight: totals.inFlight,
-      speed: all.outputMs !== undefined && all.outputMs > 0 && all.outputTokens > 0
-        ? Math.round((all.outputTokens * 1000) / all.outputMs)
-        : 0,
+      // The footer's speed is the same recent-window gauge as the modal's —
+      // a live number, not a lifetime average (live request 2026-10-15).
+      speed: status?.recentSpeed ?? 0,
     }
   }, [status, totals])
 
@@ -489,8 +488,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                       <td>{compact(exit.tokens.inputTokens)}</td>
                       <td>
                         {compact(exit.tokens.outputTokens)}
-                        {outputSpeed(exit.tokens) > 0 && (
-                          <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: outputSpeed(exit.tokens).toLocaleString() })}</span>
+                        {(exit.speed ?? 0) > 0 && (
+                          <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: (exit.speed ?? 0).toLocaleString() })}</span>
                         )}
                       </td>
                       <td>{cacheTotal(exit.tokens) > 0 ? compact(cacheTotal(exit.tokens)) : '—'}</td>
@@ -563,8 +562,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                     {status?.local === undefined ? t('statsNever') : (
                       <>
                         {compact(status.local.tokens.outputTokens)}
-                        {outputSpeed(status.local.tokens) > 0 && (
-                          <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: outputSpeed(status.local.tokens).toLocaleString() })}</span>
+                        {(status.local.speed ?? 0) > 0 && (
+                          <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: (status.local.speed ?? 0).toLocaleString() })}</span>
                         )}
                       </>
                     )}
