@@ -541,7 +541,6 @@ export class ZenAdapter {
       usageSession: hostSession !== '' ? hostSession : ids.session,
       usageLabel: conversationLabel(options.messages),
     }
-    const self = this
     const MAX_ROTATES = 3
     // Watchdog windows (live-observed 2026-09-07): the OpenAI SDK timeout
     // only covers time-to-response-headers — once headers arrive it clears
@@ -564,18 +563,21 @@ export class ZenAdapter {
     const rotateStory: string[] = []
     for (let attempt = 0; ; attempt += 1) {
       const events = routingContext.run(contextStore, () =>
-        self.#eventsFor(options, context, ids, model),
+        this.#eventsFor(options, context, ids, model),
       ) as AsyncIterable<PiEvent>
       let deliveredContent = false
       let preContentFailure: { message: string } | null = null
       const buffered: PiEvent[] = []
+      /** Replay the buffered pre-content events alone (no live tail). */
+      const replayBuffered = async function* (): AsyncGenerator<PiEvent> {
+        for (const e of buffered) yield e
+      }
       const source = events[Symbol.asyncIterator]()
       // Peek events until the stream proves itself one way or the other:
       // content -> flush and stream through; error before content -> maybe
       // rotate. Content flushes IMMEDIATELY (only the pre-content events are
       // buffered): holding every token hostage to a failure that may never
       // come would also kill streaming for the UI.
-      let flushed = false
       let sawAnyEvent = false
       let lastEventAt = Date.now()
       // One deadline timer at a time, re-armed per pull (a timer per pull
@@ -664,7 +666,6 @@ export class ZenAdapter {
         if (event.type !== 'start') deliveredContent = true
         if (deliveredContent) {
           // first content event: flush everything buffered and go live
-          flushed = true
           break
         }
       }
@@ -680,7 +681,7 @@ export class ZenAdapter {
       if (preContentFailure === null && !deliveredContent) {
         // stream ended cleanly with no content and no error: pass through
         // (pi-ai's empty-response classification owns this case)
-        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
+        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       // Exit-shaped failure before content: ask the pool whether rotating is
@@ -711,7 +712,7 @@ export class ZenAdapter {
             break
           }
         }
-        yield* attributeUsage(contextStore, toStreamChunks((async function* pumped() { for (const e of buffered) yield e })(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
+        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       // rotate: loop re-runs #eventsFor inside the same ALS store; the pool

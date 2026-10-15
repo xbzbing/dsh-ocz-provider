@@ -122,7 +122,7 @@ export function parseClashProxy(proxy: Record<string, unknown>): ParsedNode | nu
 export function parseClashYaml(content: string): { nodes: ParsedNode[]; skipped: number } {
   let document: unknown
   try {
-    document = parseYamlDocument(content)
+    document = parseYaml(content)
   } catch {
     return { nodes: [], skipped: 0 }
   }
@@ -141,10 +141,6 @@ export function parseClashYaml(content: string): { nodes: ParsedNode[]; skipped:
     }
   }
   return { nodes, skipped }
-}
-
-function parseYamlDocument(content: string): unknown {
-  return parseYaml(content)
 }
 
 /** vmess:// V2rayN base64-JSON link (GoProxy parseVmessLink). */

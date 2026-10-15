@@ -231,10 +231,10 @@ export class Onboarder {
     }
     if (dropped.length === 0) return 0
 
-    const slotOf = new Map([...this.#candidates.values()].map((candidate) => [candidate.address, candidate.slot]))
+    const addressBySlot = new Map([...this.#candidates.values()].map((candidate) => [candidate.slot, candidate.address]))
     const survivors = new Set<number>()
     for (const slot of this.#selected) {
-      const address = [...slotOf.entries()].find(([, value]) => value === slot)?.[0]
+      const address = addressBySlot.get(slot)
       if (address === undefined || pool.has(address)) survivors.add(slot)
     }
     this.#selected = survivors
