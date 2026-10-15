@@ -57,6 +57,12 @@ export function classifyStreamFailure(errorMessage: string): RotateFailure | nul
   const text = errorMessage.toLowerCase()
   if (/\b429\b|rate.?limit|freeusagelimit/.test(text)) return 'limited'
   if (/\b(?:401|403)\b/.test(text)) return 'refused'
+  // pi-ai's truncation sentinel — same predicate the host uses for its own
+  // providers (dsh-llm-pi-ai classifyPiAiError, lib/index.js:1456) and the same
+  // one adapter/events.ts classifyError now applies. Exit-shaped like any
+  // reset, so a truncation that lands BEFORE content rotates to a fresh exit
+  // instead of burning a host retry on the exit that just cut it.
+  if (/stream ended (?:before|without)\b/.test(text)) return 'transport'
   if (/\b(?:network|connection|socket|fetch|terminated|premature close)\b|\beconn[a-z]+\b|timeout|timed out/.test(text)) return 'transport'
   // 5xx joins the rotate set: through a wild proxy a 500 is as often the
   // proxy mangling the tunnel as the upstream itself — one exit change

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { toStreamChunks, type HarnessChunk, type PiEvent } from '../src/adapter/events.ts'
+import { FREE_LANE_RETRY_POLICY } from '../src/adapter/zen-adapter.ts'
 
 const CONTEXT_WINDOW = 262144
 
@@ -118,6 +119,34 @@ test('finish reasons: length, aborted, rate limit and other errors', async () =>
   assert.equal(failureOf(expectFinish(rate[1])).code, 'RATE_LIMIT')
   const server = await collect([event({ stopReason: 'error', errorMessage: 'HTTP 500 oops' })])
   assert.equal(failureOf(expectFinish(server[1])).code, 'SERVER')
+})
+
+test('a stream cut before its terminal chunk is TRANSPORT, never UPSTREAM', async () => {
+  // pi-ai's openai-completions stream throws this exact message when the SSE
+  // body ends without any chunk carrying choices[0].finish_reason. The host's
+  // own classifier maps it to TRANSPORT (dsh-llm-pi-ai classifyPiAiError,
+  // lib/index.js:1456) and so must this port: the UPSTREAM fallback is NOT in
+  // FREE_LANE_RETRY_POLICY.retryableCodes, so a bare sentinel used to end the
+  // turn instead of being retried (15 bare failures died, 0 recovered), while
+  // the same cut on the host's own provider was retried and recovered.
+  const messages = [
+    'Stream ended without finish_reason',
+    // Parity guard for the host's wording — not an observed pi-ai message.
+    'Stream ended before any event arrived',
+  ]
+  for (const message of messages) {
+    const completed = event({ stopReason: 'error', errorMessage: message })
+    assert.equal(completed.type, 'done')
+    if (completed.type !== 'done') assert.fail('expected a done event')
+    for (const upstream of [completed, { type: 'error', error: completed.message } as PiEvent]) {
+      const failure = failureOf(expectFinish((await collect([upstream]))[1]))
+      assert.deepEqual(failure, { message, code: 'TRANSPORT' })
+      assert.ok(
+        (FREE_LANE_RETRY_POLICY.retryableCodes as readonly string[]).includes(failure.code),
+        `${failure.code} must be retryable, otherwise a mid-stream cut ends the turn`,
+      )
+    }
+  }
 })
 
 test('zero-cache usage omits the optional keys', async () => {

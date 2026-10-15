@@ -92,6 +92,16 @@ function classifyError(text: string): string {
   if (/\b400\b|invalid.?request/i.test(text)) return 'INVALID_REQUEST'
   if (/\b5\d\d\b/.test(text)) return 'SERVER'
   if (/\btime(?:d)?\s*out\b|timeout/i.test(text)) return 'TIMEOUT'
+  // Port parity with dsh-llm-pi-ai classifyPiAiError (lib/index.js:1456): the
+  // host maps pi-ai's "Stream ended without finish_reason" sentinel to
+  // TRANSPORT, and this clean-room port had dropped exactly that line — the
+  // bare message then fell through to the UPSTREAM fallback below, which is NOT
+  // in FREE_LANE_RETRY_POLICY.retryableCodes, so dsh-llm-retry ended the turn
+  // instead of retrying a mid-stream cut. Live evidence 2026-10-15: 15 bare
+  // sentinel failures all killed the turn, while the same sentinel arriving on
+  // the host's own provider (already TRANSPORT there) was retried and recovered
+  // the step every time. Keep the host's own wording so the two stay in step.
+  if (/stream ended (?:before|without)\b/i.test(text)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b|terminated|premature close/i.test(text)) return 'TRANSPORT'
   return 'UPSTREAM'
 }

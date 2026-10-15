@@ -152,7 +152,11 @@ const ANONYMOUS_KEY = 'public'
  * shape is FLAT (backoff fields at top level — see ResolvedNormalRetryPolicy,
  * dsh-llm index.js:1867 consumes the adapter value verbatim). Retryable codes
  * mirror the host default set so behavior differs only in patience, not in
- * which failures qualify. Cumulative worst case per step:
+ * which failures qualify. Every transport cut the adapter can name rides this
+ * window — including pi-ai's "Stream ended without finish_reason" truncation
+ * sentinel, which adapter/events.ts classifyError maps to TRANSPORT precisely
+ * so a mid-stream cut cannot escape the retry budget. Cumulative worst case
+ * per step:
  * 1+2+4+8+16+20+20+20 ≈ 91s of silent retries before the error surfaces.
  */
 export const FREE_LANE_RETRY_POLICY = Object.freeze({

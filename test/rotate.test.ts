@@ -108,6 +108,8 @@ test('classifyStreamFailure maps the taxonomy', () => {
   assert.equal(classifyStreamFailure('403 Forbidden'), 'refused')
   assert.equal(classifyStreamFailure('Connection error.'), 'transport')
   assert.equal(classifyStreamFailure('Request timed out'), 'transport')
+  // pi-ai's truncation sentinel: a cut before the terminal finish_reason chunk
+  assert.equal(classifyStreamFailure('Stream ended without finish_reason'), 'transport')
   assert.equal(classifyStreamFailure('400 bad request'), null)
 })
 
@@ -209,6 +211,22 @@ test('adapter: a 500 before content rotates instead of surfacing', async () => {
   const chunks = await collect(adapter)
   assert.ok(chunks.some((c) => c.includes('hi')), 'rotated past the 500 to a healthy exit')
   assert.ok(!chunks.some((c) => c.includes('Internal server error')), 'the 500 never surfaces')
+  setRotateDelegate(null)
+})
+
+test('adapter: a truncation before content rotates instead of surfacing', async () => {
+  setRotateDelegate(null)
+  const pool = new ExitPool()
+  pool.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  pool.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  setRotateDelegate(createRotateDelegate(pool, { maxAttempts: 3 }))
+  const adapter = adapterWith([
+    [err('Stream ended without finish_reason')],
+    ok(),
+  ])
+  const chunks = await collect(adapter)
+  assert.ok(chunks.some((c) => c.includes('hi')), 'rotated past the truncation to a healthy exit')
+  assert.ok(!chunks.some((c) => c.includes('without finish_reason')), 'the truncation never surfaces')
   setRotateDelegate(null)
 })
 
