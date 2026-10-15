@@ -368,15 +368,37 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           layout question, not a state question, so it is answered by the
           button's OWN width through a container query: the wide sidebar keeps
           both numbers when this button has the row to itself, and falls back
-          to the token count the moment a second button squeezes it. The rail
-          (wide === false, 56px) always takes the compact span.
+          to the compact label the moment a second button squeezes it. The
+          rail (wide === false, 56px) always takes the single-line span.
+          Live 2026-10-15: the squeezed label became two lines — TODAY's
+          tokens on top (what this machine spent since midnight), the
+          recent-window tok/s underneath — while the rail keeps its one-line
+          all-time count.
         */}
-        <span
-          className={wide ? styles.footerCompactOnNarrow : styles.footerCompact}
-          title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
-        >
-          {status === null ? '—' : `${compact(overview.tokens)} tok`}
-        </span>
+        {wide ? (
+          <span
+            className={styles.footerCompactOnNarrow}
+            title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(status?.todayTokens ?? 0)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
+          >
+            <span className={styles.footerCompactLine}>
+              {status === null ? '—' : `${compact(status.todayTokens ?? 0)} tok`}
+            </span>
+            {/* Hidden at 0 like everywhere else: an empty window means no
+                recent traffic, and "0 tok/s" would read as a stall. */}
+            {status !== null && overview.speed > 0 && (
+              <span className={styles.footerCompactLine}>
+                {t('footerSpeed', { count: overview.speed.toLocaleString() })}
+              </span>
+            )}
+          </span>
+        ) : (
+          <span
+            className={styles.footerCompact}
+            title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
+          >
+            {status === null ? '—' : `${compact(overview.tokens)} tok`}
+          </span>
+        )}
       </button>
       <Modal
         open={open}

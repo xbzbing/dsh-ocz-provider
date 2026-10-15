@@ -16,7 +16,7 @@ import type { IpPoolRuntime } from '../ip-pool.ts'
 import { opencodeUserAgent } from '../adapter/ids.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
-import type { UsageScope, UsageStore } from '../pool/usage-store.ts'
+import { localDay, type UsageScope, type UsageStore } from '../pool/usage-store.ts'
 import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titles.ts'
 import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
 
@@ -234,6 +234,13 @@ export interface PoolStatusView {
    * the footer both read this (live request 2026-10-15).
    */
   recentSpeed: number
+  /**
+   * Today's all-in token figure (input + output + cache) from the ledger's
+   * day bucket — the footer compact mode's first line (live request
+   * 2026-10-15: 当天的 token 数量). Falls back to the process tracker's own
+   * totals when no ledger is wired; 0 when nothing was recorded today.
+   */
+  todayTokens: number
   at: number
 }
 
@@ -382,8 +389,31 @@ export function buildStatusView(
     }),
     zenUserAgent: opencodeUserAgent(),
     recentSpeed: tracker.speedAll(),
+    todayTokens: todayTokensOf(store, now),
     at: now,
   }
+}
+
+/** The all-in token figure the UI shows (input + output + cache read/write). */
+function grandTotal(totals: TokenTotals): number {
+  return totals.inputTokens + totals.outputTokens + totals.cacheReadTokens + totals.cacheWriteTokens
+}
+
+/**
+ * Today's all-in tokens: the ledger's local-calendar-day bucket when one is
+ * wired (scope-independent — "today" is a day, not a scope), the process
+ * tracker's totals otherwise, so a composition without a ledger still shows
+ * what this machine spent today.
+ */
+function todayTokensOf(store: UsageStore | undefined, now: number): number {
+  if (store === undefined) {
+    let sum = 0
+    for (const id of usageTracker.exits()) sum += grandTotal(usageTracker.totals(id))
+    return sum
+  }
+  const key = localDay(now)
+  const row = store.days('total').find((entry) => entry.day === key)
+  return row === undefined ? 0 : grandTotal(row.totals)
 }
 
 /**

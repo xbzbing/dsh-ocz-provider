@@ -290,6 +290,31 @@ test('usage view: the recent speed comes from the process ring in every scope', 
   assert.equal(run!.recentSpeed, 200)
 })
 
+test('status view: todayTokens counts today’s ledger bucket, falling back to the run scope', () => {
+  // Live request 2026-10-15: the footer's compact two-line mode shows TODAY's
+  // tokens on its first line. The day bucket comes from the ledger; a
+  // composition without one reports the process tracker's own totals.
+  const dir = mkdtempSync(join(tmpdir(), 'usage-today-'))
+  try {
+    const now = new Date('2026-10-15T10:00:00').getTime()
+    const store = new UsageStore({ path: join(dir, 'usage.json'), flushMs: 0, now: () => now })
+    store.record('a:1', { inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1 })
+    store.record('a:1', { inputTokens: 4, outputTokens: 6 })
+    const view = buildStatusView(null, false, [], { usage: store })
+    assert.equal(view.todayTokens, 28, 'input+output+cache of today’s bucket only')
+    assert.equal(view.usage?.total.requests, 2, 'the all-time figure is untouched')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+  usageTracker.record(LOCAL_EXIT_ID, { inputTokens: 7, outputTokens: 3 })
+  try {
+    const noStore = buildStatusView(null, false, [])
+    assert.equal(noStore.todayTokens, 10, 'no ledger = the process tracker’s totals stand in')
+  } finally {
+    usageTracker.reset()
+  }
+})
+
 test('status view: with the free source off the badge follows the whole pool', () => {
   // Regression (live 2026-10-12): the badge came from the free-source machine
   // unconditionally, so a subscription-only profile (free disabled, 12 healthy
