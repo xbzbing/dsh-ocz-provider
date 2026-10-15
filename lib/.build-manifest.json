@@ -44,7 +44,7 @@
     "src/pool/usage-store.ts": "18b3154d8bc9b4c0dace8a56408be4bc4f7f7ee4",
     "src/pool/usage.ts": "87df858d734e53af8fd7f9807f214e7d1b1c83f5",
     "src/provider.ts": "51446c34f189e3303c6c60173fdbb43227472c7a",
-    "tsdown.client.config.ts": "86f1b3ed6bcb7d8695a5f1452ca6e033c7009d63",
+    "tsdown.client.config.ts": "fa7cc7108caa37010f0d514ad2db6706c27e9131",
     "tsdown.config.ts": "922bba291206715c67fbc9c8c397ce9858c7f5ab"
   }
 }

@@ -96,7 +96,16 @@ const config: UserConfig = {
         minify: true,
       })
       const classMap: Record<string, string> = {}
-      for (const [local, exp] of Object.entries(cssExports ?? {})) classMap[local] = exp.name
+      // lightningcss's `exports` key order is NOT stable across calls (its
+      // internal hash table iterates differently run to run — measured 8/8
+      // distinct orders on a single input). Emitting the map in that order made
+      // every rebuild reshuffle ~200 lines of lib/client.js with zero content
+      // change (the "benign CSS reorder" noise AGENTS.md warned about). Sort
+      // the keys so the emitted artifact is byte-identical for identical
+      // sources.
+      const entries = Object.entries(cssExports ?? {})
+      entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      for (const [local, exp] of entries) classMap[local] = exp.name
       return [
         `const css = ${JSON.stringify(code.toString())};`,
         `const tagId = ${JSON.stringify(`${ID}/${basename(fileId)}`)};`,

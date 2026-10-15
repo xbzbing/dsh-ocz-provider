@@ -53,9 +53,11 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
   fixed `chunkFileNames: '[name].js'` — chunk names are stable across rebuilds;
   do not reintroduce content hashing (it littered `lib/` with
   `admission-<hash>.js` on every rebuild).
-- Known benign noise: a rebuild may reorder the 101-entry CSS class map inside
-  `lib/client.js` (same keys, same values, different key order). Revert it
-  (`git checkout -- lib/client.js`) instead of committing the reorder.
+- The CSS class map inside `lib/client.js` is emitted with sorted keys
+  (`tsdown.client.config.ts` sorts lightningcss's `exports`, whose iteration
+  order is random per call). Rebuilds are byte-identical for identical sources;
+  if `lib/client.js` ever churns without a source change, that is a bug in the
+  sort, not noise to revert.
 - There is no CI here; the gate is `pnpm verify` plus, for wire-facing changes,
   a live probe against `https://opencode.ai/inference/v1`.
 - Conventional single-line commit subject + evidence-rich English body that
