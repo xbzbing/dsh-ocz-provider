@@ -5,7 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { runInNewContext } from 'node:vm'
 
@@ -108,7 +108,28 @@ await legacyContext.fiber.dispose()
 assert.equal(legacyCore.entriesOfSlot('plugins.item').length, 0)
 
 const entry = await import(new URL('lib/index.js', pluginRoot))
-const schema = new HostSchema(entry.Config.toJSON())
+const schema = new HostSchema(JSON.parse(JSON.stringify(entry.Config.toJSON())))
+// The settings FORM path, against the real host: dsh-settings' volatileForm()
+// rebuilds the form schema from Config.toJSON(), and the browser rehydrates that
+// second serialization before validating a draft. A `.transform()` in Config
+// keeps its callback through the first toJSON() but loses it on the rebuild, so
+// the rehydrated node throws "callback is not a function", decode() returns
+// undefined and the configuration card stays loading forever (live 2026-10-15).
+// Guard: the host must derive a form, and the rehydrated form must validate.
+const settingsSchema = await import(pathToFileURL(join(dirname(hostRequire.resolve('@deepseek-ai/dsh-settings')), 'types/schema.js')).href)
+const form = settingsSchema.volatileForm(schema)
+assert.ok(form !== undefined, 'the host derives a live settings form for this entry')
+const rehydrated = new HostSchema(JSON.parse(JSON.stringify(form.toJSON())))
+for (const draft of [
+  { requestHeaders: {}, ipPool: { enabled: false } },
+  { requestHeaders: { 'User-Agent': 'host-form-test' }, ipPool: { enabled: false, manual: ['http://127.0.0.1:7897'] } },
+]) {
+  assert.doesNotThrow(() => rehydrated(settingsSchema.projectForm(form, draft)), 'the browser form must decode the stored value')
+}
+// The schema is a plain dict, so the wire boundary is what filters managed and
+// malformed headers out of a hand-edited profile patch.
+const { sanitizeRequestHeaders } = await import(new URL('src/request-headers.ts', pluginRoot))
+assert.deepEqual(sanitizeRequestHeaders({ Host: 'elsewhere', Authorization: 'x', 'User-Agent': ' kept ' }), { 'user-agent': 'kept' })
 const config = entry.Config({ ipPool: { enabled: false } })
 assert.equal(typeof schema({}).ipPool.get, 'function')
 assert.equal(typeof config.ipPool.get, 'function', 'new Host schema wraps the live pool field')

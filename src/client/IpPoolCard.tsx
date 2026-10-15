@@ -10,8 +10,8 @@
  * (/status, /models, /probe). Every setting applies live on save — no
  * restart (docs/ip-pool.md §5).
  *
- * The editable section is the `ipPool` volatile node, so the served value is
- * `{ ipPool: ... }` and every write path is `['ipPool', <field>]`.
+ * Pool edits use `['ipPool', <field>]`; Zen header overrides use the separate
+ * `['requestHeaders']` volatile dictionary. Both share one revision and save.
  */
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -27,7 +27,9 @@ import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-
 import type { en } from './locales.ts'
 import styles from './ip-pool.module.css'
 import { PinIcon, RotateIcon } from './icons.tsx'
-import { fieldWrite, poolWriteOps, type FieldWrite } from './settings-writes.ts'
+import { fieldWrite, poolWriteOps, requestHeadersWriteOps, type FieldWrite } from './settings-writes.ts'
+import { formatRequestHeaders, normalizeRequestHeaders, parseRequestHeaders } from '../request-headers.ts'
+import { RequestHeadersEditor } from './RequestHeadersEditor.tsx'
 
 /** The reactive values and commands this page reads and writes through. */
 export interface ConfigPageForm {
@@ -106,6 +108,7 @@ export type UsageScopeView = 'total' | 'run'
 
 /** Bridge /status view (mirrors src/ip-pool-settings/bridge.ts). */
 export interface PoolStatusView {
+  zenUserAgent?: string
   enabled: boolean
   deferredReason: string
   state: 'healthy' | 'warning' | 'critical' | 'emergency'
@@ -702,6 +705,9 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   const { settings, t } = props
   const snapshot = settings?.state
   const [form, setForm] = useState<FormState>(() => emptyForm())
+  const [headersText, setHeadersText] = useState('')
+  const [headerConflict, setHeaderConflict] = useState(false)
+  const acceptedHeadersRef = useRef('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -724,6 +730,25 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     if (snapshot?.status === 'ready' && !hydratedRef.current) {
       hydratedRef.current = true
       setForm(formFromValue(servedRef.current))
+      const headers = formatRequestHeaders(normalizeRequestHeaders(snapshot.value?.requestHeaders ?? {}))
+      acceptedHeadersRef.current = headers
+      setHeadersText(headers)
+    }
+  }, [snapshot?.status, snapshot?.value])
+
+  // Follow external header saves only while pristine. A competing save must
+  // never turn an unrelated IP-pool edit into a stale header overwrite.
+  useEffect(() => {
+    if (snapshot?.status !== 'ready') return
+    const next = formatRequestHeaders(normalizeRequestHeaders(snapshot.value?.requestHeaders ?? {}))
+    let draft = headersText
+    try { draft = formatRequestHeaders(parseRequestHeaders(headersText)) } catch { /* Keep invalid drafts editable. */ }
+    if (headersText === acceptedHeadersRef.current || draft === next) {
+      acceptedHeadersRef.current = next
+      setHeadersText(next)
+      setHeaderConflict(false)
+    } else if (next !== acceptedHeadersRef.current) {
+      setHeaderConflict(true)
     }
   }, [snapshot?.status, snapshot?.value])
 
@@ -793,8 +818,15 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   }
 
   const writes = diffWrites(formRef.current, served, servedBase(snapshot))
-  const validation = validate()
-  const dirty = writes.length > 0 || validation !== null
+  let headerOps: ConfigPathOp[] = []
+  let headerValidation: string | null = headerConflict ? t('requestHeadersConflict') : null
+  try {
+    headerOps = requestHeadersWriteOps(headersText,
+      normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}),
+      normalizeRequestHeaders((snapshot?.base as Record<string, unknown> | undefined)?.requestHeaders ?? {}))
+  } catch { headerValidation = t('requestHeadersInvalid') }
+  const validation = headerValidation ?? validate()
+  const dirty = writes.length > 0 || headerOps.length > 0 || validation !== null
   const available = snapshot?.status === 'ready' && settings !== undefined
   const writable = available && snapshot.writable
 
@@ -804,7 +836,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       setError(validation ?? t('saveError'))
       return
     }
-    if (writes.length === 0) {
+    if (writes.length === 0 && headerOps.length === 0) {
       setSaved(true)
       setError(null)
       return
@@ -813,11 +845,12 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     setError(null)
     try {
       const ok = await settings.mutate(
-        poolWriteOps(writes),
+        [...headerOps, ...poolWriteOps(writes)],
         snapshot.revision,
       )
       setSaved(ok)
       setError(ok ? null : t('saveError'))
+      if (ok && headerOps.length > 0) await refreshStatus()
     } catch (err) {
       setSaved(false)
       setError(err instanceof Error ? err.message : t('saveError'))
@@ -829,6 +862,10 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   /** The shared SettingsForm discard: drop the draft, keep the served values. */
   const handleDiscard = (): void => {
     setForm(formFromValue(servedRef.current))
+    const headers = formatRequestHeaders(normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}))
+    acceptedHeadersRef.current = headers
+    setHeadersText(headers)
+    setHeaderConflict(false)
     setSaved(false)
     setError(null)
   }
@@ -921,6 +958,14 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   return (
     <SettingsForm labels={formLabels(t)} state={shell} onSave={() => { void handleSave() }} onDiscard={handleDiscard}>
     <div className={styles.body} data-testid="ip-pool-form">
+      <RequestHeadersEditor
+        text={headersText}
+        effectiveUserAgent={status?.zenUserAgent}
+        disabled={!writable || saving}
+        t={t}
+        onChange={(text) => { setSaved(false); setHeadersText(text) }}
+      />
+      {headerValidation !== null && <span role="alert" className={styles.saveStatusError}>{headerValidation}</span>}
       <OverviewBar status={form.enabled ? status : null} t={t} />
 
       <label className={styles.radio}>

@@ -48,6 +48,10 @@ interface IpPoolSettings {
 /** The two usage scopes the UI switches between. */
 type UsageScopeSetting = 'total' | 'run';
 //#endregion
+//#region src/request-headers.d.ts
+/** Shared validation for the settings editor and the Zen request path. */
+type RequestHeaders = Record<string, string>;
+//#endregion
 //#region src/config.d.ts
 /**
  * Plugin configuration (cordis config object, injected via cordis.patch.yml).
@@ -103,6 +107,8 @@ interface Opencode2dshConfig {
    * `disguiseHeaders` holds the live-probed recipes).
    */
   userAgent?: string;
+  /** Live Zen-only header overrides. Override userAgent when User-Agent is present. */
+  requestHeaders?: RequestHeaders;
   /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
@@ -164,25 +170,6 @@ interface IpPoolConfig {
 }
 type ResolvedConfig = Required<Pick<Opencode2dshConfig, 'providerId' | 'apiKeyEnv' | 'refreshSeconds' | 'restartDelayMs' | 'restartMaxDelayMs' | 'maxConsecutiveCrashes'>> & Opencode2dshConfig;
 declare function resolveConfig(config?: Opencode2dshConfig): ResolvedConfig;
-/**
- * The plugin's `Config` — the whole DSH settings contract in one schema.
- *
- * DSH 0.1.7 has no imperative `ctx.settings.register(ns, schema)`. A plugin
- * declares editable settings by exporting this schema, and dsh-settings derives
- * the served namespace from the Loader entry id. Two consequences drive this
- * shape:
- *
- *  - `ipPool` is ONE `.volatile()` node, so the entire ip-pool subtree is the
- *    settings form (dsh-settings' `volatileForm()` selects a node's whole plain
- *    schema once that node is volatile). Nesting `.volatile()` deeper is a hard
- *    schemastery error, and per-field marks would also fragment the card's
- *    form value into siblings instead of one `ipPool` object.
- *  - every other field is ORDINARY configuration. `volatileForm()` drops it
- *    from the form, which is the intent: these are set by the composition
- *    (`cordis.patch.yml`) or a hand-edited profile patch, never by the card.
- *
- * The reference is `dsh-llm-deepseek`'s `deepSeekConfigFields`.
- */
 declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   /** Integration mode; `adapter` (default) is the shipped shape. */
   mode: Schema<"adapter" | "sidecar", "adapter" | "sidecar", "defined">;
@@ -220,6 +207,8 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
    * duplicating it here would be a second source of truth for one header.
    */
   userAgent: Schema<string, string, "plain">;
+  /** A separate volatile field: edits apply to the next Zen request without restart. */
+  requestHeaders: Schema<RequestHeaders, RequestHeaders, "volatile-defined">;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -333,6 +322,8 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
    * duplicating it here would be a second source of truth for one header.
    */
   userAgent: Schema<string, string, "plain">;
+  /** A separate volatile field: edits apply to the next Zen request without restart. */
+  requestHeaders: Schema<RequestHeaders, RequestHeaders, "volatile-defined">;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -418,8 +409,9 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
  * consumers read `.get()` at the moment they need a snapshot and never cache
  * the object it returned.
  */
-interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool'> {
+interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestHeaders'> {
   ipPool: VolatileRef<IpPoolSettings>;
+  requestHeaders: VolatileRef<RequestHeaders>;
 }
 /**
  * Everything the plugin persists next to the agent: the generated

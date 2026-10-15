@@ -1,7 +1,7 @@
 import { readFile, rename, rm, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { opencodeUserAgent } from './ids.ts'
+import { opencodeUserAgent, zenRequestHeaders } from './ids.ts'
 
 /**
  * Port of agent/internal/catalog (opencode2api models.go + model_metadata.go,
@@ -545,12 +545,11 @@ export async function fetchZenModels(
 ): Promise<string[]> {
   const response = await withTimeout(
     fetchImpl(`${zenBaseUrl.replace(/\/+$/, '')}/v1/models`, {
-      headers: {
+      headers: zenRequestHeaders({
         authorization: 'Bearer public',
         'user-agent': userAgent,
-        'x-opencode-client': 'cli',
         accept: 'application/json',
-      },
+      }),
     }),
   )
   if (!response.ok) throw new Error(`models endpoint returned HTTP ${response.status}`)

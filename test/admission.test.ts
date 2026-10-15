@@ -7,6 +7,7 @@ import * as realUndici from 'undici'
 import { ExitPool } from '../src/pool/pool.ts'
 import { admitCandidate, admitTrusted, coarseScreen, type AdmissionDeps } from '../src/pool/admission.ts'
 import { GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
+import { setRequestHeadersReader } from '../src/adapter/ids.ts'
 
 /**
  * A fake per-request transport: the seam `undici.request` would hit. Each
@@ -328,4 +329,25 @@ test('admission end-to-end: real undici.request through a real local proxy', asy
   assert.ok(withScheme.admitted, withScheme.reason)
   assert.equal(withScheme.node?.exitIP, '5.5.5.5')
   await new Promise<void>((resolve) => server.close(() => resolve()))
+})
+
+
+test('admission reads Zen header edits between model-list and smoke requests', async () => {
+  let headers = { 'user-agent': 'catalog-agent', 'x-opencode-client': 'desktop' }
+  const release = setRequestHeadersReader(() => headers)
+  const transport = fakeTransport(okScript())
+  const request = transport.undici.request as (url: string, init?: { body?: string; headers?: Record<string, string> }) => Promise<unknown>
+  transport.undici.request = (async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
+    const response = await request(url, init)
+    if (url === MODELS_URL) headers = { 'user-agent': 'smoke-agent', 'x-opencode-client': 'desktop' }
+    return response
+  }) as never
+  try {
+    const result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
+    assert.ok(result.admitted)
+    assert.equal(transport.headers.get(MODELS_URL)?.['user-agent'], 'catalog-agent')
+    assert.equal(transport.headers.get(CHAT_URL)?.['user-agent'], 'smoke-agent')
+    assert.equal(transport.headers.get(CHAT_URL)?.['x-opencode-client'], 'desktop')
+    assert.equal(transport.headers.get(ECHO_URL)?.['user-agent'], undefined, 'overrides must not leak to geo echo')
+  } finally { release() }
 })

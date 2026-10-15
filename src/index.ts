@@ -4,7 +4,8 @@ import { writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
 import { ModelCatalog, defaultCachePath, type CatalogSnapshot } from './adapter/catalog.ts'
-import { setUserAgentOverride } from './adapter/ids.ts'
+import { opencodeUserAgent, setRequestHeadersReader, setUserAgentOverride } from './adapter/ids.ts'
+import type { RequestHeaders } from './request-headers.ts'
 import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { AgentProcess, type ReadyInfo } from './agent-process.ts'
 import { Config, configPaths, ensureToken, ordinaryConfig, resolveConfig, writeAgentConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
@@ -112,6 +113,8 @@ export function apply(ctx: PluginContext, config: ResolvedPluginConfig | Opencod
   // applied here — before either branch — and the first /models fetch already
   // carries it. Empty restores the built-in CLI-identical value.
   setUserAgentOverride(cfg.userAgent)
+  const releaseHeaders = setRequestHeadersReader(() => readVolatile<RequestHeaders>(resolved.requestHeaders))
+  if (typeof ctx.effect === 'function') ctx.effect.call(ctx, () => releaseHeaders)
   // Cordis accepts disposal effects; readiness objects are invalid effects.
   if (cfg.mode === 'sidecar') applySidecar(ctx, config as Opencode2dshConfig)
   else applyAdapter(ctx, resolved, () => readVolatile<IpPoolSettings>(resolved.ipPool))
@@ -151,7 +154,7 @@ function applyAdapter(
   const writeStatus = (status: CatalogSnapshot, lastError: string): void => {
     void writeFile(
       statusPath,
-      JSON.stringify({ ...status, lastError, writtenAt: new Date().toISOString() }, null, 2),
+      JSON.stringify({ ...status, zenUserAgent: opencodeUserAgent(), lastError, writtenAt: new Date().toISOString() }, null, 2),
       'utf8',
     ).catch(() => {})
   }

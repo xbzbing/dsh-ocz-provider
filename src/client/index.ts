@@ -14,8 +14,8 @@
  * serving the `oc2dsh` namespace, so a deployment that serves no
  * oc2dsh settings shows no trace of the card.
  *
- * The editable section is the `ipPool` volatile node, so the served form's
- * value is `{ ipPool: ... }` and every write path is `['ipPool', <field>]`.
+ * The form serves `ipPool` and the separate `requestHeaders` volatile nodes.
+ * Pool writes stay under `ipPool`; Zen headers have their own root path.
  *
  * Export discipline: cross-plugin collaboration goes through cordis services
  * (`slots`, `locale`, `configForms`); the bundle purity gate forbids value

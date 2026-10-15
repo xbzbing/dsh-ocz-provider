@@ -6,6 +6,7 @@ import { platform } from 'node:process'
 import Schema from '@deepseek-ai/schemastery'
 
 import { IpPoolConfigSchema, type IpPoolSettings, type VolatileRef } from './ip-pool-settings/namespace.ts'
+import { type RequestHeaders } from './request-headers.ts'
 
 /**
  * Plugin configuration (cordis config object, injected via cordis.patch.yml).
@@ -61,6 +62,8 @@ export interface Opencode2dshConfig {
    * `disguiseHeaders` holds the live-probed recipes).
    */
   userAgent?: string
+  /** Live Zen-only header overrides. Override userAgent when User-Agent is present. */
+  requestHeaders?: RequestHeaders
   /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
@@ -149,12 +152,34 @@ export function resolveConfig(config: Opencode2dshConfig = {}): ResolvedConfig {
  *    schema once that node is volatile). Nesting `.volatile()` deeper is a hard
  *    schemastery error, and per-field marks would also fragment the card's
  *    form value into siblings instead of one `ipPool` object.
- *  - every other field is ORDINARY configuration. `volatileForm()` drops it
- *    from the form, which is the intent: these are set by the composition
- *    (`cordis.patch.yml`) or a hand-edited profile patch, never by the card.
+ *  - `requestHeaders` is a separate volatile dictionary, edited by the Zen
+ *    section and read at request time by all three senders.
+ *  - the remaining fields are ORDINARY configuration. `volatileForm()` drops
+ *    them from the form; legacy `userAgent` remains a profile-only fallback.
  *
  * The reference is `dsh-llm-deepseek`'s `deepSeekConfigFields`.
  */
+/**
+ * `requestHeaders` must stay a PLAIN dict — never a `.transform()`.
+ *
+ * dsh-settings builds the served form by REBUILDING the schema from
+ * `Config.toJSON()` (`plainSchema`: `new z(schema.toJSON())`) and then
+ * serializing that form a second time for the browser, which rehydrates it
+ * (`new Schema(view.schema)`) and validates the draft. A transform node keeps
+ * its `callback` through the first `toJSON()` but loses it on the rebuild, so
+ * the rehydrated node throws `callback is not a function`,
+ * `ConfigFormController.decode()` returns undefined, and the card never leaves
+ * its loading state — the whole 配置 page goes blank (live 2026-10-15, when the
+ * Zen 请求头 field was added with a transform).
+ *
+ * Validation therefore lives at the editor (`parseRequestHeaders`, strict) and
+ * at the request boundary (`sanitizeRequestHeaders`, lenient), not in the
+ * schema. `test/request-headers.test.ts` and `scripts/smoke-dsh-compat.mjs`
+ * guard the round trip.
+ */
+const RequestHeadersConfigSchema: Schema<RequestHeaders, RequestHeaders, 'volatile-defined'> =
+  Schema.dict(Schema.string()).default({}).volatile()
+
 export const Config = Schema.object({
   /** Integration mode; `adapter` (default) is the shipped shape. */
   mode: Schema.union(['adapter', 'sidecar']).default('adapter'),
@@ -192,6 +217,8 @@ export const Config = Schema.object({
    * duplicating it here would be a second source of truth for one header.
    */
   userAgent: Schema.string(),
+  /** A separate volatile field: edits apply to the next Zen request without restart. */
+  requestHeaders: RequestHeadersConfigSchema,
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: IpPoolConfigSchema.volatile(),
 })
@@ -204,12 +231,13 @@ export const Config = Schema.object({
  * consumers read `.get()` at the moment they need a snapshot and never cache
  * the object it returned.
  */
-export interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool'> {
+export interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestHeaders'> {
   ipPool: VolatileRef<IpPoolSettings>
+  requestHeaders: VolatileRef<RequestHeaders>
 }
 
 /** Every field except the volatile ip-pool reference. */
-export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool'>
+export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool' | 'requestHeaders'>
 
 /**
  * The ordinary half of a resolved config, for the call sites that reconfigure
@@ -217,7 +245,7 @@ export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool'>
  * would hand `startIpPool` the volatile reference where it expects values.
  */
 export function ordinaryConfig(config: ResolvedPluginConfig): OrdinaryPluginConfig {
-  const { ipPool: _ipPool, ...ordinary } = config
+  const { ipPool: _ipPool, requestHeaders: _requestHeaders, ...ordinary } = config
   return ordinary
 }
 

@@ -5,6 +5,12 @@
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
+  requestHeadersTitle: 'Zen 请求头',
+  requestHeadersLabel: '自定义请求头（requestHeaders）',
+  requestHeadersHint: '每行一个 Header-Name: value，例如 User-Agent 或 x-opencode-client。保存后对下一次正式对话、模型列表和准入探测生效，与 IP 池开关无关；留空恢复 profile 中的 userAgent 或插件默认值。鉴权、Cookie 和传输头由插件管理。',
+  requestHeadersEffectiveUA: '当前生效的 Zen User-Agent：',
+  requestHeadersConflict: '请求头已在其他页面更新。请先丢弃本页修改以加载最新值，再重新编辑。',
+  requestHeadersInvalid: '请求头格式无效。请每行填写 Header-Name: 非空值，勿重复名称或填写鉴权、Cookie、传输头；最多 32 个，总长不超过 8192 字节。',
   nav: 'IP 池',
   title: 'IP 池（oc2dsh）',
   description: '多出口调度免费模型的可用性：出口间自动轮换、429 冷却、按出口×模型探活。',
@@ -179,6 +185,12 @@ export const zh = {
 
 /** English dictionary, checked complete against the zh key set. */
 export const en: Record<keyof typeof zh, string> = {
+  requestHeadersTitle: 'Zen request headers',
+  requestHeadersLabel: 'Custom request headers (requestHeaders)',
+  requestHeadersHint: 'One Header-Name: value per line, e.g. User-Agent or x-opencode-client. Applies to the next chat, model-list refresh and admission probe, regardless of the IP pool switch. Leave blank to use the profile userAgent or built-in default. Authentication, cookies and transport headers are managed by the plugin.',
+  requestHeadersEffectiveUA: 'Effective Zen User-Agent:',
+  requestHeadersConflict: 'Request headers changed elsewhere. Discard this draft to load the latest values, then edit again.',
+  requestHeadersInvalid: 'Invalid headers. Use one Header-Name: non-empty value per line, without duplicate names, authentication, cookies or transport headers. Maximum 32 headers and 8192 bytes in total.',
   nav: 'IP Pool',
   title: 'IP Pool (oc2dsh)',
   description: 'Schedules free-model availability across exit IPs: rotation, 429 cooldown, per-exit×model probes.',

@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { apply, inject, Config, type PluginContext } from '../src/index.ts'
 import { resolveIpPoolSettings, type AnyIpPoolSection, type IpPoolSettings, type VolatileRef } from '../src/ip-pool-settings/namespace.ts'
 import { ModelCatalog } from '../src/adapter/catalog.ts'
+import { opencodeUserAgent, disguiseHeaders, deriveRequestIDs } from '../src/adapter/ids.ts'
 
 // These tests exercise registration and settings contracts, not transport or
 // the user's on-disk catalog. Real fiber startup is covered by the smoke script.
@@ -96,15 +97,18 @@ function host() {
 
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 30))
 
-test('the plugin serves exactly one volatile node and the fiber needs only llm', async () => {
+test('the plugin serves volatile settings nodes and the fiber needs only llm', async () => {
   assert.deepEqual([...inject], ['llm'], 'settings must not gate the fiber: SettingsForms is disabled headless')
 
-  // Config is what DSH 0.1.7 reads to decide what is editable, and ipPool must
-  // be the one `.volatile()` node: dsh-settings' volatileForm() selects a
-  // node's whole plain schema, and a nested volatile is a schemastery error.
+  // Config is what DSH 0.1.7 reads to decide what is editable. Each editable
+  // surface is its own TOP-LEVEL `.volatile()` node (`ipPool`, `requestHeaders`):
+  // dsh-settings' volatileForm() selects a node's whole plain schema, and a
+  // nested volatile is a schemastery error. Neither may be a `.transform()` —
+  // see the AGENTS.md row on callback-bearing schema nodes.
   const resolved = Config({ mode: 'adapter' })
   const ipPool = resolved.ipPool as unknown as { get(): unknown }
   assert.equal(typeof ipPool.get, 'function', 'ipPool is a volatile reference')
+  assert.equal(typeof (resolved.requestHeaders as unknown as { get(): unknown }).get, 'function', 'requestHeaders is a volatile reference')
   assert.equal((resolved as { mode: unknown }).mode, 'adapter')
 })
 
@@ -194,4 +198,21 @@ test('an inject that never fires its callback does not block the route', async (
   apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
   await settle()
   assert.deepEqual(h.registrations, [['oc2dsh']])
+})
+
+
+test('plugin entry reads committed request headers live and releases its reader on unload', async () => {
+  const h = host()
+  let value: Record<string, string> = { 'user-agent': 'first-agent' }
+  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool, requestHeaders: { get: () => value } })
+  try {
+    assert.equal(opencodeUserAgent(), 'first-agent')
+    value = { 'user-agent': 'second-agent', 'x-opencode-client': 'desktop' }
+    assert.equal(opencodeUserAgent(), 'second-agent')
+    assert.equal(disguiseHeaders(deriveRequestIDs([]))['x-opencode-client'], 'desktop')
+    value = {}
+    assert.match(opencodeUserAgent(), /^opencode\/1\.18\.31 /)
+  } finally { for (const dispose of h.effects) dispose() }
+  value = { 'user-agent': 'must-not-leak-after-disposal' }
+  assert.match(opencodeUserAgent(), /^opencode\/1\.18\.31 /)
 })

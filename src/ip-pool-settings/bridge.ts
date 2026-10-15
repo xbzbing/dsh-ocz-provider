@@ -13,6 +13,7 @@
  */
 
 import type { IpPoolRuntime } from '../ip-pool.ts'
+import { opencodeUserAgent } from '../adapter/ids.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 import type { UsageScope, UsageStore } from '../pool/usage-store.ts'
@@ -211,6 +212,8 @@ export interface PoolStatusView {
   local: { requests: number; tokens: TokenTotals; lastUsedAt: number }
   /** The persistent usage ledger (null when no store is wired). */
   usage: UsageView | null
+  /** The UA the next formal Zen request will actually use. */
+  zenUserAgent: string
   at: number
 }
 
@@ -350,6 +353,7 @@ export function buildStatusView(
       sessionTitles: options.sessionTitles,
       runSince: options.runSince,
     }),
+    zenUserAgent: opencodeUserAgent(),
     at: now,
   }
 }

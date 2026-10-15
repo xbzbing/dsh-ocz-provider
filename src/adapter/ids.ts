@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
+import { sanitizeRequestHeaders, type RequestHeaders } from '../request-headers.ts'
 
 /**
  * Port of agent/internal/ids (opencode2api ids.go, verbatim semantics):
@@ -226,6 +227,30 @@ export function canonicalSessionID(signal: string): string {
  * request without threading it through four signatures.
  */
 let userAgentOverride = ''
+let readRequestHeaders: (() => RequestHeaders | undefined) | undefined
+
+/** Read the Loader's stable reference on each request, never cache a snapshot. */
+export function setRequestHeadersReader(reader: () => RequestHeaders | undefined): () => void {
+  readRequestHeaders = reader
+  return () => { if (readRequestHeaders === reader) readRequestHeaders = undefined }
+}
+
+/** Common merge for chat, catalog and admission; caller-owned transport headers stay intact. */
+export function zenRequestHeaders(base: RequestHeaders = {}): RequestHeaders {
+  return {
+    'user-agent': legacyUserAgent(),
+    'x-opencode-client': 'cli',
+    ...base,
+    // Lenient on purpose: the Config schema is a plain dict (a transform would
+    // break the settings form — see config.ts), so this is where a hand-edited
+    // profile patch is filtered down to safe, plugin-agnostic overrides.
+    ...sanitizeRequestHeaders(readRequestHeaders?.() ?? {}),
+  }
+}
+
+function legacyUserAgent(): string {
+  return userAgentOverride || `opencode/1.18.31 (${process.platform} ${process.arch}; node${process.versions.node})`
+}
 
 /**
  * Set the configured User-Agent. Empty or whitespace restores the built-in
@@ -246,16 +271,15 @@ export function setUserAgentOverride(value: string | undefined): void {
  * to change it are: move THIS string alone, or move the recipe whole. Live
  * 2026-10-15 against /inference/v1 with this adapter's fingerprint held
  * constant and one variable at a time, each of these answered 200: the
- * built-in value, this machine's real desktop shape
- * (`opencode/1.19.0 (darwin 27.0.0; arm64)`, extracted from the app's
- * `app.asar`) and upstream's 2.x shape (`opencode/latest/2.0.29/cli`). The
+ * built-in value, the installed app's OpenAI/Codex branch string
+ * (`opencode/1.19.0 (darwin 27.0.0; arm64)`, extracted from `app.asar`)
+ * and upstream's 2.x shape (`opencode/latest/2.0.29/cli`). The
  * gate does not pin the UA string. What still 403s is mixing GENERATIONS
  * inside one request — 2.x tool names under this header set, or upstream's
  * header set carrying our `x-opencode-request` ({@link disguiseHeaders}).
  */
 export function opencodeUserAgent(): string {
-  if (userAgentOverride !== '') return userAgentOverride
-  return `opencode/1.18.31 (${process.platform} ${process.arch}; node${process.versions.node})`
+  return zenRequestHeaders()['user-agent']!
 }
 
 /**
@@ -285,12 +309,10 @@ export function opencodeUserAgent(): string {
  * without the rest is what fails, not this set.
  */
 export function disguiseHeaders(ids: RequestIDs): Record<string, string> {
-  return {
-    'user-agent': opencodeUserAgent(),
-    'x-opencode-client': 'cli',
+  return zenRequestHeaders({
     'x-opencode-session': ids.session,
     'x-opencode-session-id': ids.session,
     'x-opencode-request': ids.request,
     'x-opencode-project': ids.project,
-  }
+  })
 }

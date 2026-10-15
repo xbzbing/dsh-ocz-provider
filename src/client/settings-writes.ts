@@ -1,3 +1,14 @@
+import { parseRequestHeaders, type RequestHeaders } from '../request-headers.ts'
+
+/** Header edits live at the entry root, alongside (never inside) ipPool. */
+export function requestHeadersWriteOps(text: string, current: RequestHeaders, base: RequestHeaders) {
+  const write = fieldWrite('requestHeaders', parseRequestHeaders(text), current, base)
+  if (!write) return []
+  return [write.op === 'unset'
+    ? { op: 'unset' as const, path: ['requestHeaders'] }
+    : { op: 'set' as const, path: ['requestHeaders'], value: write.value }]
+}
+
 export interface FieldWrite { field: string; op: 'set' | 'unset'; value?: unknown }
 
 /** Reverting an override to its inherited value must remove the override. */

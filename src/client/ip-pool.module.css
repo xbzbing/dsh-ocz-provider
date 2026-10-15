@@ -65,6 +65,11 @@
   color-scheme: dark;
 }
 
+.headerValue {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .textarea {
   composes: input;
   min-height: 56px;

@@ -92,7 +92,19 @@ pnpm build && git add lib
 | `agentArgs` | — | 仅 sidecar：传给 agent 的额外 CLI 参数。 |
 | `restartDelayMs` / `restartMaxDelayMs` / `maxConsecutiveCrashes` | `1000` / `60000` / `5` | 仅 sidecar：重启退避与熔断阈值。 |
 | `firstEventMs` / `bodyIdleMs` / `responsesBodyIdleMs` | `30000` / `120000` / `300000` | 仅 adapter，插件 0.3.7 起支持：流存活超时，单位毫秒，取 `1` 到 `600000` 的整数。分别控制首事件等待、流中静默，以及 Responses 模型（`muse-spark-*`）的静默下限。冷启动慢时可调大 `firstEventMs`。不设置则使用默认值；修改后重启 DSH。 |
-| `userAgent` | 内置值 `opencode/1.18.31 (<平台> <架构>; node<版本>)` | 仅 adapter：发往 Zen 的**每个**请求都带它——对话、目录刷新、出口准入探测。留空即用内置值（清空等同未设置，不会发出空 UA）。匿名通道判的是整套指纹（UA + session/project/request 形状 + 工具定义）：2026-10-15 实测只换 UA 三档（内置值 / 本机真实桌面版 `opencode/1.19.0 (darwin 27.0.0; arm64)` / 上游 2.x 的 `opencode/latest/2.0.29/cli`）都放行 200，但**混用代际**仍会 403——改了 UA 就不要顺手换工具定义。修改后重启 DSH。 |
+| `userAgent` | 内置值 `opencode/1.18.31 (<平台> <架构>; node<版本>)` | 仅 adapter：旧 profile UA 配置，供正式对话、目录刷新和准入探测使用；留空使用内置值。页面的 `requestHeaders` 中若有 `User-Agent`，优先使用页面值。修改此旧字段需重启或重新加载插件。 |
+| `requestHeaders` | `{}` | 仅 adapter：在插件配置页的「Zen 请求头」区域编辑，每行一个 `Header-Name: value`。保存后对下一次正式对话、模型目录和准入探测生效，不依赖 IP 池开关。名称不区分大小写；鉴权、Cookie、HTTP 传输及正文格式头由插件管理。 |
+
+在 **设置 → 插件 → OpenCode Zen 插件配置** 的「Zen 请求头」里，可以填写：
+
+```http
+User-Agent: opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/node.js/24
+x-opencode-client: desktop
+```
+
+这是本机 OpenCode 桌面版 1.19.0 原始后端隔离实测的 Zen 请求头；之前提取到的 `opencode/1.19.0 (darwin 27.0.0; arm64)` 属于 OpenAI/Codex 插件分支。页面会显示当前生效的 Zen User-Agent。清空编辑区并保存会恢复继承配置，默认仍沿用插件原有 UA，不自动切换指纹。请求头最多 32 个、总长最多 8192 字节，拒绝重复名称、空值及非法控制字符。只配置普通请求头，不在此存放凭据。
+
+校验发生在两个边界，而不是 schema 里：编辑区（`parseRequestHeaders`，严格，非法草稿直接拒绝保存）和每次请求（`sanitizeRequestHeaders`，宽松，静默丢弃非法或被插件托管的头）。`Config` 中的节点必须保持「无回调」——不能使用 `.transform()`：dsh-settings 会用 `Config.toJSON()` 重建配置表单并二次序列化，transform 的回调在这一步丢失，浏览器反序列化后校验会抛 `callback is not a function`，配置卡片将永远停在加载态（2026-10-15 实测：加入 Zen 请求头字段后整页不可见）。
 
 ## 工作原理
 

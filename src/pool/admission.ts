@@ -237,7 +237,7 @@ export async function admitCandidate(
   // probe session must not collide with real adapter sessions. The canonical
   // mapping (ids.ts) is mandatory here too — the old 24-hex probe sessions
   // drew 403 FreeTierError on the free lane like every other foreign shape.
-  const probeHeaders = disguiseHeaders({
+  const probeHeaders = () => disguiseHeaders({
     session: canonicalSessionID(`admission:${candidate.address}`),
     request: mintedMessageID(),
     project: DEFAULT_PROJECT_ID,
@@ -286,7 +286,7 @@ export async function admitCandidate(
 
     // Step 3: HTTPS tunnel to the real upstream (models list, Bearer public).
     const models = await request(`${zenBase.replace(/\/+$/, '')}/v1/models`, {
-      headers: { authorization: 'Bearer public', 'user-agent': opencodeUserAgent(), 'x-opencode-client': 'cli', accept: 'application/json', ...probeHeaders },
+      headers: { authorization: 'Bearer public', 'user-agent': opencodeUserAgent(), 'x-opencode-client': 'cli', accept: 'application/json', ...probeHeaders() },
     })
     if (models.statusCode !== 200) {
       return { admitted: false, reason: `zen models HTTP ${models.statusCode}` }
@@ -303,7 +303,7 @@ export async function admitCandidate(
       headers: {
         authorization: 'Bearer public',
         'content-type': 'application/json',
-        ...probeHeaders,
+        ...probeHeaders(),
       },
       body: JSON.stringify({
         model: smokeModel,
