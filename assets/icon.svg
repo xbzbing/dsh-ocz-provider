@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <!-- One source fanning out to a pool of exits: the plugin's whole job in
+       one mark. Blue→teal gradient matches the plugin's business accent
+       (#4F8CFF, footer icon) and the Zen lane's teal. -->
+  <rect width="36" height="36" rx="8" fill="url(#ocf-bg)"/>
+  <defs>
+    <linearGradient id="ocf-bg" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F8CFF"/>
+      <stop offset="1" stop-color="#05909D"/>
+    </linearGradient>
+  </defs>
+  <!-- source node -->
+  <circle cx="10" cy="18" r="2.5" fill="#fff"/>
+  <!-- three lanes -->
+  <path d="M12.5 18C18 18 18 9.5 23.5 9.5" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
+  <path d="M12.5 18H23.5" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.7"/>
+  <path d="M12.5 18C18 18 18 26.5 23.5 26.5" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity="0.95"/>
+  <!-- exit nodes -->
+  <circle cx="26" cy="9.5" r="2.5" fill="#fff"/>
+  <circle cx="26" cy="18" r="2.5" fill="#fff" opacity="0.8"/>
+  <circle cx="26" cy="26.5" r="2.5" fill="#fff"/>
+</svg>

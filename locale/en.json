@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "OpenCode Free Models",
+    "description": "Native DSH adapter for OpenCode Zen's free model lane — no API key, streaming chat with a multi-exit proxy pool and usage stats."
+  }
+}

@@ -1,9 +1,10 @@
 {
   "name": "dsh-opencode-free-provider",
-  "version": "0.3.11",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Free OpenCode Zen models for DeepSeek Harness (DSH): native dsh-llm adapter plugin, no API key.",
+  "description": "Native DSH adapter for OpenCode Zen's free model lane — no API key, streaming chat with a multi-exit proxy pool and usage stats.",
+  "icon": "./assets/icon.svg",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -19,11 +20,14 @@
     ".": "./lib/index.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
-    "./client": "./lib/client.js"
+    "./client": "./lib/client.js",
+    "./locale/*": "./locale/*"
   },
   "files": [
     "cordis.patch.yml",
-    "lib"
+    "lib",
+    "locale",
+    "assets"
   ],
   "dsh": {
     "bundle": {
