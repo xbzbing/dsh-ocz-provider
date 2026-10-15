@@ -16,5 +16,6 @@ legacy/agent/.gotmp/
 *.log
 
 # Local drafts
+/docs/local/
 xiaohongshu-post.md
 *.tgz
