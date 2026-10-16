@@ -14,22 +14,26 @@ package (`dsh plugin add file:<repo>` or `github:xbzbing/dsh-ocz-provider`); `li
 is committed because neither install path runs a lifecycle script.
 
 Upstream this fork ported fixes from: `jasonxu114514/opencode2api` (its Go
-agent survives in `legacy/agent` as a semantic reference, not distributed).
+agent survives under `legacy/` as a semantic reference, not distributed).
 
 ## Layout
 
 ```
 src/adapter/    zen-adapter (dsh-llm adapter), catalog, messages (body shaping),
-                gate-tools (the captured genuine tool definitions), events, ids
+                gate-tools (the captured genuine tool definitions), events,
+                routing (which API shape a model takes), ids
 src/pool/       exit pool: admission (free-lane probing), dispatcher (routing),
                 installer, onboarding, sing-box conversion, subscription fetch,
                 usage-store (the ~/.dsh/oc2dsh/usage.json ledger)
 src/ip-pool-settings/  namespace (schema), bridge (loopback HTTP), apply (wiring)
-src/client/     browser half: IP pool settings card, exit-stats modal, locales
+src/client/     browser half: IP pool settings card, exit-stats modal (+ its
+                流量 tab), Zen request-headers editor, locales
 src/config.ts   the whole settings schema (Config, exported for dsh-settings)
 test/           node:test suite (runs the real TS sources, no build step)
 lib/            committed build output (never edit; rebuild instead)
-legacy/agent/   the Go sidecar (semantic reference only)
+legacy/         the ported Go agent (`cmd/agent` + `internal/`, module
+                opencode2dsh/agent; semantic reference only, not distributed —
+                see package.json `files`)
 scripts/        build.mjs (canonical build), lib-manifest.mjs (freshness stamp),
                 smoke-dsh-compat.mjs (loads the real installed host)
 docs/           design.md (architecture + porting record), ip-pool.md (exit
@@ -40,7 +44,7 @@ docs/           design.md (architecture + porting record), ip-pool.md (exit
 
 ```sh
 pnpm install          # toolchain (root package.json carries everything)
-pnpm verify           # the gate: pnpm typecheck && pnpm test  (400/400 today)
+pnpm verify           # the gate: pnpm typecheck && pnpm test
 pnpm build            # clean build: node half -> browser half -> manifest
 pnpm build && pnpm pack   # tarball
 node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
@@ -60,8 +64,12 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
   sort, not noise to revert.
 - There is no CI here; the gate is `pnpm verify` plus, for wire-facing changes,
   a live probe against `https://opencode.ai/inference/v1`.
-- Conventional single-line commit subject + evidence-rich English body that
-  quotes the user's request verbatim (Chinese quotes stay verbatim).
+- Commit messages are English and short: a conventional single-line subject
+  (≤72 chars, imperative), then **one sentence of context and 3-5 bullets**;
+  the whole message stays **≤800 characters**. Describe only the final
+  behaviour — never paste the user's prompt, the conversation, a file-by-file
+  inventory, a test/gate recap, or an AI attribution. Chinese appears only as
+  literal UI copy (`清空`, `流量`, `本机`, …) or a real code identifier.
 
 ## Project-specific settings (do not guess these)
 
@@ -120,8 +128,11 @@ and after any such change, and record the results in the code comments.
 ## Install / upgrade on this machine
 
 ```sh
-dsh plugin --profile web add file:/Users/ankh/workspace/private/opencode2dsh
+dsh plugin --profile web add file:/Users/ankh/workspace/private/dsh-plugins/dsh-ocz-provider
 ```
+
+(Profile `web` carries this checkout as `"dsh-opencode-free-provider":
+"file:…/dsh-plugins/dsh-ocz-provider"` in `~/.dsh/profiles/web/package.json`.)
 
 An install does NOT affect a running dsh web; restart the host to load new
 `lib/` code. Do not `npm publish` or bump versions without explicit consent.
