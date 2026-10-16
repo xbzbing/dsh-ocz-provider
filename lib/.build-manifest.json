@@ -24,7 +24,7 @@
     "src/config.ts": "c2e64b62358b9c75781cf32219aae3a077408aba",
     "src/index.ts": "9aab1e91d31786480cda86f44cea5de4c7ea9fcd",
     "src/ip-pool-settings/apply.ts": "0a29452a37ad4c7a71979fccf34096e4daa2d345",
-    "src/ip-pool-settings/bridge.ts": "52820e506090369ce17b7909896bd962b304b729",
+    "src/ip-pool-settings/bridge.ts": "023a1045c11ff41e02532ec47f3fd58e27814b1b",
     "src/ip-pool-settings/namespace.ts": "bc70163f7e7886c13d5ceee92738970679e8a967",
     "src/ip-pool.ts": "e342e6c0c132ec93a9bdaf0635cae374ad03a904",
     "src/paths.ts": "e15b71368cc339dfc97673a8e87f5ad2d5f7e0a4",

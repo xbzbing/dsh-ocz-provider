@@ -276,6 +276,12 @@ export function buildStatusView(
     sessionTitles?: SessionTitleMap
     /** Process start, for the 本次重启 label. */
     runSince?: number
+    /**
+     * Wall clock for `at`/`todayTokens`, defaulting to `Date.now()`. Tests
+     * pin it so a ledger bucket recorded under a frozen clock still reads as
+     * "today" — otherwise the assertion breaks the day real time passes it.
+     */
+    now?: number
   } = {},
 ): PoolStatusView {
   const freeEnabled = options.freeEnabled ?? true
@@ -302,7 +308,7 @@ export function buildStatusView(
   const snapshot = runtime
     ? runtime.pool.snapshot()
     : { state: 'healthy' as PoolState, total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, availableFree: 0, pinned: '' }
-  const now = Date.now()
+  const now = options.now ?? Date.now()
   const exits: ExitRowView[] = runtime
     ? runtime.pool.list().map((entry) => {
       const passive = runtime.pool.passiveStats(entry.id)

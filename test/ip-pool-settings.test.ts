@@ -300,7 +300,7 @@ test('status view: todayTokens counts today’s ledger bucket, falling back to t
     const store = new UsageStore({ path: join(dir, 'usage.json'), flushMs: 0, now: () => now })
     store.record('a:1', { inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1 })
     store.record('a:1', { inputTokens: 4, outputTokens: 6 })
-    const view = buildStatusView(null, false, [], { usage: store })
+    const view = buildStatusView(null, false, [], { usage: store, now })
     assert.equal(view.todayTokens, 28, 'input+output+cache of today’s bucket only')
     assert.equal(view.usage?.total.requests, 2, 'the all-time figure is untouched')
   } finally {
