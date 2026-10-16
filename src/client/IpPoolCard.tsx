@@ -21,6 +21,7 @@ import {
   IconChevronDownOutlineRegular,
   IconCloseFillMedium,
   Input,
+  Menu,
   SegmentedControl,
   SettingsForm,
   StateDot,
@@ -535,10 +536,20 @@ function ModelPicker(props: {
   onChange: (next: string[]) => void
 }): ReactNode {
   const { value, hint, models, loading, disabled, t, onChange } = props
+  const [open, setOpen] = useState(false)
   const toggle = (id: string): void => {
     onChange(value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id])
   }
-  const options = models.filter((row) => !value.includes(row.id))
+  const triggerLabel = loading ? t('statusLoading') : models.length === 0 ? '—' : t('probeModelPick')
+  const items = models.map((row) => ({
+    id: row.id,
+    label: (
+      <>
+        {row.id}
+        {row.verified === false && <span className={styles.chipSub}> · {t('probeModelUnverified')}</span>}
+      </>
+    ),
+  }))
   return (
     <div className={styles.field} data-testid="field-probeModels">
       <span className={styles.fieldLabel}>{t('probeModels')}</span>
@@ -568,23 +579,31 @@ function ModelPicker(props: {
           })}
         </div>
       )}
-      <select
-        className={styles.select}
-        data-testid="probe-model-select"
-        value=""
-        disabled={disabled === true || options.length === 0}
-        onChange={(event) => {
-          const id = event.target.value
-          if (id !== '') toggle(id)
-          // native select re-shows the list while focused; value stays ''
-          // so the placeholder keeps prompting for the next pick
+      <Menu
+        open={open}
+        onClose={() => setOpen(false)}
+        anchor={
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="probe-model-select"
+            disabled={disabled === true || loading || models.length === 0}
+            onClick={() => setOpen((current) => !current)}
+          >
+            {triggerLabel}
+            <IconChevronDownOutlineRegular />
+          </Button>
+        }
+        items={items}
+        selectedIds={value}
+        onSelect={(id) => {
+          toggle(id)
+          setOpen(false)
         }}
-      >
-        <option value="">{loading ? t('statusLoading') : options.length === 0 ? '—' : t('probeModelPick')}</option>
-        {options.map((row) => (
-          <option key={row.id} value={row.id}>{row.id}{row.verified === false ? ` · ${t('probeModelUnverified')}` : ''}</option>
-        ))}
-      </select>
+        align="start"
+        side="bottom"
+        portal
+      />
       {value.length === 0 && (
         <span className={styles.fieldHint}>{t('probeModelsDefault')}</span>
       )}
