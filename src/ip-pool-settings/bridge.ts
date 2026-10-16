@@ -13,7 +13,7 @@
  */
 
 import type { IpPoolRuntime } from '../ip-pool.ts'
-import { opencodeUserAgent } from '../adapter/ids.ts'
+import { opencodeUserAgent, zenRequestHeaders } from '../adapter/ids.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 import { localDay, type UsageScope, type UsageStore } from '../pool/usage-store.ts'
@@ -228,6 +228,8 @@ export interface PoolStatusView {
   usage: UsageView | null
   /** The UA the next formal Zen request will actually use. */
   zenUserAgent: string
+  /** The x-opencode-client the next formal Zen request will actually use. */
+  zenClient: string
   /**
    * Pool-wide recent output speed (tok/s): every timed bucket in the
    * process tracker's rolling 3-minute window — the modal summary chip and
@@ -394,6 +396,7 @@ export function buildStatusView(
       runSince: options.runSince,
     }),
     zenUserAgent: opencodeUserAgent(),
+    zenClient: zenRequestHeaders()['x-opencode-client'] ?? 'cli',
     recentSpeed: tracker.speedAll(),
     todayTokens: todayTokensOf(store, now),
     at: now,

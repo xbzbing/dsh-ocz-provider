@@ -91,3 +91,59 @@ export function parseRequestHeaders(text: string): RequestHeaders {
 export function formatRequestHeaders(headers: RequestHeaders): string {
   return Object.entries(headers).map(([name, value]) => `${name}: ${value}`).join('\n')
 }
+
+// -- Desktop-mode toggle (client draft sugar over x-opencode-client) ----------
+
+/**
+ * The client-identity header the Desktop-mode checkbox manages. Deliberately
+ * NOT in {@link MANAGED_HEADERS}: the wire already lets `requestHeaders`
+ * override the built-in `cli` (ids.ts `zenRequestHeaders` spreads the
+ * sanitized dict last), so the toggle is pure draft text sugar and needs no
+ * schema or host change.
+ */
+const CLIENT_HEADER = 'x-opencode-client'
+
+/** Lenient draft scan: the current `x-opencode-client` value, if any. */
+export function effectiveClientHeader(text: string): string | undefined {
+  for (const line of text.split(/\r?\n/)) {
+    const colon = line.indexOf(':')
+    if (colon <= 0) continue
+    if (line.slice(0, colon).trim().toLowerCase() === CLIENT_HEADER) return line.slice(colon + 1).trim()
+  }
+  return undefined
+}
+
+/** True when the draft sends the desktop client identity. */
+export function isDesktopModeDraft(text: string): boolean {
+  return effectiveClientHeader(text) === 'desktop'
+}
+
+/**
+ * Return the draft with the Desktop-mode checkbox applied. ON upserts
+ * `x-opencode-client: desktop` (replacing any existing value, so a stale
+ * `cli` cannot survive the toggle); OFF removes that line only when it reads
+ * `desktop`, leaving a hand-typed non-desktop value untouched. Pure text
+ * manipulation on a possibly-mid-edit draft, hence the lenient line scan.
+ */
+export function desktopModeDraft(text: string, on: boolean): string {
+  const lines = text.split(/\r?\n/)
+  const index = lines.findIndex((line) => {
+    const colon = line.indexOf(':')
+    return colon > 0 && line.slice(0, colon).trim().toLowerCase() === CLIENT_HEADER
+  })
+  const entry = `${CLIENT_HEADER}: desktop`
+  if (on) {
+    if (index >= 0) lines[index] = entry
+    else {
+      while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
+      if (lines.length > 0) lines.push('')
+      lines.push(entry)
+    }
+    return lines.join('\n')
+  }
+  if (index >= 0 && lines[index]!.slice(lines[index]!.indexOf(':') + 1).trim() === 'desktop') {
+    lines.splice(index, 1)
+    while (lines.length > 0 && lines[lines.length - 1]!.trim() === '') lines.pop()
+  }
+  return lines.join('\n')
+}

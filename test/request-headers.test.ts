@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import Schema from '@deepseek-ai/schemastery'
 import { Config, ordinaryConfig, type ResolvedPluginConfig } from '../src/config.ts'
-import { normalizeRequestHeaders, parseRequestHeaders, formatRequestHeaders, sanitizeRequestHeaders } from '../src/request-headers.ts'
+import { desktopModeDraft, effectiveClientHeader, isDesktopModeDraft, normalizeRequestHeaders, parseRequestHeaders, formatRequestHeaders, sanitizeRequestHeaders } from '../src/request-headers.ts'
 import { disguiseHeaders, deriveRequestIDs, opencodeUserAgent, setUserAgentOverride, setRequestHeadersReader, zenRequestHeaders } from '../src/adapter/ids.ts'
 import { fetchZenModels } from '../src/adapter/catalog.ts'
 import { buildStatusView } from '../src/ip-pool-settings/bridge.ts'
@@ -168,6 +168,47 @@ test('header save writes only the dedicated field and blank restores inherited d
     { op: 'unset', path: ['requestHeaders'] },
   ])
   assert.deepEqual(requestHeadersWriteOps('User-Agent: custom', { 'user-agent': 'custom' }, {}), [])
+})
+
+test('the Desktop-mode toggle upserts and removes only the client header in the draft', () => {
+  // Reading the toggle off a mid-edit draft is lenient: the scan looks for the
+  // one header line and ignores everything else.
+  assert.equal(isDesktopModeDraft(''), false)
+  assert.equal(isDesktopModeDraft('User-Agent: opencode/1.19.3'), false)
+  assert.equal(isDesktopModeDraft('x-opencode-client: cli'), false)
+  assert.equal(isDesktopModeDraft('X-OpenCode-Client: desktop'), true)
+  assert.equal(effectiveClientHeader('User-Agent: a\nx-opencode-client: desktop'), 'desktop')
+  assert.equal(effectiveClientHeader('User-Agent: a'), undefined)
+
+  // ON upserts the header after a blank separator, replacing a stale cli.
+  assert.equal(desktopModeDraft('', true), 'x-opencode-client: desktop')
+  assert.equal(desktopModeDraft('User-Agent: a', true), 'User-Agent: a\n\nx-opencode-client: desktop')
+  assert.equal(desktopModeDraft('x-opencode-client: cli', true), 'x-opencode-client: desktop')
+  assert.equal(desktopModeDraft('User-Agent: a\nx-opencode-client: desktop', true), 'User-Agent: a\nx-opencode-client: desktop')
+
+  // OFF removes the desktop line and trims the separator it added; a
+  // hand-typed non-desktop value is left alone.
+  assert.equal(desktopModeDraft('User-Agent: a\n\nx-opencode-client: desktop', false), 'User-Agent: a')
+  assert.equal(desktopModeDraft('x-opencode-client: desktop', false), '')
+  assert.equal(desktopModeDraft('x-opencode-client: cli', false), 'x-opencode-client: cli')
+
+  // The toggled draft still round-trips through the strict editor boundary.
+  assert.deepEqual(parseRequestHeaders(desktopModeDraft('User-Agent: a', true)), {
+    'user-agent': 'a',
+    'x-opencode-client': 'desktop',
+  })
+})
+
+test('the status view reports the client header the next request will send', () => {
+  let value: Record<string, string> = {}
+  const dispose = setRequestHeadersReader(() => value)
+  try {
+    assert.equal(buildStatusView(null, false, []).zenClient, 'cli')
+    value = { 'x-opencode-client': 'desktop' }
+    assert.equal(buildStatusView(null, false, []).zenClient, 'desktop')
+    value = { 'X-OpenCode-Client': 'cli' }
+    assert.equal(buildStatusView(null, false, []).zenClient, 'cli')
+  } finally { dispose() }
 })
 
 test('the real pi-ai dispatch sends exact overrides for chat and Responses and reads live edits', async (t) => {
