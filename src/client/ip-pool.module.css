@@ -25,11 +25,17 @@
 
 /* Two related fields on one row (并发上限 / 池子容量). A grid keeps the columns
    equal; a narrow container collapses them to one so long labels never squeeze
-   the inputs into each other. */
+   the inputs into each other. min-width:0 lets a column shrink below its
+   content's intrinsic width — without it a number input (spinner + digits)
+   overflows its 1fr track and the two boxes visually touch. */
 .fieldRow {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px 16px;
+}
+
+.fieldRow > * {
+  min-width: 0;
 }
 
 @media (max-width: 720px) {
@@ -77,6 +83,19 @@
 .fieldControl {
   display: flex;
   width: 100%;
+}
+
+/* Width tiers for the Input primitive's wrap: a bare number (并发上限 1-8,
+   池子容量 1-100) reads fine in a short box, while paths/URLs/UA want a
+   medium track. capping max-width keeps single-line fields from stretching
+   the full card width on wide screens; the textarea and list editors stay
+   full-width. */
+.fieldControlNarrow {
+  max-width: 120px;
+}
+
+.fieldControlMedium {
+  max-width: 420px;
 }
 
 /* Draft fails validation: an error ring on the Input primitive's wrap. */

@@ -411,8 +411,16 @@ function TextField(props: {
   disabled?: boolean
   /** A trailing action on the label line (立即刷新 / 解除固定); falsy = none. */
   action?: ReactNode
+  /**
+   * Width tier for the control. A bare number (`并发上限` 1-8, `池子容量` 1-100)
+   * reads fine in a short box; paths/URLs/UA want a medium track. Omitted
+   * keeps the full column width.
+   */
+  width?: 'narrow' | 'medium'
 }): ReactNode {
-  const { label, hint, value, onChange, placeholder, testId, type = 'text', min, max, step, invalid, disabled, action } = props
+  const { label, hint, value, onChange, placeholder, testId, type = 'text', min, max, step, invalid, disabled, action, width } = props
+  const widthClass = width === 'narrow' ? styles.fieldControlNarrow : width === 'medium' ? styles.fieldControlMedium : undefined
+  const controlClass = [styles.fieldControl, widthClass, invalid === true ? styles.inputWrapInvalid : undefined].filter(Boolean).join(' ')
   return (
     <label className={styles.field}>
       {action == null
@@ -424,7 +432,7 @@ function TextField(props: {
           </span>
         )}
       <Input
-        className={invalid === true ? `${styles.fieldControl} ${styles.inputWrapInvalid}` : styles.fieldControl}
+        className={controlClass}
         type={type}
         value={value}
         placeholder={placeholder}
@@ -1210,6 +1218,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           type="number"
           min={60_000}
           step={1}
+          width="medium"
           invalid={validation?.group === 'sources' && validation.message === t('invalidRange')}
           disabled={!writable || saving}
           onChange={(value) => { setSaved(false); setForm({ ...form, refreshMs: value }) }}
@@ -1230,6 +1239,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           hint={t('subscriptionUserAgentHint')}
           value={form.userAgent}
           testId="field-subscriptionUserAgent"
+          width="medium"
           disabled={!writable || saving}
           onChange={(value) => { setSaved(false); setForm({ ...form, userAgent: value }) }}
         />
@@ -1244,6 +1254,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           hint={t('singboxPathHint')}
           value={form.singboxPath}
           testId="field-singboxPath"
+          width="medium"
           disabled={!writable || saving}
           onChange={(value) => { setSaved(false); setForm({ ...form, singboxPath: value }) }}
         />
@@ -1263,6 +1274,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           value={form.pinnedExitId}
           placeholder={t('manualPlaceholder')}
           testId="field-pinnedExitId"
+          width="medium"
           disabled={!writable || saving}
           onChange={(value) => { setSaved(false); setForm({ ...form, pinnedExitId: value }) }}
           action={form.pinnedExitId === '' ? undefined : (
@@ -1335,6 +1347,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
             min={1}
             max={8}
             step={1}
+            width="narrow"
             invalid={validation?.group === 'probe' && validation.message === t('invalidRange')}
             disabled={!writable || saving}
             onChange={(value) => { setSaved(false); setForm({ ...form, maxConcurrentProbes: value }) }}
@@ -1348,6 +1361,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
             min={1}
             max={100}
             step={1}
+            width="narrow"
             invalid={validation?.group === 'probe' && validation.message === t('invalidRange')}
             disabled={!writable || saving}
             onChange={(value) => { setSaved(false); setForm({ ...form, poolSize: value }) }}
