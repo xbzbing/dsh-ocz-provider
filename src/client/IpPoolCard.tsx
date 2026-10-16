@@ -1355,22 +1355,28 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         onToggle={() => toggleGroup('usage')}
       >
         <div data-testid="usage-section">
-          <span data-testid="usage-scope">
-            <SegmentedControl<UsageScopeView>
-              id="ip-pool-usage-scope"
-              value={form.usageScope}
-              options={[
-                { value: 'total', label: t('usageScopeTotal') },
-                { value: 'run', label: t('usageScopeRun') },
-              ]}
-              label={t('usageScopeLabel')}
-              disabled={actionBusy || !writable}
-              onChange={(next) => { void setUsageScope(next) }}
-            />
-          </span>
-          <span className={styles.fieldHint}>
-            {t('usageScopeHint', { days: String(status?.usage?.retentionDays ?? 90) })}
-          </span>
+          {/* Flex-column so the scope hint wraps to its own line under the
+              control instead of flowing inline beside it (which spilled the
+              tail onto a second row). Same label-above/hint-below rhythm as
+              the other fields via .field. */}
+          <div className={styles.field}>
+            <span data-testid="usage-scope">
+              <SegmentedControl<UsageScopeView>
+                id="ip-pool-usage-scope"
+                value={form.usageScope}
+                options={[
+                  { value: 'total', label: t('usageScopeTotal') },
+                  { value: 'run', label: t('usageScopeRun') },
+                ]}
+                label={t('usageScopeLabel')}
+                disabled={actionBusy || !writable}
+                onChange={(next) => { void setUsageScope(next) }}
+              />
+            </span>
+            <span className={styles.fieldHint}>
+              {t('usageScopeHint', { days: String(status?.usage?.retentionDays ?? 90) })}
+            </span>
+          </div>
           {status?.usage == null
             ? <span className={styles.status}>{t('usageNoStore')}</span>
             : (

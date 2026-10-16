@@ -10,7 +10,7 @@
     "src/adapter/zen-adapter.ts": "0734cb0d9d38d9e2e62cc9dbc81e8e5f46f6988d",
     "src/agent-process.ts": "b209e2d9d9c923890b5bcb13b16d9f0d06f7b1ee",
     "src/client/ExitStatsEntry.tsx": "d5e058d4bda8d6cedbcaa6580ee783a970f3a949",
-    "src/client/IpPoolCard.tsx": "a23517ba4bf05314e91a9f4da1c3f5d8a2255448",
+    "src/client/IpPoolCard.tsx": "e0e37b9a764ee52295ee7cf58b140cb32c1b788a",
     "src/client/RequestHeadersEditor.tsx": "9e25d8b87cdfb4f0807653eb54b963520070992a",
     "src/client/UsagePanel.tsx": "559326ff87ba63a5b31c35199f62647c92a35bf9",
     "src/client/css-modules.d.ts": "85cce9b9e4738c6d2a180d44da700465d8392e91",
