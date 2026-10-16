@@ -17,7 +17,7 @@
     "src/client/icons.tsx": "093a3619310d97e1dd3911e04518430585e7d7ac",
     "src/client/index.ts": "cc5ab1f5f708898e79ab88665204e02197e40e98",
     "src/client/ip-pool.module.css": "29eb00de7c2d9aef9ad6296da128a12825b448ba",
-    "src/client/locales.ts": "068e40b25bde636e1d2481ffcec2830b61d2ca33",
+    "src/client/locales.ts": "4cfca4bddad7b955c4a777e3fa084f3a9ecd053a",
     "src/client/region.ts": "e7093a748d173ba85c78ea2f83b0f55b23b9d4b9",
     "src/client/settings-writes.ts": "5aa8cfb6c15853cc57f4b00b4a561e7c998eea5b",
     "src/client/usage-format.ts": "00b0df0a7611e9b8b7d30819fc2b1292e70a8031",

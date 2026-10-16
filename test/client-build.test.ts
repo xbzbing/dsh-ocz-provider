@@ -102,7 +102,7 @@ test('the probe-content field ships in the bundle', () => {
   // (default 'hello'). The field is a plain string list next to the probe-model
   // picker; this pins that the section is actually mounted in the shipped half.
   assert.ok(source.includes('field-probeContents'), 'the 探测文案 list editor is mounted')
-  assert.ok(source.includes('探测文案（probeContents）'), 'with its zh label')
+  assert.ok(source.includes('探测文案'), 'with its zh label')
   assert.ok(source.includes('probeContentsHint'), 'and its hint (留空 = 默认 hello)')
 })
 
