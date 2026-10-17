@@ -635,7 +635,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 弹窗尺寸固定（`width: min(1040px, 100%)` + `height: min(640px, 100%)`，2026-10-14 追加）：高度曾经由内容决定，切 tab 时弹窗会跟着变高变矮（鼠标停在的位置也跟着跑）；现在两个 tab 共用一个固定盒子，内容区自己滚动。滚动的是**正文层**而不是整条内容列：primitives 的 Modal 把「标题行 + 描述 + 正文」一起塞进 `contentClassName` 那一列，此前正是它在滚，出口表一长标题就跟着滚出卡片（2026-10-18 用户口径：固定 title 位置）。现在 `.statsContent` 只负责撑高，滚动落在它内部的正文层（`div:last-child`——内容列的子节点依次是 header `div`、可选的 description `p`、body `div`，所以按结构取而不依赖哈希类名），标题与关闭按钮固定在卡片顶部。
 
-弹窗分两个 tab（分段控件，2026-10-14）：
+弹窗分两个 tab（2026-10-14 引入，2026-10-18 重做）：tab 栏是宿主平台的 `SegmentedTabs`（等宽两段 + 滑动指示条 + 方向键切换 + 单 tab stop 的 roving tabindex，chrome 本身是模块作用域，我们只接 placement 类 `.statsTabs`）。**tab 栏在滚动区之外**——它曾是手写的两个 button，长得像按钮，而且落在滚动容器内部，于是内容一高它就跟着滚出卡片、切换 tab 时滚动位置被继承，表现成「点了流量，出口 tab 就不见了」（2026-10-18 live）。现在标题、描述、tab 栏固定在卡片顶部，唯一滚动区是 tab 栏下方的 pane（`.statsPane`），切换 tab 时 `scrollTop` 复位；弹窗描述也跟着当前 tab 切换（出口 tab 讲进程内累计、流量 tab 讲持久台账），不再一句出口表的话挂两个 tab 头上：
 
 | Tab | 内容 |
 | --- | --- |

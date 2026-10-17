@@ -632,36 +632,12 @@
 }
 
 /* —— 弹窗 tab（出口 / 流量）—— */
-.tabBar {
-  display: inline-flex;
-  margin-bottom: 10px;
-  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-  border-radius: 7px;
-  overflow: hidden;
-}
-
-.tab {
-  padding: 4px 14px;
-  border: none;
-  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
-  color: var(--dsw-alias-label-secondary, #4b5563);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.tab + .tab {
-  border-left: 1px solid var(--dsw-alias-border-l2, #d0d7de);
-}
-
-.tab:hover {
-  color: var(--dsw-alias-state-business-primary, #4f8cff);
-}
-
-.tabActive {
-  background: var(--dsw-alias-bg-layer-1, #fff);
-  color: var(--dsw-alias-label-primary, #1f2329);
-  font-weight: 600;
-}
+/* The tab CHROME is the platform's SegmentedTabs (module-scoped inside
+   @deepseek-ai/dsh-client-ui-primitives): this stylesheet used to carry a
+   hand-rolled .tabBar/.tab pair that read as two buttons and, worse, lived
+   inside the scrolling pane. The placement rules for the bar and the one
+   scrolling pane now sit with the other stats styles (.statsTabs /
+   .statsPane). */
 
 /* —— 流量 tab —— */
 .usagePanel {
@@ -918,9 +894,25 @@
 
 /* The primitives' `.body`: the content column's children are the header DIV,
    the optional description P, then the body DIV — so `div:last-child` is the
-   body whatever the hashed class names are. Both the flexible height and the
-   scrolling live here, which is what keeps the chrome above it still. */
+   body whatever the hashed class names are. It is the flex column that holds
+   the tab bar plus the ONE scrolling pane (.statsPane): the body itself never
+   scrolls, so the bar above the pane can never be dragged out of the card. */
 .statsContent > div:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Placement for the platform SegmentedTabs bar (chrome itself is module-scoped
+   in @deepseek-ai/dsh-client-ui-primitives). It is a grid row here — the bar
+   spans the whole content column rather than hugging its two labels. */
+.statsTabs {
+  margin-bottom: 12px;
+}
+
+/* The only scrolling region in the card: header, description and tab bar are
+   parked above it. Flexes to whatever the body leaves after the bar. */
+.statsPane {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;

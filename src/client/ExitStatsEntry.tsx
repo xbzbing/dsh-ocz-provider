@@ -15,7 +15,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Modal, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -113,6 +114,17 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'requests', dir: 'desc' })
   /** Which pane the modal shows: the exit table, or the traffic breakdown. */
   const [tab, setTab] = useState<'exits' | 'usage'>('exits')
+  /**
+   * The pane's own scroll container (live request 2026-10-18: 按 tab 重新
+   * 制作 + 「点流量后出口 tab 不见了」). It is owned here rather than left to
+   * the primitives' `.body` for two reasons: the tab bar has to sit OUTSIDE
+   * the scrolling region, and a pane switch has to reset the offset — a pane
+   * is a new view, not a continuation of the previous one's scroll position.
+   */
+  const paneRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (paneRef.current !== null) paneRef.current.scrollTop = 0
+  }, [tab])
   /** The row action in flight (its key), so every button disables together. */
   const [busy, setBusy] = useState('')
   /**
@@ -330,6 +342,21 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     </th>
   )
 
+  /**
+   * The two panes as PLATFORM tabs (live request 2026-10-18: 按 tab 重新制作):
+   * `SegmentedTabs` owns the chrome — equal widths, a sliding indicator,
+   * arrow-key navigation and a single tab stop — and links each tab to the
+   * panel id rendered below, so this is real tab UI rather than two buttons.
+   * The hand-rolled bar it replaces read as a button pair, and it lived
+   * INSIDE the scrolling pane, which is what made it (and the other tab's
+   * button) scroll out of the card together with tall content.
+   */
+  const tabs: [SegmentedTab<'exits' | 'usage'>, SegmentedTab<'exits' | 'usage'>] = [
+    { value: 'exits', label: t('tabExits'), id: 'oc2dsh-stats-tab-exits', panelId: 'oc2dsh-stats-panel-exits' },
+    { value: 'usage', label: t('tabUsage'), id: 'oc2dsh-stats-tab-usage', panelId: 'oc2dsh-stats-panel-usage' },
+  ]
+  const activeTab = tabs[tab === 'usage' ? 1 : 0]
+
   return (
     <>
       <button
@@ -409,27 +436,36 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         onClose={() => setOpen(false)}
         title={t('statsTitle')}
         closeLabel={t('statsClose')}
-        description={t('statsDescription')}
+        description={tab === 'usage'
+          ? t('statsDescriptionUsage', { days: String(status?.usage?.retentionDays ?? 90) })
+          : t('statsDescription')}
         className={styles.statsModal}
         contentClassName={styles.statsContent}
       >
         {/* Two panes: the per-exit table, and the persisted traffic
-            breakdown (live request 2026-10-14). The tab bar sits above the
-            chips so switching panes never moves the modal's own controls. */}
-        <div className={styles.tabBar} role="tablist" aria-label={t('statsTitle')}>
-          {(['exits', 'usage'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={tab === key}
-              className={tab === key ? `${styles.tab} ${styles.tabActive}` : styles.tab}
-              onClick={() => setTab(key)}
-            >
-              {key === 'exits' ? t('tabExits') : t('tabUsage')}
-            </button>
-          ))}
-        </div>
+            breakdown (live request 2026-10-14; reworked 2026-10-18). The tab
+            bar is platform SegmentedTabs and sits OUTSIDE the scrolling pane
+            below — the old hand-rolled pair lived INSIDE it, so tall content
+            dragged it (and the other tab's button) out of the card, and a
+            pane switch kept the previous offset. The description follows the
+            active pane too: the chrome now spans both, and the single old
+            sentence described only the exit table. */}
+        <SegmentedTabs
+          items={tabs}
+          value={tab}
+          onChange={setTab}
+          label={t('statsTabsLabel')}
+          className={styles.statsTabs}
+        />
+        {/* The card's only scrolling region: the header and the tab bar stay
+            parked above it, and the ref lets a pane switch reset the offset. */}
+        <div
+          ref={paneRef}
+          className={styles.statsPane}
+          role="tabpanel"
+          id={activeTab.panelId}
+          aria-labelledby={activeTab.id}
+        >
         {tab === 'usage' ? (
           status?.usage == null
             ? <p className={styles.status}>{t('usageNoStore')}</p>
@@ -633,6 +669,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         )}
         </>
         )}
+        </div>
         {/*
           The outcome toast (live request 2026-10-14): docks at the modal's
           own bottom-right corner and dismisses itself — the old note above
