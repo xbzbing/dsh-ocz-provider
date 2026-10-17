@@ -1,6 +1,11 @@
 import { EventEmitter } from "node:events";
 import Schema from "@deepseek-ai/schemastery";
 
+//#region src/pool/local-family.d.ts
+
+/** The 本机出口 positions the settings dropdown offers. */
+type LocalIpFamily = 'auto' | 'ipv4' | 'ipv6';
+//#endregion
 //#region src/ip-pool-settings/namespace.d.ts
 
 /**
@@ -43,6 +48,8 @@ interface IpPoolSettings {
   proxyPathPrefixes: string[];
   /** 本地出口兜底 (docs §3.3); false = a pool miss fails the request. */
   localFallback: boolean;
+  /** 本机出口协议族; 'auto' = IPv6 where this machine has one (see the schema field). */
+  localIpFamily: LocalIpFamily;
   maxRotateAttempts: number;
   /** 'total' (persisted ledger) or 'run' (this process); see the schema field. */
   usageScope: UsageScopeSetting;
@@ -140,6 +147,13 @@ interface IpPoolConfig {
    * honoured either way.
    */
   localFallback?: boolean;
+  /**
+   * 本机出口协议族 (local-family.ts): which IP family the LOCAL egress dials
+   * with — `auto` (default) prefers IPv6 when this machine has a routable one
+   * and falls back to IPv4, `ipv4` / `ipv6` pin the family. Exit traffic is
+   * unaffected.
+   */
+  localIpFamily?: LocalIpFamily;
   /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
   free?: {
     enabled?: boolean;
@@ -256,6 +270,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     localFallback: Schema<boolean, boolean, "defined">;
+    localIpFamily: Schema<string, string, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
@@ -294,6 +309,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     localFallback: Schema<boolean, boolean, "defined">;
+    localIpFamily: Schema<string, string, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;
@@ -373,6 +389,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     localFallback: Schema<boolean, boolean, "defined">;
+    localIpFamily: Schema<string, string, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
@@ -411,6 +428,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
     localFallback: Schema<boolean, boolean, "defined">;
+    localIpFamily: Schema<string, string, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;

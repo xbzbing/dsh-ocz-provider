@@ -6,6 +6,7 @@ import { platform } from 'node:process'
 import Schema from '@deepseek-ai/schemastery'
 
 import { IpPoolConfigSchema, type IpPoolSettings, type VolatileRef } from './ip-pool-settings/namespace.ts'
+import type { LocalIpFamily } from './pool/local-family.ts'
 import { type RequestHeaders } from './request-headers.ts'
 
 /**
@@ -94,6 +95,13 @@ export interface IpPoolConfig {
    * honoured either way.
    */
   localFallback?: boolean
+  /**
+   * 本机出口协议族 (local-family.ts): which IP family the LOCAL egress dials
+   * with — `auto` (default) prefers IPv6 when this machine has a routable one
+   * and falls back to IPv4, `ipv4` / `ipv6` pin the family. Exit traffic is
+   * unaffected.
+   */
+  localIpFamily?: LocalIpFamily
   /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
   free?: {
     enabled?: boolean

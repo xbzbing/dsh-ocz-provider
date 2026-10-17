@@ -13,6 +13,7 @@
  */
 
 import type { IpPoolRuntime } from '../ip-pool.ts'
+import { resolveLocalIpFamily, type LocalIpFamily } from '../pool/local-family.ts'
 import { opencodeUserAgent, zenRequestHeaders } from '../adapter/ids.ts'
 import type { PoolState, ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
@@ -251,6 +252,12 @@ export interface PoolStatusView {
    * can still read a host snapshot from before the switch existed.
    */
   localFallback?: boolean
+  /**
+   * 本机出口协议族 in force on the running router (local-family.ts): 'auto'
+   * prefers IPv6 where this machine has a routable one, while 'ipv4'/'ipv6'
+   * pin the family. Optional for the same reason as `localFallback`.
+   */
+  localIpFamily?: LocalIpFamily
   at: number
 }
 
@@ -283,6 +290,8 @@ export function buildStatusView(
     usageScope?: UsageScope
     /** 本地出口兜底 as configured (the running router's value wins below). */
     localFallback?: boolean
+    /** 本机出口协议族 as configured (the running router's value wins below). */
+    localIpFamily?: string
     projectOf?: ProjectResolver
     /** Host session titles for the top-session rows (read-time join). */
     sessionTitles?: SessionTitleMap
@@ -413,6 +422,9 @@ export function buildStatusView(
     // differ for a moment (install deferred, R1) and the card must not claim
     // "no local egress" while traffic is still leaving from this machine.
     localFallback: runtime?.installer?.localFallback ?? options.localFallback ?? false,
+    // Same reporting rule: what the sockets are dialling with, not what the
+    // form happens to say (the two differ for a moment while install defers).
+    localIpFamily: resolveLocalIpFamily(runtime?.installer?.localIpFamily ?? options.localIpFamily),
     at: now,
   }
 }

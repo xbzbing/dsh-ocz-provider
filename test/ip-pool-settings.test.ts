@@ -920,3 +920,24 @@ test('status view: a host without a ledger still reports the in-process numbers'
   assert.equal(view.usage, null, 'the client hides the 流量 tab instead of inventing data')
   assert.equal(typeof view.exits[0]!.tokens.inputTokens, 'number')
 })
+
+test('本机出口协议族: default auto, pinned positions survive the round trip', () => {
+  // The free lane refuses this host's IPv4 and accepts its IPv6, so the shipped
+  // default is the client's own behaviour (IPv6 where the machine has it).
+  // A position the runtime stops reading is a setting that silently lies.
+  assert.equal((IpPoolConfigSchema({}) as Record<string, unknown>).localIpFamily, 'auto')
+  assert.equal(resolveIpPoolSettings({}).localIpFamily, 'auto')
+  assert.equal(resolveIpPoolSettings({ localIpFamily: 'ipv6' }).localIpFamily, 'ipv6')
+  assert.equal(resolveIpPoolSettings({ localIpFamily: 'ipv4' }).localIpFamily, 'ipv4', 'the pre-2026-10-18 behaviour stays reachable')
+  assert.equal(resolveIpPoolSettings({ localIpFamily: 'IPv6' }).localIpFamily, 'auto', 'a hand-edited spelling cannot break the field')
+  assert.equal(toIpPoolConfig(resolveIpPoolSettings({ localIpFamily: 'ipv6' })).localIpFamily, 'ipv6')
+  assert.equal(toIpPoolConfig(IpPoolConfigSchema({ localIpFamily: 'ipv4' }) as never).localIpFamily, 'ipv4')
+})
+
+test('the status view reports the router\'s family, not the form value', () => {
+  // Same rule as 本地出口兜底: the dropdown must never claim a family the
+  // local-egress sockets are not dialling with.
+  const view = buildStatusView(null, false, [], { localIpFamily: 'ipv6' })
+  assert.equal(view.localIpFamily, 'ipv6')
+  assert.equal(buildStatusView(null, false, []).localIpFamily, 'auto', 'a stale/absent setting reads as the default')
+})

@@ -26,6 +26,7 @@
 import Schema from '@deepseek-ai/schemastery'
 
 import { DEFAULT_SMOKE_CONTENT, normalizeSmokeContents } from '../pool/smoke-content.ts'
+import { DEFAULT_LOCAL_IP_FAMILY, resolveLocalIpFamily, type LocalIpFamily } from '../pool/local-family.ts'
 import { DEFAULT_SUBSCRIPTION_USER_AGENT } from '../pool/subscription.ts'
 
 /**
@@ -144,6 +145,18 @@ export const IpPoolConfigSchema = Schema.object({
    * local egress, not the pool falling back to it.
    */
   localFallback: Schema.boolean().default(false),
+  /**
+   * 本机出口协议族 (live request 2026-10-18): the family the LOCAL egress dials
+   * with when the pool does not carry the request. `auto` prefers IPv6 where
+   * this machine has a routable one, which is what the official client does —
+   * the free lane refuses this host's IPv4 address and accepts its IPv6, on
+   * byte-identical requests (pool/local-family.ts holds the measurements).
+   *
+   * A string, exactly like `usageScope` below, so a hand-edited profile cannot
+   * make the field unreadable; `resolveLocalIpFamily` maps anything unknown
+   * back to `auto`.
+   */
+  localIpFamily: Schema.string().default(DEFAULT_LOCAL_IP_FAMILY),
   /** Same-request rotate attempts on pre-content transport/429 failures (§3.4). */
   maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3),
   /**
@@ -173,6 +186,8 @@ export interface IpPoolSettings {
   proxyPathPrefixes: string[]
   /** 本地出口兜底 (docs §3.3); false = a pool miss fails the request. */
   localFallback: boolean
+  /** 本机出口协议族; 'auto' = IPv6 where this machine has one (see the schema field). */
+  localIpFamily: LocalIpFamily
   maxRotateAttempts: number
   /** 'total' (persisted ledger) or 'run' (this process); see the schema field. */
   usageScope: UsageScopeSetting
@@ -220,6 +235,7 @@ export interface AnyIpPoolSection {
   proxyHosts?: string[]
   proxyPathPrefixes?: string[]
   localFallback?: boolean
+  localIpFamily?: string
   free?: Partial<IpPoolSettings['free']>
   /** Settings spelling: nested. */
   subscription?: Partial<IpPoolSettings['subscription']>
@@ -278,6 +294,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     proxyHosts: raw.proxyHosts ?? [],
     proxyPathPrefixes: raw.proxyPathPrefixes ?? [],
     localFallback: raw.localFallback ?? false,
+    localIpFamily: resolveLocalIpFamily(raw.localIpFamily),
     maxRotateAttempts: raw.maxRotateAttempts ?? 3,
     usageScope: resolveUsageScope(raw.usageScope),
   }
@@ -296,6 +313,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   proxyHosts: string[]
   proxyPathPrefixes: string[]
   localFallback: boolean
+  localIpFamily: LocalIpFamily
   free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   subscriptions: string[]
   subscription: { refreshMs: number; userAgent: string }
@@ -315,6 +333,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     proxyHosts: value.proxyHosts,
     proxyPathPrefixes: value.proxyPathPrefixes,
     localFallback: value.localFallback,
+    localIpFamily: value.localIpFamily,
     free: {
       enabled: value.free.enabled,
       targetSize: value.free.targetSize,

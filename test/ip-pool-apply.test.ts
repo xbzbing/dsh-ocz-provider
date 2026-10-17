@@ -195,12 +195,14 @@ test('every field the runtime reads survives the settings->config round trip', a
     enabled: true,
     maxConcurrentProbes: 7,
     localFallback: true,
+    localIpFamily: 'ipv6',
     subscription: { urls: ['https://x/y'], refreshMs: 60_000 },
   })
   await tick(30)
   const applied = starts[0]!.config.ipPool as Record<string, unknown>
   assert.equal(applied.maxConcurrentProbes, 7, 'probe concurrency must reach the runtime')
   assert.equal(applied.localFallback, true, '本地出口兜底 must reach the runtime (it decides what a pool miss means)')
+  assert.equal(applied.localIpFamily, 'ipv6', '本机出口协议族 must reach the runtime (it decides which family the local egress dials)')
   // The commit names no UA, so this is the schema DEFAULT reaching the runtime
   // (the literal ages with the airport's floor; see DEFAULT_SUBSCRIPTION_USER_AGENT).
   assert.deepEqual(applied.subscription, { refreshMs: 60_000, userAgent: 'clash-verge/v2.4.2' }, 'subscription interval + fetch UA must reach the runtime')

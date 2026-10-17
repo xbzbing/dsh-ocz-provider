@@ -114,12 +114,17 @@ export interface IpPoolSettingsValue {
   proxyHosts: string[]
   /** 本地出口兜底: false = a pool miss fails instead of using this machine. */
   localFallback: boolean
+  /** 本机出口协议族: 'auto' = IPv6 where this machine has one (default). */
+  localIpFamily: LocalIpFamilyView
   /** 'total' = the persisted ledger, 'run' = this host process. */
   usageScope: UsageScopeView
 }
 
 /** The two usage scopes the UI switches between. */
 export type UsageScopeView = 'total' | 'run'
+
+/** The three 本机出口协议族 positions (mirrors src/pool/local-family.ts). */
+export type LocalIpFamilyView = 'auto' | 'ipv4' | 'ipv6'
 
 /** Bridge /status view (mirrors src/ip-pool-settings/bridge.ts). */
 export interface PoolStatusView {
@@ -190,6 +195,8 @@ export interface PoolStatusView {
   /** 本地出口兜底 in force on the router (docs §3.3). Optional for older
    *  host snapshots. */
   localFallback?: boolean
+  /** 本机出口协议族 in force on the router; optional for older host snapshots. */
+  localIpFamily?: LocalIpFamilyView
   at: number
 }
 
@@ -272,6 +279,9 @@ const DEFAULTS: IpPoolSettingsValue = {
   // Mirrors the Host schema default (off): the switch ships disabled, so a
   // pool miss fails rather than egressing from this machine.
   localFallback: false,
+  // Mirrors the Host default: prefer IPv6 when this machine has a routable
+  // one (the free lane refuses this host's IPv4 and accepts its IPv6).
+  localIpFamily: 'auto',
   usageScope: 'total',
 }
 
@@ -301,6 +311,7 @@ interface FormState {
   pinnedExitId: string
   pinnedStrict: boolean
   localFallback: boolean
+  localIpFamily: LocalIpFamilyView
   probeModels: string[]
   probeContents: string[]
   maxConcurrentProbes: string
@@ -319,6 +330,7 @@ function emptyForm(): FormState {
     pinnedExitId: '',
     pinnedStrict: DEFAULTS.pinnedStrict,
     localFallback: DEFAULTS.localFallback,
+    localIpFamily: DEFAULTS.localIpFamily,
     probeModels: [],
     probeContents: [],
     maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
@@ -338,6 +350,7 @@ function formFromValue(value: IpPoolSettingsValue): FormState {
     pinnedExitId: value.pinnedExitId,
     pinnedStrict: value.pinnedStrict,
     localFallback: value.localFallback === true,
+    localIpFamily: value.localIpFamily === 'ipv4' || value.localIpFamily === 'ipv6' ? value.localIpFamily : 'auto',
     probeModels: [...value.probeModels],
     probeContents: [...(value.probeContents ?? [])],
     maxConcurrentProbes: String(value.maxConcurrentProbes),
@@ -391,6 +404,7 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
   push('pinnedExitId', form.pinnedExitId, value.pinnedExitId, base.pinnedExitId)
   push('pinnedStrict', form.pinnedStrict, value.pinnedStrict, base.pinnedStrict)
   push('localFallback', form.localFallback, value.localFallback, base.localFallback)
+  push('localIpFamily', form.localIpFamily, value.localIpFamily, base.localIpFamily)
   push('probeModels', form.probeModels, value.probeModels, base.probeModels)
   push('probeContents', form.probeContents, value.probeContents, base.probeContents)
   push('maxConcurrentProbes', Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes)
@@ -538,6 +552,56 @@ function ListEditor(props: {
       </div>
       {dup && <span className={styles.listDup} role="status">{t('listExists')}</span>}
     </div>
+  )
+}
+
+/**
+ * 本机出口协议族 picker (live request 2026-10-18): which IP family the LOCAL
+ * egress dials with. `auto` mirrors the official client — prefer IPv6 where
+ * this machine has a routable address and keep Node's happy-eyeballs fallback
+ * to IPv4 — while `ipv4`/`ipv6` pin the family. The free lane refuses this
+ * host's IPv4 address and accepts its IPv6 (src/pool/local-family.ts).
+ */
+function LocalFamilyPicker(props: {
+  value: LocalIpFamilyView
+  disabled?: boolean
+  t: IpPoolCardProps['t']
+  onChange: (next: LocalIpFamilyView) => void
+}): ReactNode {
+  const { value, disabled, t, onChange } = props
+  const [open, setOpen] = useState(false)
+  const order: LocalIpFamilyView[] = ['auto', 'ipv4', 'ipv6']
+  const label: Record<LocalIpFamilyView, string> = {
+    auto: t('localIpFamilyAuto'),
+    ipv4: t('localIpFamilyIpv4'),
+    ipv6: t('localIpFamilyIpv6'),
+  }
+  return (
+    <Menu
+      open={open}
+      onClose={() => setOpen(false)}
+      anchor={
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="local-ip-family-select"
+          disabled={disabled === true}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {label[value]}
+          <IconChevronDownOutlineRegular />
+        </Button>
+      }
+      items={order.map((id) => ({ id, label: label[id] }))}
+      selectedIds={[value]}
+      onSelect={(id) => {
+        onChange(id as LocalIpFamilyView)
+        setOpen(false)
+      }}
+      align="start"
+      side="bottom"
+      portal
+    />
   )
 }
 
@@ -1213,6 +1277,25 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         <div className={styles.settingRowText}>
           <span className={styles.settingRowTitle}>{t('localFallback')}</span>
           <span className={styles.fieldHint}>{t('localFallbackHint')}</span>
+        </div>
+      </div>
+
+      {/* 本机出口协议族 (live request 2026-10-18): the family the LOCAL egress
+          — a 固定本机 pin, or 本地出口兜底 after a pool miss — dials with.
+          'auto' is the shipped default and reproduces what the official
+          client does on this machine (IPv6 first, IPv4 as the fallback). */}
+      <div className={styles.settingRow}>
+        <span className={styles.settingRowControl} data-testid="field-localIpFamily">
+          <LocalFamilyPicker
+            value={form.localIpFamily}
+            disabled={!writable || saving}
+            t={t}
+            onChange={(next) => { setSaved(false); setForm({ ...form, localIpFamily: next }) }}
+          />
+        </span>
+        <div className={styles.settingRowText}>
+          <span className={styles.settingRowTitle}>{t('localIpFamily')}</span>
+          <span className={styles.fieldHint}>{t('localIpFamilyHint')}</span>
         </div>
       </div>
 

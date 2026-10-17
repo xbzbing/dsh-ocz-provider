@@ -17,6 +17,7 @@ import {
   routingContext,
 } from '../src/pool/dispatcher.ts'
 import { RoutingInstaller } from '../src/pool/installer.ts'
+import { ipv6FirstLookup } from '../src/pool/local-family.ts'
 
 function node(overrides: Partial<ExitNode> = {}): ExitNode {
   return {
@@ -704,4 +705,96 @@ test('dispatcher sentinel: window (b) is looser than (a) — a slow LLM TTFB beh
   await new Promise((r) => setTimeout(r, 300))
   assert.deepEqual(pool.passiveStats('ttfb:1'), { ok: 1, limited: 0, refused: 0, dead: 0, transport: 0 }, 'slow TTFB behind a live tunnel classified ok, never struck')
   assert.equal(pool.isUsable('ttfb:1', 'm'), true)
+})
+
+test('dispatcher: 本机 traffic rides the local-egress agent the family setting builds', () => {
+  // The family setting exists because the free lane refuses this host's IPv4
+  // and accepts its IPv6 (live 2026-10-18, identical bytes). Only the LOCAL
+  // egress may move: #direct still carries loopback, out-of-pool hosts and
+  // other lanes, and flipping those is not what 本机使用 IPv4 还是 IPv6 means.
+  const pool = new ExitPool()
+  const built: Array<{ options: unknown; tag: string }> = []
+  const hops: string[] = []
+  const seam = {
+    Agent: class {
+      constructor(options?: unknown) {
+        const tag = `agent-${built.length}`
+        built.push({ options, tag })
+        return {
+          tag,
+          dispatch: (): boolean => { hops.push(tag); return true },
+          close: () => Promise.resolve(),
+          destroy: () => Promise.resolve(),
+        }
+      }
+    },
+    ProxyAgent: class {
+      constructor() {
+        throw new Error('no exit is used in this test')
+      }
+    },
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => undefined,
+  }
+  const router = new PoolRoutingDispatcher({
+    pool,
+    undici: seam as never,
+    proxyHosts: ['opencode.ai'],
+    localFallback: true,
+    localIpFamily: 'ipv4',
+  })
+  assert.equal(router.localIpFamily, 'ipv4')
+  assert.equal(built[0]!.options, undefined, 'the plain direct agent takes no connect options')
+  assert.deepEqual(built[1]!.options, { connect: { family: 4 } }, 'the local agent dials the family it was told')
+
+  router.dispatch({ origin: 'https://example.com/x' } as never, {} as never)
+  assert.deepEqual(hops, ['agent-0'], 'out-of-pool hosts keep the plain direct path')
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/inference/v1/chat/completions' } as never, {} as never)
+  })
+  assert.deepEqual(hops, ['agent-0', 'agent-1'], 'pool-host traffic the pool cannot carry rides the local agent')
+
+  // The settings page moves it live: a NEW socket family means a new agent,
+  // and the next request is what proves the swap, not the getter.
+  router.setLocalIpFamily('ipv6')
+  assert.equal(router.localIpFamily, 'ipv6')
+  assert.deepEqual(built[2]!.options, { connect: { family: 6 } })
+  routingContext.run({ model: 'm', session: 's2' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never)
+  })
+  assert.equal(hops.at(-1), 'agent-2')
+
+  // Re-applying the same position is a no-op: no churn of a live socket pool.
+  const before = built.length
+  router.setLocalIpFamily('ipv6')
+  assert.equal(built.length, before, 'nothing changed about the socket, so nothing is rebuilt')
+
+  // An unknown value resolves back to the default instead of breaking routing.
+  router.setLocalIpFamily('IPv6-only')
+  assert.equal(router.localIpFamily, 'auto')
+})
+
+test('dispatcher: the auto position follows the machine\'s interface table', () => {
+  const pool = new ExitPool()
+  const options: unknown[] = []
+  const seam = {
+    Agent: class {
+      constructor(next?: unknown) {
+        options.push(next)
+        return { dispatch: () => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() }
+      }
+    },
+    ProxyAgent: class {},
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => undefined,
+  }
+  const noIpv6 = { en0: [{ address: '192.168.31.100', family: 'IPv4' }] }
+  const withIpv6 = { en0: [{ address: '192.168.31.100', family: 'IPv4' }, { address: '240e:305:18ac:3c00::1', family: 'IPv6' }] }
+  const plain = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], listInterfaces: () => noIpv6 })
+  assert.equal(plain.localIpFamily, 'auto')
+  assert.deepEqual(options[1], { connect: {} }, 'no IPv6 on the machine: no opinion, exactly as before the setting')
+  options.length = 0
+  new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], listInterfaces: () => withIpv6 })
+  const connect = (options[1] as { connect: { lookup?: unknown } }).connect
+  assert.equal(connect.lookup, ipv6FirstLookup, 'IPv6 present: the resolver answers AAAA first')
 })

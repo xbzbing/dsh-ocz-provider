@@ -18,6 +18,14 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 
 import { Agent, ProxyAgent, type Dispatcher } from 'undici'
 
+import {
+  DEFAULT_LOCAL_IP_FAMILY,
+  localEgressConnectOptions,
+  resolveLocalIpFamily,
+  type InterfaceReader,
+  type LocalEgressConnectOptions,
+  type LocalIpFamily,
+} from './local-family.ts'
 import type { ExitPool } from './pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID } from './usage.ts'
 
@@ -101,6 +109,20 @@ export interface PoolRoutingOptions {
    * asking for local egress, not the pool falling back to it.
    */
   localFallback?: boolean
+  /**
+   * 本机出口协议族 (live request 2026-10-18): which family the LOCAL egress
+   * agent dials with. `auto` (default) prefers IPv6 when this machine has a
+   * routable one — the free lane refuses this host's IPv4 and accepts its
+   * IPv6, and the official client reaches the AAAA records — while `ipv4` /
+   * `ipv6` pin the family outright. See local-family.ts for the measurements.
+   */
+  localIpFamily?: LocalIpFamily
+  /**
+   * Interface-table seam for the `auto` position (tests). Production leaves it
+   * unset and reads `os.networkInterfaces()` inside local-family.ts, so a test
+   * can decide whether "this machine has IPv6" without touching the host.
+   */
+  listInterfaces?: InterfaceReader
   /** Log sink for routing decisions (diagnostics). */
   logger?: { warn(message: string): void }
 }
@@ -259,9 +281,22 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   #headersMs: number
   /** 本地出口兜底 in force (docs §3.3); false = pool-only, never local. */
   #localFallback: boolean
+  /** 本机出口协议族 in force (local-family.ts). */
+  #localFamily: LocalIpFamily
+  /** Interface-table seam for `auto`; undefined = the real interface table. */
+  #listInterfaces?: InterfaceReader
   #logger?: { warn(message: string): void }
   /** Direct path for non-pool hosts and loopback. */
   #direct: Dispatcher
+  /**
+   * The LOCAL egress agent — separate from {@link #direct} on purpose. This is
+   * the agent that carries the Zen lane when the pool does not (固定本机 pin,
+   * 本地出口兜底), so it is the only one the family setting may touch:
+   * `#direct` also carries loopback (the settings bridge, sing-box control) and
+   * every other host some other plugin fetches, and flipping those to another
+   * family is not what 本机使用 IPv4 还是 IPv6 promises.
+   */
+  #localEgress: Dispatcher
   /** LRU of per-exit ProxyAgents (docs/ip-pool.md 2, exit multi-instance). */
   #agents = new Map<string, Dispatcher>()
   #agentsOrder: string[] = []
@@ -285,8 +320,22 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     // machine's IP off the wire, so "no exit" must not silently mean "this
     // machine" (see PoolRoutingOptions.localFallback).
     this.#localFallback = options.localFallback === true
+    this.#localFamily = resolveLocalIpFamily(options.localIpFamily ?? DEFAULT_LOCAL_IP_FAMILY)
+    this.#listInterfaces = options.listInterfaces
     this.#logger = options.logger
     this.#direct = new options.undici.Agent()
+    this.#localEgress = new options.undici.Agent({ connect: this.#localConnectOptions(this.#localFamily) })
+  }
+
+  /**
+   * The connect options for one family position, through the injected
+   * interface reader when a caller supplied one (the reader decides whether
+   * `auto` prefers IPv6, so a test can pin either answer).
+   */
+  #localConnectOptions(family: LocalIpFamily): LocalEgressConnectOptions {
+    return this.#listInterfaces === undefined
+      ? localEgressConnectOptions(family)
+      : localEgressConnectOptions(family, this.#listInterfaces)
   }
 
   /** Live re-apply of 本地出口兜底 (settings page, docs §3.3/§5.1). */
@@ -297,6 +346,31 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /** 本地出口兜底 in force (diagnostics / status bridge). */
   get localFallback(): boolean {
     return this.#localFallback
+  }
+
+  /**
+   * Live re-apply of 本机出口协议族 (settings page, local-family.ts).
+   *
+   * A family is a property of the socket, so the switch means a NEW agent: the
+   * old one is destroyed after the swap (its pooled connections were dialled
+   * under the previous family and would otherwise keep serving it). A no-op
+   * position does not churn the socket pool — `auto` on an IPv4-only machine
+   * resolves to the same empty options twice.
+   */
+  setLocalIpFamily(value: unknown): void {
+    const family = resolveLocalIpFamily(value)
+    const previous = this.#localConnectOptions(this.#localFamily)
+    const next = this.#localConnectOptions(family)
+    this.#localFamily = family
+    if (previous.family === next.family && previous.lookup === next.lookup) return
+    const dying = this.#localEgress
+    this.#localEgress = new this.#undici.Agent({ connect: next })
+    if (!this.#closed) void dying.destroy().catch(() => {})
+  }
+
+  /** 本机出口协议族 in force (diagnostics / status bridge). */
+  get localIpFamily(): LocalIpFamily {
+    return this.#localFamily
   }
 
   /** Live re-apply of the proxied-host list (settings page, docs §5.1). */
@@ -337,13 +411,17 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /**
    * Pool-host traffic that could not ride an exit (no pick, or no agent):
    * stamp the direct bucket so the stats modal's 直连兜底 row stays honest,
-   * then dispatch direct. Only reachable with 本地出口兜底 ON (or an explicit
-   * 固定本机 pin) — {@link #failClosed} covers the other case.
+   * then dispatch from this machine. Only reachable with 本地出口兜底 ON (or an
+   * explicit 固定本机 pin) — {@link #failClosed} covers the other case.
+   *
+   * Rides {@link #localEgress}, not {@link #direct}: this is the branch the
+   * 本机出口协议族 setting governs, and it is the one the free lane sees as
+   * "outside OpenCode" when it leaves over a refused IPv4 address.
    */
   #directFallback(context: RoutingContext, options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
     context.exitId = DIRECT_EXIT_ID
     this.#pool.recordDirectRequest()
-    return this.#direct.dispatch(options, handler)
+    return this.#localEgress.dispatch(options, handler)
   }
 
   /**
@@ -624,13 +702,13 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
 
   close(): Promise<void> {
     this.#closed = true
-    const jobs = [this.#direct.close(), ...[...this.#agents.values()].map((a) => a.close())]
+    const jobs = [this.#direct.close(), this.#localEgress.close(), ...[...this.#agents.values()].map((a) => a.close())]
     return Promise.all(jobs).then(() => undefined)
   }
 
   destroy(): Promise<void> {
     this.#closed = true
-    const jobs = [this.#direct.destroy(), ...[...this.#agents.values()].map((a) => a.destroy())]
+    const jobs = [this.#direct.destroy(), this.#localEgress.destroy(), ...[...this.#agents.values()].map((a) => a.destroy())]
     this.#agents.clear()
     this.#agentsOrder = []
     return Promise.all(jobs).then(() => undefined)

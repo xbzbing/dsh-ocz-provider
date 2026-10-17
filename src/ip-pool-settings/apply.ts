@@ -253,6 +253,10 @@ export function applyIpPoolSettings(
           // 本地出口兜底 (docs §3.3): the router's answer wins, this stands in
           // while no dispatcher is installed (pool off in this process).
           localFallback: controller.settings().localFallback,
+          // 本机出口协议族 (local-family.ts): reported the same way — the
+          // router's resolution wins, so the dropdown never claims a family the
+          // local-egress sockets are not dialling with.
+          localIpFamily: controller.settings().localIpFamily,
           // The usage switch the card owns: every usage surface (this bridge's
           // per-exit numbers, the modal's tabs) follows it, while the footer
           // stays pinned to 总览 (live request 2026-10-14).

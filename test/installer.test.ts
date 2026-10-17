@@ -301,3 +301,31 @@ test('本地出口兜底: the installer carries it into the router and re-applie
   assert.equal(router.localFallback, false, 'and back')
   installer.disable()
 })
+
+test('本机出口协议族: the installer carries it into the router and re-applies it live', () => {
+  // Same shape as 本地出口兜底: the value is known before a router exists, so
+  // the first install already dials the configured family, and every later
+  // change reaches the running layer without a restart.
+  const undici = makeUndiciStub()
+  const installer = new RoutingInstaller({
+    pool: makePoolStub(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    undici: undici as any,
+    proxyHosts: ['opencode.ai'],
+    logger: { info: () => {}, warn: () => {} },
+  })
+  assert.equal(installer.localIpFamily, 'auto', 'absent means auto — IPv6 where this machine has it')
+
+  installer.install()
+  const router = undici.peek() as PoolRoutingDispatcher
+  assert.equal(router.localIpFamily, 'auto', 'the router starts on the shipped default')
+  assert.equal(installer.localIpFamily, 'auto', 'the getter reads the running router')
+
+  installer.setLocalIpFamily('ipv6')
+  assert.equal(router.localIpFamily, 'ipv6', 'a live change reaches the installed layer')
+  assert.equal(installer.localIpFamily, 'ipv6')
+
+  installer.setLocalIpFamily('only-v4')
+  assert.equal(router.localIpFamily, 'auto', 'an unknown spelling resolves back to the default')
+  installer.disable()
+})

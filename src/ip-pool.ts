@@ -19,6 +19,7 @@ import { join } from 'node:path'
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
 import { LOCAL_EXIT_ID } from './pool/usage.ts'
 import type { UndiciSeam } from './pool/dispatcher.ts'
+import { resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts'
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
 import { Prober } from './pool/prober.ts'
@@ -207,6 +208,10 @@ export interface IpPoolRuntime {
     readonly localFallback?: boolean
     /** Live re-apply of 本地出口兜底. */
     setLocalFallback?(value: boolean): void
+    /** 本机出口协议族 in force on the running router (local-family.ts). */
+    readonly localIpFamily?: LocalIpFamily
+    /** Live re-apply of 本机出口协议族. */
+    setLocalIpFamily?(value: unknown): void
   }
   /** Shared probe scheduler (admission + periodic probes + UI-triggered). */
   prober: Prober
@@ -283,6 +288,9 @@ export async function startIpPool(
     // 本地出口兜底 defaults OFF: an exit pool exists to keep this machine's
     // IP off the wire, so an empty pool means "fail", not "egress locally".
     localFallback: ipPool.localFallback === true,
+    // 本机出口协议族 defaults to 'auto' (IPv6 where this machine has one):
+    // the free lane refuses this host's IPv4 and accepts its IPv6.
+    localIpFamily: resolveLocalIpFamily(ipPool.localIpFamily),
     logger,
   }
   const installer: IpPoolRuntime['installer'] = deps.makeInstaller !== undefined
@@ -363,6 +371,9 @@ export async function startIpPool(
     // 本地出口兜底 is a routing policy, not table membership: one call moves the
     // running router between "fail when the pool is out" and "egress locally".
     installer.setLocalFallback?.(current.localFallback === true)
+    // 本机出口协议族 is the same kind of policy: it decides which family the
+    // local-egress socket dials with, live, without touching the exit table.
+    installer.setLocalIpFamily?.(resolveLocalIpFamily(current.localIpFamily))
 
     // Free loop on/off + restart on target change (interval fixed 10min).
     const wantRefill = (current.free?.enabled ?? true) && current.enabled !== false

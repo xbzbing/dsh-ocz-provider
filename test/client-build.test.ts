@@ -197,3 +197,13 @@ test('the switch rows lead with their control', () => {
   assert.ok(rule !== '', 'the settingRow rule is in the bundle')
   assert.ok(!rule.includes('justify-content:space-between'), 'the row does not push its control to the trailing edge')
 })
+
+test('the 本机出口协议族 dropdown ships in the bundle', () => {
+  const source = bundle()
+  // Live request 2026-10-18: 增加一个下拉选项，本机使用 IPv4 还是 IPv6，
+  // 默认有 IPv6 的话走 IPv6.
+  assert.ok(source.includes('field-localIpFamily'), 'the dropdown is mounted in the pool card')
+  assert.ok(source.includes('本机出口协议族'), 'with its zh label')
+  assert.ok(source.includes('localIpFamilyHint'), 'and the hint that spells out the three positions')
+  assert.ok(source.includes('localIpFamilyAuto'), 'plus the option labels')
+})

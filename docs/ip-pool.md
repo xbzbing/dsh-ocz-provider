@@ -480,6 +480,7 @@ POST {zen}/v1/chat/completions
 | subscription.userAgent | `clash-verge/v2.4.2` | 订阅拉取的 User-Agent。机场普遍按 UA 做白名单：不在名单里会返回错误页。**这个值会过期**（它是客户端版本号，panel 会抬高下限）：实测同一机场 `clash-verge/1.6.0` → 502、`clash-verge/v2.0` 长期 200，2026-10-13 起 `v2.0` → `403 PLEASE UPGRADE CLIENT`，而 `clash-verge/v2.4.2` / `mihomo/1.19.8` / `clash.meta/1.19.8` 均 200。默认留在 Clash-Verge 家族：**家族决定返回格式**，换家族会静默改变其它机场拿到的体形状。部分机场按 UA 决定返回格式（Clash 形状给 `proxies:` YAML，v2ray 形状给 base64 链接）。空值回落默认值，设置页可改（立即生效，不用重启）。 |
 | pinnedStrict | false | 绝对固定模式（§3.6）：true 时 pinned 失败透传、不换出口不直连 |
 | localFallback | **false** | **本地出口兜底**（§3.3，2026-10-18）：池里没有可用出口时，true = 退回本机直连（暴露本机 IP），false = 请求失败。显式固定本机不受它限制 |
+| localIpFamily | **auto** | **本机出口协议族**（§3.7，2026-10-18）：本机出口（固定本机 / 本地兜底）用哪个协议族。`auto` = 本机有可路由 IPv6 时优先 IPv6、失败回退 IPv4（与官方客户端一致）；`ipv4` / `ipv6` 为强制指定、不回退。只影响本机出口，出口池流量不受影响 |
 
 全部进 settings namespace，设置页可调（maxConcurrentProbes 也开放：有些用户宁可慢也不并发）。
 
@@ -560,6 +561,7 @@ Config = Schema.object({
   pinnedExitId: Schema.string().default(''),       // 固定主力出口（§3.6；出口列表行内设置或此处直填地址）
   pinnedStrict: Schema.boolean().default(false), // true = 绝对固定：失败也不换出口、不直连（§3.6 行为契约）
   localFallback: Schema.boolean().default(false), // 本地出口兜底（§3.3）：false = 池内无可用出口时请求失败，不用本机 IP
+  localIpFamily: Schema.string().default('auto'), // 本机出口协议族（§3.7）：'auto' 有 IPv6 走 IPv6，'ipv4'/'ipv6' 强制；字符串而非 union，手改 patch 也读得回来
   cooldown: Schema.object({ /* §4.6 参数 */ }),
   maxRotateAttempts: Schema.number().default(3),
   usageScope: Schema.string().default('total'),  // 用量口径：'total' = 持久台账（§5.6），'run' = 本次重启；其它值一律按 total
@@ -581,6 +583,7 @@ Config = Schema.object({
 | 池子容量 | poolSize 数字框（1-100，默认 10）+ 说明「同时在线的出口数：上线先测速取最快的前 N 个，并把 sing-box 本地监听收缩到它们，其余留作候补」（§4.7） |
 | 用量统计（持久记录） | 口径切换（分段控件：「总览（累计）」/「本次重启」，**即点即生效**，不走保存按钮）+ 该口径下的请求/token/tok-s/会话数/活跃天数 + 说明。它决定**出口列表里的用量数字**看哪个口径；左下角入口的 token 固定显示当天用量（§5.5/§5.6） |
 | 本地出口兜底 | 开关（**主开关下方的独立行**）。开：池里没有可用 IP 时退回本机直连（暴露本机 IP）；关（**默认**）：请求直接失败，不用本机 IP。判定覆盖「池空 / 全冷却 / 出口的 ProxyAgent 建不起来」三种情况；弹窗里手动固定「本机」仍然生效 |
+| 本机出口协议族 | 下拉（**本地出口兜底下方**）：「自动（优先 IPv6）」/「仅 IPv4」/「仅 IPv6」。管的是本机出口（固定「本机」或本地兜底）用哪个协议族；默认自动 = 本机有可用 IPv6 就优先 IPv6、连不上回退 IPv4。改完立即生效（换 Agent，不重启） |
 | 出口列表 | 每行：地址、来源、延迟、质量级、出口 IP（悬停显示位置）、状态徽章（ok/冷却中/dead/已降级）、真实流量计数、单出口「探测」按钮 + 🔒「固定为主力」/⟳「轮换」组成的按钮组；顶部「批量探活」按钮（两级调度跑，显示队列进度 x/y） |
 | 模型封禁列表 | 折叠区：被 banned 的 (出口, 模型) 对及原因（403 region-blocked 等），供用户理解为什么某出口不服务某模型 |
 | 探活参数 | §4.6 表格的可调项 |

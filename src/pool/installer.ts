@@ -15,6 +15,7 @@
 import type { Dispatcher } from 'undici'
 
 import { PoolRoutingDispatcher, resolveProxyHosts, resolveProxyPathPrefixes, type RoutingDispatcherSurface, type UndiciSeam } from './dispatcher.ts'
+import { resolveLocalIpFamily, type InterfaceReader, type LocalIpFamily } from './local-family.ts'
 import type { ExitPool } from './pool.ts'
 
 /** The setter accepts the full Dispatcher; our router exposes the subset
@@ -30,6 +31,10 @@ export interface InstallerDeps {
   proxyPathPrefixes?: string[]
   /** 本地出口兜底 (docs §3.3); default false = pool-only, never local. */
   localFallback?: boolean
+  /** 本机出口协议族 (local-family.ts); default 'auto' = IPv6 where available. */
+  localIpFamily?: LocalIpFamily
+  /** Interface-table seam for the `auto` position (tests; see dispatcher.ts). */
+  listInterfaces?: InterfaceReader
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
@@ -105,6 +110,22 @@ export class RoutingInstaller {
   }
 
   /**
+   * 本机出口协议族 in force, reported exactly like 本地出口兜底: the running
+   * router's own resolution wins, so the dropdown can never display a position
+   * the sockets are not actually using.
+   */
+  get localIpFamily(): LocalIpFamily {
+    return this.#current?.localIpFamily ?? resolveLocalIpFamily(this.#deps.localIpFamily)
+  }
+
+  /** Live re-apply of 本机出口协议族 (settings page, local-family.ts). */
+  setLocalIpFamily(value: unknown): void {
+    const family = resolveLocalIpFamily(value)
+    this.#deps.localIpFamily = family
+    this.#current?.setLocalIpFamily(family)
+  }
+
+  /**
    * Decide whether installing is safe (docs/ip-pool.md R1 coexistence policy).
    * The global dispatcher slot is single-owner: if another dispatcher-level
    * plugin (dsh-llm-proxy etc.) already installed its own layer, installing
@@ -146,6 +167,8 @@ export class RoutingInstaller {
       proxyHosts: this.#deps.proxyHosts,
       proxyPathPrefixes: this.#deps.proxyPathPrefixes,
       localFallback: this.#deps.localFallback === true,
+      localIpFamily: resolveLocalIpFamily(this.#deps.localIpFamily),
+      listInterfaces: this.#deps.listInterfaces,
       logger: this.#deps.logger,
     })
     // Read BEFORE swapping: undici's `setGlobalDispatcher` returns void (not
