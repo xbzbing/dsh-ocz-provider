@@ -22,10 +22,6 @@ export function RequestHeadersEditor(props: {
   return (
     <>
       <div className={styles.settingRow}>
-        <div className={styles.settingRowText}>
-          <span className={styles.settingRowTitle}>{t('requestHeadersDesktopMode')}</span>
-          <span className={styles.fieldHint}>{t('requestHeadersDesktopModeHint')}</span>
-        </div>
         <span className={styles.settingRowControl} data-testid="field-desktopMode">
           <Switch
             checked={desktopMode}
@@ -34,6 +30,10 @@ export function RequestHeadersEditor(props: {
             onChange={onDesktopModeChange}
           />
         </span>
+        <div className={styles.settingRowText}>
+          <span className={styles.settingRowTitle}>{t('requestHeadersDesktopMode')}</span>
+          <span className={styles.fieldHint}>{t('requestHeadersDesktopModeHint')}</span>
+        </div>
       </div>
       <label className={styles.field}>
         <span className={styles.fieldLabel}>{t('requestHeadersLabel')}</span>

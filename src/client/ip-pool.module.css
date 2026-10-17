@@ -165,13 +165,17 @@
   color: var(--dsw-alias-state-error-primary, #d1242f);
 }
 
-/* -- master switch row --------------------------------------------------------- */
+/* -- switch rows (master switch · desktop-mode toggle) -------------------------- */
 
+/* The switch leads the row and the title/hint block follows it (live request
+   2026-10-17; it used to sit at the trailing edge under space-between). No
+   space-between any more — with the control first the text block takes the
+   remaining width, so a long hint wraps beside the switch instead of being
+   pushed away from it. */
 .settingRow {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   padding: 12px 14px;
   border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
   border-radius: 8px;
@@ -182,6 +186,9 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* Remaining width, and min-width:0 lets it shrink below its intrinsic width
+     so a long hint wraps instead of overflowing the row. */
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -195,6 +202,8 @@
   flex: none;
   display: flex;
   align-items: center;
+  /* The 20px capsule sits on the title's optical line: flex-start aligns the
+     row tops, and the title's line box is ~2px shorter than the switch. */
   padding-top: 2px;
 }
 

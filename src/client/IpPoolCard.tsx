@@ -1164,12 +1164,9 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   return (
     <SettingsForm labels={formLabels(t)} state={shell} onSave={() => { void handleSave() }} onDiscard={handleDiscard}>
     <div className={styles.body} data-testid="ip-pool-form">
-      {/* Master switch: the page's primary control, status strip right under. */}
+      {/* Master switch: the page's primary control, status strip right under.
+          The switch leads the row and the text follows it. */}
       <div className={styles.settingRow}>
-        <div className={styles.settingRowText}>
-          <span className={styles.settingRowTitle}>{t('enabled')}</span>
-          <span className={styles.fieldHint}>{t('enabledHint')}</span>
-        </div>
         <span className={styles.settingRowControl} data-testid="field-enabled">
           <Switch
             checked={form.enabled}
@@ -1178,6 +1175,10 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
             onChange={(next) => { setSaved(false); setForm({ ...form, enabled: next }) }}
           />
         </span>
+        <div className={styles.settingRowText}>
+          <span className={styles.settingRowTitle}>{t('enabled')}</span>
+          <span className={styles.fieldHint}>{t('enabledHint')}</span>
+        </div>
       </div>
       <OverviewBar status={form.enabled ? status : null} t={t} />
 

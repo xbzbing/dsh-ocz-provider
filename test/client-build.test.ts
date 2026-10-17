@@ -169,3 +169,23 @@ test('client manifest is declared in package.json', () => {
   assert.ok(bundle().includes('plugins.bundle.config'), 'the DSH 0.2 bundle-page configuration is registered')
   assert.deepEqual(pkg.exports?.['./client'], './lib/client.js')
 })
+
+test('the switch rows lead with their control', () => {
+  // Live request 2026-10-17: the master switch — and the desktop-mode toggle
+  // sharing the row style — moved from the row's trailing edge to its leading
+  // one. Two things carry that, and a type check sees neither: the control is
+  // the row's first child, and the row no longer pushes it away with
+  // space-between. Both rows are checked because they share one rule.
+  const source = code(bundle())
+  for (const id of ['field-enabled', 'field-desktopMode']) {
+    const at = source.indexOf(id)
+    assert.ok(at > 0, `${id} is in the bundle`)
+    const row = source.slice(at, at + 2000)
+    const text = row.indexOf('settingRowText')
+    assert.ok(text > 0, `${id}'s row still renders its title/hint block`)
+    assert.ok(row.indexOf('settingRowTitle') > text, `${id}'s switch precedes the text block`)
+  }
+  const rule = source.match(/_settingRow\{[^}]*\}/)?.[0] ?? ''
+  assert.ok(rule !== '', 'the settingRow rule is in the bundle')
+  assert.ok(!rule.includes('justify-content:space-between'), 'the row does not push its control to the trailing edge')
+})
