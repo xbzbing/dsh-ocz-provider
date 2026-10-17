@@ -664,6 +664,50 @@
   color: var(--dsw-alias-label-secondary, #4b5563);
 }
 
+/* The Top 会话 / 项目 switch (live request 2026-10-18): underline tabs, the
+   host workspace's own 对话/轨迹 idiom (dsh-client-ui-conversation's
+   .tabs/.tab/.tabActive). The underline is the tab's own :after — 2px,
+   radius 2px, transparent until the tab is active and then theme blue —
+   sitting ON the row's hairline so the active mark reads as part of the
+   line rather than a second one. Titles move into the tabs themselves. */
+.usageTabs {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.usageTab {
+  position: relative;
+  padding: 0 0 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.usageTab:after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+
+.usageTabActive {
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.usageTabActive:after {
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+
 /* The per-day chart (live request 2026-10-18: 改成日期+柱状图). One column per
    day on a shared baseline: the bar's height is that day's share of the
    heaviest day in the window, and the date plus the real token figure sit

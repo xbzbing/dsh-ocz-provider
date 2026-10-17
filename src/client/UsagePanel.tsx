@@ -54,6 +54,14 @@ export interface UsagePanelProps {
 export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelProps): ReactNode {
   const [confirming, setConfirming] = useState(false)
   const [clearing, setClearing] = useState(false)
+  /**
+   * Which breakdown is on screen (live request 2026-10-18): the Top 会话
+   * table and the 项目 roll-up are two views of the same ledger, so they
+   * became underline tabs (the host workspace's own 对话/轨迹 idiom) rather
+   * than two stacked sections. Default to sessions — the table is the
+   * one an operator scans first.
+   */
+  const [breakdown, setBreakdown] = useState<'sessions' | 'projects'>('sessions')
   const days = usage.days.slice(-windowDays)
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
@@ -152,54 +160,67 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
           )}
       </div>
 
+      {/* The two breakdowns as underline tabs (live request 2026-10-18: 用
+          dsh 工作区那种切换方式). The titles live in the tabs themselves, so
+          the old per-section headings are gone. */}
       <div className={styles.usageSection}>
-        <span className={styles.usageSectionTitle}>{t('usageTopSessions')}</span>
-        {sessions.length === 0
-          ? <p className={styles.status}>{t('usageSessionsEmpty')}</p>
-          : (
-            <div className={styles.usageTableWrap}>
-              <table className={styles.usageTable}>
-                <thead>
-                  <tr>
-                    <th>{t('usageColSession')}</th>
-                    <th>{t('usageColProject')}</th>
-                    <th>{t('statsColRequests')}</th>
-                    <th>{t('usageColTokens')}</th>
-                    <th>{t('statsColLastUsed')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sessions.map((row) => (
-                    <tr key={row.id}>
-                      <td>
-                        {/* The label is the HOST's session title when the host
-                            has one (the read-time join in /status; live request
-                            2026-10-14 — it used to show part of the prompt),
-                            falling back to the recorded first user turn. The
-                            full id rides the tooltip. */}
-                        <span className={styles.sessionLabel} title={row.id}>
-                          {row.label !== '' ? row.label : t('usageUnlabeled')}
-                        </span>
-                      </td>
-                      <td>
-                        {row.project === null
-                          ? t('statsNever')
-                          : <span className={styles.projectLabel} title={row.project.path}>{row.project.title}</span>}
-                      </td>
-                      <td>{row.requests.toLocaleString()}</td>
-                      <td>{compact(row.tokens)}</td>
-                      <td>{timeLabel(row.lastAt, t('statsNever'))}</td>
+        <div className={styles.usageTabs} role="tablist" aria-label={t('usageBreakdownTitle')}>
+          {(['sessions', 'projects'] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={breakdown === key}
+              className={breakdown === key ? `${styles.usageTab} ${styles.usageTabActive}` : styles.usageTab}
+              onClick={() => setBreakdown(key)}
+            >
+              {key === 'sessions' ? t('usageTopSessions') : t('usageProjectsTitle')}
+            </button>
+          ))}
+        </div>
+        {breakdown === 'sessions' ? (
+          sessions.length === 0
+            ? <p className={styles.status}>{t('usageSessionsEmpty')}</p>
+            : (
+              <div className={styles.usageTableWrap}>
+                <table className={styles.usageTable}>
+                  <thead>
+                    <tr>
+                      <th>{t('usageColSession')}</th>
+                      <th>{t('usageColProject')}</th>
+                      <th>{t('statsColRequests')}</th>
+                      <th>{t('usageColTokens')}</th>
+                      <th>{t('statsColLastUsed')}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-      </div>
-
-      {projects.length > 0 && (
-        <div className={styles.usageSection}>
-          <span className={styles.usageSectionTitle}>{t('usageProjectsTitle')}</span>
+                  </thead>
+                  <tbody>
+                    {sessions.map((row) => (
+                      <tr key={row.id}>
+                        <td>
+                          {/* The label is the HOST's session title when the host
+                              has one (the read-time join in /status; live request
+                              2026-10-14 — it used to show part of the prompt),
+                              falling back to the recorded first user turn. The
+                              full id rides the tooltip. */}
+                          <span className={styles.sessionLabel} title={row.id}>
+                            {row.label !== '' ? row.label : t('usageUnlabeled')}
+                          </span>
+                        </td>
+                        <td>
+                          {row.project === null
+                            ? t('statsNever')
+                            : <span className={styles.projectLabel} title={row.project.path}>{row.project.title}</span>}
+                        </td>
+                        <td>{row.requests.toLocaleString()}</td>
+                        <td>{compact(row.tokens)}</td>
+                        <td>{timeLabel(row.lastAt, t('statsNever'))}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+        ) : (
           <ul className={styles.projectList}>
             {projects.map((row) => (
               <li key={row.id} className={styles.projectRow}>
@@ -214,8 +235,8 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
 
       <p className={styles.usageFootnote}>
         {t('usageFootnote', {
