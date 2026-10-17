@@ -42,7 +42,7 @@ export interface UsagePanelProps {
    * refresh. Resolves false when the host refused.
    */
   onClear: () => Promise<boolean>
-  /** Days charted in the bar list (default 14). */
+  /** Days charted in the daily column chart (default 14). */
   windowDays?: number
 }
 
@@ -126,21 +126,26 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
         {days.length === 0
           ? <p className={styles.status}>{t('usageDailyEmpty')}</p>
           : (
-            <ul className={styles.dayList}>
+            <ul className={styles.dayChart}>
               {days.map((row) => (
-                <li key={row.day} className={styles.dayRow}>
-                  <span className={styles.dayLabel}>{shortDay(row.day)}</span>
-                  {/* Bar width is the day's share of the heaviest day in the
-                      window; the value column carries the real number so the
-                      bar only has to rank. */}
+                <li
+                  key={row.day}
+                  className={styles.dayColumn}
+                  title={`${shortDay(row.day)} · ${compact(row.tokens)} tok · ${t('usageRequestsShort', { count: row.requests.toLocaleString() })}`}
+                >
+                  {/* Bar height is the day's share of the heaviest day in the
+                      window; the column carries the real token figure under
+                      the date, so the bar only has to rank. The request count
+                      lives in the hover title — a third number under every
+                      column is what turns a chart back into a table. */}
                   <span className={styles.dayTrack}>
                     <span
                       className={styles.dayBar}
-                      style={{ width: `${heaviest === 0 ? 0 : Math.max(2, Math.round((row.tokens / heaviest) * 100))}%` }}
+                      style={{ height: `${heaviest === 0 ? 0 : Math.round((row.tokens / heaviest) * 100)}%` }}
                     />
                   </span>
+                  <span className={styles.dayLabel}>{shortDay(row.day)}</span>
                   <span className={styles.dayValue}>{compact(row.tokens)} tok</span>
-                  <span className={styles.dayRequests}>{t('usageRequestsShort', { count: row.requests.toLocaleString() })}</span>
                 </li>
               ))}
             </ul>

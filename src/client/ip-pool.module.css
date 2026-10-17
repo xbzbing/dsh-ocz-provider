@@ -688,50 +688,63 @@
   color: var(--dsw-alias-label-secondary, #4b5563);
 }
 
-.dayList {
+/* The per-day chart (live request 2026-10-18: 改成日期+柱状图). One column per
+   day on a shared baseline: the bar's height is that day's share of the
+   heaviest day in the window, and the date plus the real token figure sit
+   under it. A flex row of divs rather than a charting library — the client
+   half may not pull dependencies (the same rule that keeps icons.tsx
+   hand-drawn), and 14 bars need nothing more. */
+.dayChart {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: flex-end;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.dayRow {
-  display: grid;
-  grid-template-columns: 44px 1fr 76px 60px;
+/* `flex: 1 1 0` keeps every column the same width; the floor only kicks in
+   on a narrow window, where columns stop shrinking below a readable width
+   instead of crushing the labels (the content region then scrolls sideways). */
+.dayColumn {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 52px;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 4px;
 }
 
-.dayLabel {
-  font-variant-numeric: tabular-nums;
-  color: var(--dsw-alias-label-tertiary, #6b7280);
-}
-
+/* The track fixes the bar's scale: 88px IS the chart's y-axis, so a full bar
+   (share 100%) tops out there and every other day scales against it. Baseline
+   tick only, no empty-track fill behind the bar — a light pill behind a 4%
+   bar reads as a tall empty column. */
 .dayTrack {
-  height: 10px;
-  border-radius: 5px;
-  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
-  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  width: 24px;
+  height: 88px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
 }
 
 .dayBar {
   display: block;
-  height: 100%;
-  border-radius: 5px;
+  width: 100%;
+  /* Same 2px floor the old list gave a bar's WIDTH: a day with nothing
+     recorded still reads as a mark on the baseline, not a gap. */
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
   background: var(--dsw-alias-state-business-primary, #4f8cff);
 }
 
-.dayValue {
-  text-align: right;
+.dayLabel {
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: var(--dsw-alias-label-primary, #1f2329);
+  color: var(--dsw-alias-label-secondary, #4b5563);
 }
 
-.dayRequests {
-  text-align: right;
+.dayValue {
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
