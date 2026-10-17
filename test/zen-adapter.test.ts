@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { ModelCatalog } from '../src/adapter/catalog.ts'
 import { isResponsesModel, PROVIDER_ID, PROVIDER_NAME, reasoningEfforts, reasoningEffortWire, WATCHDOG_FIRST_MESSAGE, ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import { Config, resolveConfig } from '../src/config.ts'
+import { resetRetryDelays } from '../src/adapter/retry-delay.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
 
 /**
@@ -31,10 +32,11 @@ test('providerRetryPolicy tunes the host retry for free-lane 429 bursts (issue #
   const adapter = new ZenAdapter(new ModelCatalog())
   const policy = adapter.providerRetryPolicy('oc2dsh')
   assert.equal(policy.mode, 'normal')
-  assert.ok(policy.maxRetries > 5, 'more retries than the host default (5)')
+  assert.equal(policy.maxRetries, 10, 'the documented retry budget (host default: 5)')
   assert.deepEqual([...policy.retryableCodes], ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'])
-  assert.ok(policy.initialDelayMs >= 1_000, 'no instant re-hammering of a throttled lane')
+  assert.equal(policy.initialDelayMs, 5_000, 'untagged-fallback backoff starts at one ladder rung')
   assert.ok(policy.maxDelayMs >= 20_000, 'backoff must outlast measured quota windows (~60s)')
+  assert.equal(policy.maxDelayMs, 30_000, 'the ladder ceiling: above this the host stops retrying')
   // flat resolved shape — dsh-llm consumes the adapter value verbatim
   assert.equal('backoff' in policy, false)
   assert.ok(Object.isFrozen(policy))
@@ -557,4 +559,110 @@ test('the tool-name alias seam passes through names unchanged on the shipped rec
   }
   assert.ok(names.length > 0)
   assert.ok(names.every((name) => name === 'bash'), 'names pass through: ' + JSON.stringify(names))
+})
+
+test('a retryable failure carries the next ladder rung as providerRetryAfterMs', async () => {
+  // dsh-llm-retry waits failure.providerRetryAfterMs VERBATIM when it is ≤ the
+  // policy ceiling (its exponential schedule is only the untagged fallback),
+  // so the adapter's ladder — 5/8/10/15/20/30s, clamped at 30s — is what the
+  // host actually sleeps between retries of one step.
+  resetRetryDelays()
+  const provider = {
+    streamSimple(_model: unknown, _context: unknown, _options: unknown): AsyncIterable<{ type: string }> {
+      return (async function* () {
+        yield {
+          type: 'error',
+          error: {
+            api: 'openai-completions',
+            provider: 'oc2dsh',
+            model: 'big-pickle',
+            content: [],
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+            stopReason: 'error',
+            errorMessage: 'HTTP 429 rate limited',
+          },
+        }
+      })()
+    },
+  }
+  const adapter = new ZenAdapter(
+    {
+      list: () => ['big-pickle'],
+      decision: () => ({ allowed: true, source: 'test', known: true }),
+      reasoningCapability: () => undefined,
+    },
+    { providerOverride: provider },
+  )
+  const finishOf = async (content: string) => {
+    let finish: Extract<import('../src/adapter/events.ts').HarnessChunk, { type: 'finish' }> | undefined
+    for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: content }] }] } as never)) {
+      if (chunk.type === 'finish') finish = chunk
+    }
+    assert.ok(finish !== undefined, 'the stream must end with a finish chunk')
+    return finish
+  }
+  const first = await finishOf('step request')
+  assert.equal(first.reason.kind, 'error')
+  if (first.reason.kind !== 'error') assert.fail('expected an error finish')
+  assert.equal(first.reason.failure.code, 'RATE_LIMIT')
+  assert.equal(first.reason.failure.providerRetryAfterMs, 5_000)
+
+  // a host retry re-enters with the SAME step request: the ladder walks on
+  const waits: Array<number | undefined> = [first.reason.failure.providerRetryAfterMs]
+  for (let i = 0; i < 5; i += 1) {
+    const retry = await finishOf('step request')
+    if (retry.reason.kind !== 'error') assert.fail('expected an error finish')
+    waits.push(retry.reason.failure.providerRetryAfterMs)
+  }
+  assert.deepEqual(waits, [5_000, 8_000, 10_000, 15_000, 20_000, 30_000])
+
+  // the ceiling clamps, and the clamp must not exceed the host's give-up limit
+  for (let i = 0; i < 2; i += 1) {
+    const clamped = await finishOf('step request')
+    if (clamped.reason.kind !== 'error') assert.fail('expected an error finish')
+    assert.equal(clamped.reason.failure.providerRetryAfterMs, 30_000)
+  }
+
+  // a DIFFERENT step (different messages) starts its own ladder at the first rung
+  const other = await finishOf('another step request')
+  if (other.reason.kind !== 'error') assert.fail('expected an error finish')
+  assert.equal(other.reason.failure.providerRetryAfterMs, 5_000)
+})
+
+test('a deterministic refusal stays untagged — the host must not wait on it', async () => {
+  resetRetryDelays()
+  const provider = {
+    streamSimple(_model: unknown, _context: unknown, _options: unknown): AsyncIterable<{ type: string }> {
+      return (async function* () {
+        yield {
+          type: 'error',
+          error: {
+            api: 'openai-completions',
+            provider: 'oc2dsh',
+            model: 'big-pickle',
+            content: [],
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+            stopReason: 'error',
+            errorMessage: 'OpenAI API error (403): {"type":"RegionError","message":"This model is not available in your country."}',
+          },
+        }
+      })()
+    },
+  }
+  const adapter = new ZenAdapter(
+    {
+      list: () => ['big-pickle'],
+      decision: () => ({ allowed: true, source: 'test', known: true }),
+      reasoningCapability: () => undefined,
+    },
+    { providerOverride: provider },
+  )
+  let finish: Extract<import('../src/adapter/events.ts').HarnessChunk, { type: 'finish' }> | undefined
+  for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] } as never)) {
+    if (chunk.type === 'finish') finish = chunk
+  }
+  assert.ok(finish !== undefined)
+  if (finish?.reason.kind !== 'error') assert.fail('expected an error finish')
+  assert.equal(finish.reason.failure.code, 'REGION_BLOCKED')
+  assert.equal(finish.reason.failure.providerRetryAfterMs, undefined, 'REGION_BLOCKED is not in retryableCodes — no wait, no retry')
 })

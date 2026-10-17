@@ -6,6 +6,7 @@ import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
 import { toStreamChunks, type HarnessChunk, type PiDoneMessage, type PiEvent } from './events.ts'
 import { conversationLabel, deriveRequestIDs, disguiseHeaders } from './ids.ts'
 import { gateToolArgumentBridge } from './gate-tools.ts'
+import { nextRetryDelayMs, retryDelayKey } from './retry-delay.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
@@ -155,18 +156,45 @@ const ANONYMOUS_KEY = 'public'
  * which failures qualify. Every transport cut the adapter can name rides this
  * window — including pi-ai's "Stream ended without finish_reason" truncation
  * sentinel, which adapter/events.ts classifyError maps to TRANSPORT precisely
- * so a mid-stream cut cannot escape the retry budget. Cumulative worst case
- * per step:
- * 1+2+4+8+16+20+20+20 ≈ 91s of silent retries before the error surfaces.
+ * so a mid-stream cut cannot escape the retry budget.
+ *
+ * The WAIT between retries is not this policy's exponential schedule: stream()
+ * tags every retryable failure with retry-delay.ts's ladder through
+ * `failure.providerRetryAfterMs`, and dsh-llm-retry waits that value VERBATIM
+ * (5/8/10/15/20/30s, then 30s for rungs 7-10 — cumulative worst case per step
+ * ≈ 208s of silent waiting). initialDelayMs/maxDelayMs/jitterRatio stay as the
+ * fallback for an untagged failure, and maxDelayMs doubles as the ladder
+ * ceiling: a providerRetryAfterMs ABOVE it makes normal mode give up without
+ * retrying (dsh-llm-retry recover()), so every rung must stay ≤ 30s — pinned
+ * by test/retry-delay.test.ts.
  */
 export const FREE_LANE_RETRY_POLICY = Object.freeze({
   mode: 'normal' as const,
-  maxRetries: 8,
+  maxRetries: 10,
   retryableCodes: Object.freeze(['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT']),
-  initialDelayMs: 1_000,
-  maxDelayMs: 20_000,
+  initialDelayMs: 5_000,
+  maxDelayMs: 30_000,
   jitterRatio: 0.2,
 })
+
+type FinishChunk = Extract<HarnessChunk, { type: 'finish' }>
+
+/**
+ * Tag a retryable failure with the next ladder rung (retry-delay.ts): the
+ * host waits it verbatim in place of its exponential schedule and still counts
+ * it against maxRetries as usual. The key is the step request itself, so a
+ * host retry of the same step walks the ladder and a fresh step starts over —
+ * mirroring the host's projection, which resets on step/start. Untagged paths:
+ * non-retryable codes (the host never waits on them anyway) and the thinking
+ * recovery, whose max-tokens finish is not an error.
+ */
+function withRetryDelay(finish: FinishChunk, options: HarnessGenerateOptions): FinishChunk {
+  const reason = finish.reason
+  if (reason.kind !== 'error') return finish
+  if (!(FREE_LANE_RETRY_POLICY.retryableCodes as readonly string[]).includes(reason.failure.code)) return finish
+  const providerRetryAfterMs = nextRetryDelayMs(retryDelayKey(options.model, options.messages))
+  return { ...finish, reason: { ...reason, failure: { ...reason.failure, providerRetryAfterMs } } }
+}
 
 /**
  * Stream-liveness watchdogs (live-observed 2026-09-07): neither fetch nor
@@ -361,7 +389,9 @@ export class ZenAdapter {
    * step-5-preview-free, with contention windows that outlast the host
    * default (5 retries over ~15s), so transient throttling surfaced as
    * user-visible errors. This policy stretches the silent absorption window
-   * to ~90s per step (8 retries, 1s→20s backoff, wider jitter). Retryable
+   * to ~208s per step (10 retries; waits come from the 5s/8s/10s/15s/20s/30s
+   * ladder in retry-delay.ts, tagged per failure as providerRetryAfterMs;
+   * the exponential backoff below is only the untagged fallback). Retryable
    * codes mirror the host default set; deterministic failures (AUTH,
    * REGION_BLOCKED, INVALID_REQUEST) stay non-retryable.
    */
@@ -501,7 +531,7 @@ export class ZenAdapter {
           },
         }
       }
-      if (finish) yield finish
+      if (finish) yield withRetryDelay(finish, options)
       return
     }
   }

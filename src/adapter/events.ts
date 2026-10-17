@@ -34,12 +34,24 @@ export type HarnessChunk =
   | { type: 'usage'; usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
   | { type: 'finish'; reason: FinishReason; replayState?: unknown }
 
+/**
+ * The failure facts a terminal finish carries. `providerRetryAfterMs` is the
+ * host-sanctioned provider wait (LlmFailure, dsh-llm types): when present and
+ * ≤ the policy's maxDelayMs, dsh-llm-retry waits it VERBATIM instead of its
+ * own exponential schedule — the seam retry-delay.ts's ladder rides on.
+ */
+export interface FailureFacts {
+  message: string
+  code: string
+  providerRetryAfterMs?: number
+}
+
 export type FinishReason =
   | { kind: 'stop' }
   | { kind: 'max-tokens' }
   | { kind: 'tool-calls' }
-  | { kind: 'aborted'; failure: { message: string; code: string } }
-  | { kind: 'error'; failure: { message: string; code: string } }
+  | { kind: 'aborted'; failure: FailureFacts }
+  | { kind: 'error'; failure: FailureFacts }
 
 /** pi-ai AssistantMessageEvent vocabulary (subset we consume). */
 export type PiEvent =
