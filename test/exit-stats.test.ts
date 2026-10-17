@@ -115,7 +115,10 @@ test('dispatcher stamps the picked exit into the routing context', () => {
 test('dispatcher: direct bias stamps the direct bucket; foreign hosts stamp 本机', () => {
   const pool = new ExitPool() // empty → pick() returns null
   const { seam } = capturingSeam()
-  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
+  // 本地出口兜底 is ON here on purpose: this test is about the attribution
+  // stamp a fallback leaves behind. With the shipped default (off) the same
+  // dispatch fails instead — covered in test/dispatcher.test.ts.
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], localFallback: true })
 
   const fallback: RoutingContext = { model: 'm', session: 's' }
   routingContext.run(fallback, () => {

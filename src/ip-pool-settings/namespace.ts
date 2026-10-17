@@ -132,6 +132,18 @@ export const IpPoolConfigSchema = Schema.object({
    * `opencode-go` provider's `/inference/go/v1` calls through the exits.
    */
   proxyPathPrefixes: Schema.array(Schema.string()).default([]),
+  /**
+   * 本地出口兜底 (live request 2026-10-18): when the pool is ON but cannot
+   * carry a request (no pickable exit, an empty pool at boot, an exit whose
+   * proxy agent failed to build), may that request leave from this machine?
+   *
+   * Default OFF — the pool exists to keep this machine's IP off the wire (the
+   * free lane 403s the CN egress behind this host). ON restores the older
+   * fail-open behaviour and lights up the modal's 直连兜底 row. An explicit
+   * 固定本机 pin is honoured either way: that is the operator asking for
+   * local egress, not the pool falling back to it.
+   */
+  localFallback: Schema.boolean().default(false),
   /** Same-request rotate attempts on pre-content transport/429 failures (§3.4). */
   maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3),
   /**
@@ -159,6 +171,8 @@ export interface IpPoolSettings {
   pinnedStrict: boolean
   proxyHosts: string[]
   proxyPathPrefixes: string[]
+  /** 本地出口兜底 (docs §3.3); false = a pool miss fails the request. */
+  localFallback: boolean
   maxRotateAttempts: number
   /** 'total' (persisted ledger) or 'run' (this process); see the schema field. */
   usageScope: UsageScopeSetting
@@ -205,6 +219,7 @@ export interface AnyIpPoolSection {
   pinnedStrict?: boolean
   proxyHosts?: string[]
   proxyPathPrefixes?: string[]
+  localFallback?: boolean
   free?: Partial<IpPoolSettings['free']>
   /** Settings spelling: nested. */
   subscription?: Partial<IpPoolSettings['subscription']>
@@ -262,6 +277,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     pinnedStrict: raw.pinnedStrict ?? false,
     proxyHosts: raw.proxyHosts ?? [],
     proxyPathPrefixes: raw.proxyPathPrefixes ?? [],
+    localFallback: raw.localFallback ?? false,
     maxRotateAttempts: raw.maxRotateAttempts ?? 3,
     usageScope: resolveUsageScope(raw.usageScope),
   }
@@ -279,6 +295,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   pinnedStrict: boolean
   proxyHosts: string[]
   proxyPathPrefixes: string[]
+  localFallback: boolean
   free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   subscriptions: string[]
   subscription: { refreshMs: number; userAgent: string }
@@ -297,6 +314,7 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     pinnedStrict: value.pinnedStrict,
     proxyHosts: value.proxyHosts,
     proxyPathPrefixes: value.proxyPathPrefixes,
+    localFallback: value.localFallback,
     free: {
       enabled: value.free.enabled,
       targetSize: value.free.targetSize,

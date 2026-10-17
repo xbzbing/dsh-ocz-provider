@@ -203,6 +203,10 @@ export interface IpPoolRuntime {
     readonly proxyPathPrefixes?: readonly string[]
     /** Live re-apply of the path scope; optional for the same reason. */
     setProxyPathPrefixes?(prefixes?: string[]): void
+    /** 本地出口兜底 in force on the running router (docs §3.3). */
+    readonly localFallback?: boolean
+    /** Live re-apply of 本地出口兜底. */
+    setLocalFallback?(value: boolean): void
   }
   /** Shared probe scheduler (admission + periodic probes + UI-triggered). */
   prober: Prober
@@ -243,13 +247,13 @@ export interface IpPoolAssemblyDeps {
 }
 
 /**
- * Assemble the routing stack. Returns null (with a logged reason) when the
- * host has no undici or the pool ends up empty — enabled-but-empty must
- * degrade to today's direct behavior, never a broken dispatcher (3.3).
+ * Assemble the routing stack. Returns null (with a logged reason) only when
+ * the host has no undici.
  *
- * The undici seam is imported once here and threaded to every layer; empty
- * pool does not stop the runtime from existing (reconfigure can add exits
- * later), it only keeps the dispatcher uninstalled.
+ * The undici seam is imported once here and threaded to every layer. An empty
+ * pool does not stop the runtime from existing: the dispatcher is installed
+ * anyway, and 本地出口兜底 decides whether that empty pool means "fail" (the
+ * default) or "egress locally" (docs §3.3, 2026-10-18).
  */
 export async function startIpPool(
   config: Opencode2dshConfig,
@@ -276,6 +280,9 @@ export async function startIpPool(
     undici,
     proxyHosts: ipPool.proxyHosts,
     proxyPathPrefixes: ipPool.proxyPathPrefixes,
+    // 本地出口兜底 defaults OFF: an exit pool exists to keep this machine's
+    // IP off the wire, so an empty pool means "fail", not "egress locally".
+    localFallback: ipPool.localFallback === true,
     logger,
   }
   const installer: IpPoolRuntime['installer'] = deps.makeInstaller !== undefined
@@ -353,6 +360,9 @@ export async function startIpPool(
     prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3)
     installer.setProxyHosts?.(current.proxyHosts)
     installer.setProxyPathPrefixes?.(current.proxyPathPrefixes)
+    // 本地出口兜底 is a routing policy, not table membership: one call moves the
+    // running router between "fail when the pool is out" and "egress locally".
+    installer.setLocalFallback?.(current.localFallback === true)
 
     // Free loop on/off + restart on target change (interval fixed 10min).
     const wantRefill = (current.free?.enabled ?? true) && current.enabled !== false
@@ -396,20 +406,21 @@ export async function startIpPool(
   let fetcherActive = false
 
   /**
-   * Engage routing as soon as the pool stops being empty.
+   * Engage routing while the pool is enabled.
    *
-   * A pool that assembles EMPTY (subscription-only profile, or free enabled
-   * but not yet refilled) skips the install() below and used to have no
-   * retry hook except a settings save: the exits landed minutes later and
-   * every request kept going direct while the card reported the pool as
-   * enabled. This watches the TABLE, not a source, so subscription, free and
-   * manual admissions all engage routing (live-observed 2026-10-12).
+   * The dispatcher is installed even with an EMPTY pool: 本地出口兜底 decides
+   * what an empty pool means (fail closed by default, direct when the
+   * operator switched the fallback on), and an uninstalled dispatcher would
+   * always mean "direct" — i.e. this machine's IP on the wire during exactly
+   * the window the pool has nothing to offer (2026-10-18). It also stays a
+   * retry hook for the R1 deferral: each admission re-attempts install, so a
+   * foreign dispatcher's unload is picked up without a restart.
    */
   const engageRouting = (): void => {
     if (config.ipPool?.enabled === false) return
-    if (installer.enabled || pool.snapshot().total === 0) return
+    if (installer.enabled) return
     installer.install()
-    if (installer.enabled) logger.info('oc2dsh: exits admitted — exit routing engaged (live)')
+    if (installer.enabled) logger.info('oc2dsh: exit routing engaged (live)')
   }
   pool.onAdmitted(engageRouting)
 
@@ -427,10 +438,13 @@ export async function startIpPool(
     void subscriptions?.replaceExit(id).catch(() => {})
   })
 
-  if (pool.snapshot().total > 0) {
-    installer.install()
-  } else {
-    logger.warn('oc2dsh: ipPool enabled but the pool is empty; staying direct until exits land (subscription/free admissions engage routing automatically)')
+  installer.install()
+  if (pool.snapshot().total === 0) {
+    // Say what an empty pool means, because the two switch positions differ
+    // completely and only one of them is "nothing to see here".
+    logger.warn(ipPool.localFallback === true
+      ? 'oc2dsh: ipPool enabled but the pool is empty; staying direct until exits land (本地出口兜底 on)'
+      : 'oc2dsh: ipPool enabled but the pool is empty; requests fail until an exit is admitted (本地出口兜底 off)')
   }
   applyConfig()
 
@@ -578,11 +592,12 @@ export async function startIpPool(
       applyConfig()
       // rotate ceiling is live-tunable (settings page) — rebuild the delegate
       setRotateDelegate(createRotateDelegate(pool, { maxAttempts: next.ipPool?.maxRotateAttempts ?? 3 }))
-      // Dispatcher install state follows enabled + pool occupancy. Every
-      // enable flip re-attempts install: when another dispatcher-level plugin
-      // owned the slot (R1 deferral), its unload is picked up here without a
-      // restart.
-      if (enable && !installer.enabled && pool.snapshot().total > 0) {
+      // Dispatcher install state follows enabled (never pool occupancy):
+      // 本地出口兜底 decides what an empty pool means, so the layer has to be
+      // installed for the switch to have any effect. Every enable flip
+      // re-attempts install: when another dispatcher-level plugin owned the
+      // slot (R1 deferral), its unload is picked up here without a restart.
+      if (enable && !installer.enabled) {
         installer.install()
         if (installer.enabled) {
           logger.info('oc2dsh: exit routing recovered — global dispatcher is free again (R1)')

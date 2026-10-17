@@ -273,3 +273,31 @@ test('the plugin fetch is saved and restored alongside the dispatcher', () => {
   installer.disable()
   assert.equal(globalThis.fetch, builtinFetch, 'the built-in fetch must come back')
 })
+
+test('本地出口兜底: the installer carries it into the router and re-applies it live', () => {
+  // The switch is a routing policy, not table membership: the installer owns
+  // the value before a router exists (so the first install is already
+  // strict), and forwards every change into the running layer.
+  const undici = makeUndiciStub()
+  const installer = new RoutingInstaller({
+    pool: makePoolStub(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    undici: undici as any,
+    proxyHosts: ['opencode.ai'],
+    logger: { info: () => {}, warn: () => {} },
+  })
+  assert.equal(installer.localFallback, false, 'absent means OFF — the strict default')
+
+  installer.install()
+  const router = undici.peek() as PoolRoutingDispatcher
+  assert.equal(router.localFallback, false, 'the router starts strict')
+  assert.equal(installer.localFallback, false, 'the getter reads the running router')
+
+  installer.setLocalFallback(true)
+  assert.equal(router.localFallback, true, 'a live flip reaches the installed layer')
+  assert.equal(installer.localFallback, true)
+
+  installer.setLocalFallback(false)
+  assert.equal(router.localFallback, false, 'and back')
+  installer.disable()
+})

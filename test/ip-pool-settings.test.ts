@@ -41,6 +41,24 @@ test('schema fills every default from an empty section', () => {
   assert.equal((value.singbox as Record<string, unknown>).path, 'sing-box')
   assert.equal(value.pinnedExitId, '')
   assert.equal(value.pinnedStrict, false)
+  // 本地出口兜底 ships OFF (live request 2026-10-18): a pool miss must fail,
+  // not egress from this machine.
+  assert.equal(value.localFallback, false, 'the local-egress fallback defaults to off')
+})
+
+test('本地出口兜底 survives the settings → config round trip in both spellings', () => {
+  // toIpPoolConfig is what reconfigure consumes, so a field it drops silently
+  // resets to the default on every save (the trap the round-trip test exists
+  // for). Checked here on both layers: an absent value reads as OFF, and an
+  // explicit true reaches the runtime.
+  const absent = resolveIpPoolSettings({})
+  assert.equal(absent.localFallback, false, 'absent = strict')
+  assert.equal(toIpPoolConfig(absent).localFallback, false)
+
+  const on = resolveIpPoolSettings({ localFallback: true })
+  assert.equal(on.localFallback, true)
+  assert.equal(toIpPoolConfig(on).localFallback, true, 'an explicit true reaches the runtime')
+  assert.equal(toIpPoolConfig(IpPoolConfigSchema({ localFallback: true }) as never).localFallback, true)
 })
 
 test('schema rejects out-of-range probe concurrency', () => {
@@ -313,6 +331,19 @@ test('status view: todayTokens counts today’s ledger bucket, falling back to t
   } finally {
     usageTracker.reset()
   }
+})
+
+test('status view: 本地出口兜底 reports the router, the setting stands in without one', () => {
+  // The card must show the policy traffic is actually under. While a router
+  // runs its own value wins (R1 deferral, or a beat between install and the
+  // first commit); with no runtime the configured value is all there is.
+  const routed = fakeRuntime({
+    installer: { enabled: true, deferredReason: null, localFallback: true, install() {}, disable() {}, dispose() {} },
+  }) as never
+  assert.equal(buildStatusView(routed, false, []).localFallback, true)
+
+  assert.equal(buildStatusView(null, false, [], { localFallback: true }).localFallback, true, 'no runtime: the setting stands in')
+  assert.equal(buildStatusView(null, false, []).localFallback, false, 'and absent means strict')
 })
 
 test('status view: with the free source off the badge follows the whole pool', () => {

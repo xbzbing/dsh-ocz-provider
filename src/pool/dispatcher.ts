@@ -89,9 +89,28 @@ export interface PoolRoutingOptions {
    *  composing the first token (measured 1.7-2.7s live), so this window is
    *  far looser than (a). Default 10s, test-injectable. */
   headersMs?: number
+  /**
+   * 本地出口兜底: may a request the pool cannot carry (no pickable exit, or
+   * no proxy agent for one) still egress from this machine?
+   *
+   * Default FALSE — fail closed, because the whole point of an exit pool is
+   * that the operator's own IP does not reach the upstream (the live case:
+   * the free lane 403s the CN egress this machine sits behind). The settings
+   * switch `localFallback` opts back into the older fail-open behaviour.
+   * An EXPLICIT 固定本机 pin is honoured either way: that is the operator
+   * asking for local egress, not the pool falling back to it.
+   */
+  localFallback?: boolean
   /** Log sink for routing decisions (diagnostics). */
   logger?: { warn(message: string): void }
 }
+
+/**
+ * The error a request gets when the pool cannot carry it and local egress is
+ * switched off. Fetch surfaces it as "fetch failed" with this as the cause;
+ * the message is the only place the reason is stated, so it names the switch.
+ */
+export const NO_EXIT_MESSAGE = 'oc2dsh: no usable pool exit and the local-egress fallback is off (本地出口兜底已关闭)'
 
 const DEFAULT_PROXY_HOSTS = ['opencode.ai']
 const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
@@ -238,6 +257,8 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   #agentLruCap: number
   #sentinelMs: number
   #headersMs: number
+  /** 本地出口兜底 in force (docs §3.3); false = pool-only, never local. */
+  #localFallback: boolean
   #logger?: { warn(message: string): void }
   /** Direct path for non-pool hosts and loopback. */
   #direct: Dispatcher
@@ -260,8 +281,22 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     // have waited out. Measured on a live profile: exits that answer Zen in
     // 1.3-2.0s via curl were all struck dead by this path.
     this.#headersMs = options.headersMs ?? 30_000
+    // Fail closed unless the caller opts in: a pool exists to keep this
+    // machine's IP off the wire, so "no exit" must not silently mean "this
+    // machine" (see PoolRoutingOptions.localFallback).
+    this.#localFallback = options.localFallback === true
     this.#logger = options.logger
     this.#direct = new options.undici.Agent()
+  }
+
+  /** Live re-apply of 本地出口兜底 (settings page, docs §3.3/§5.1). */
+  setLocalFallback(value: boolean): void {
+    this.#localFallback = value === true
+  }
+
+  /** 本地出口兜底 in force (diagnostics / status bridge). */
+  get localFallback(): boolean {
+    return this.#localFallback
   }
 
   /** Live re-apply of the proxied-host list (settings page, docs §5.1). */
@@ -302,12 +337,38 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /**
    * Pool-host traffic that could not ride an exit (no pick, or no agent):
    * stamp the direct bucket so the stats modal's 直连兜底 row stays honest,
-   * then dispatch direct — never fail closed (3.3).
+   * then dispatch direct. Only reachable with 本地出口兜底 ON (or an explicit
+   * 固定本机 pin) — {@link #failClosed} covers the other case.
    */
   #directFallback(context: RoutingContext, options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
     context.exitId = DIRECT_EXIT_ID
     this.#pool.recordDirectRequest()
     return this.#direct.dispatch(options, handler)
+  }
+
+  /**
+   * 本地出口兜底 is OFF and the pool cannot carry this request: fail the
+   * dispatch instead of egressing from this machine.
+   *
+   * The error travels the same channel undici uses for a transport failure
+   * (the closed-dispatcher branch below sets the precedent), so fetch rejects
+   * with "fetch failed" and this message as its cause — the adapter's rotate
+   * loop then retries the pool, finds nothing, and surfaces the failure.
+   * Nothing is stamped and nothing is counted: 本机 did not carry it.
+   */
+  #failClosed(handler: Dispatcher.DispatchHandler): boolean {
+    handler.onResponseError?.({} as Dispatcher.DispatchController, new Error(NO_EXIT_MESSAGE))
+    return false
+  }
+
+  /**
+   * The fallback decision shared by both "pool could not carry it" branches.
+   * An explicit 固定本机 pin wins over the switch: `pick()` answers null for
+   * it, but the operator asked for this machine, so the request rides direct.
+   */
+  #poolMissed(context: RoutingContext, options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
+    if (this.#localFallback || this.#pool.pinnedLocal) return this.#directFallback(context, options, handler)
+    return this.#failClosed(handler)
   }
 
   /** The agent for one exit, LRU-capped (docs/ip-pool.md 2). */
@@ -386,14 +447,17 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     const session = context.session ?? 'default'
     const exitId = this.#pool.pick(session, model)
     if (exitId === null) {
-      // Pool unusable (empty / all cooling): direct, never fail closed (3.3).
-      // Still stamped + counted: pool-host traffic that dodged the pool is
-      // exactly what the stats modal's 直连兜底 row exists to surface.
-      return this.#directFallback(context, options, handler)
+      // Pool unusable (empty / all cooling): 本地出口兜底 decides between a
+      // direct dispatch and a failed one (docs §3.3). Stamped + counted when
+      // it does fall back: pool-host traffic that dodged the pool is exactly
+      // what the stats modal's 直连兜底 row exists to surface.
+      return this.#poolMissed(context, options, handler)
     }
     const agent = this.#agentFor(exitId)
     if (!agent) {
-      return this.#directFallback(context, options, handler)
+      // The row exists but its proxy agent could not be built: same question,
+      // same answer — the pool cannot carry the request either way.
+      return this.#poolMissed(context, options, handler)
     }
     // Stamp the attribution key for the adapter's usage accounting and book
     // the request lifecycle (begin at pick, end in the observer's terminals).

@@ -6,6 +6,7 @@ import * as realUndici from 'undici'
 
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
 import {
+  NO_EXIT_MESSAGE,
   PoolRoutingDispatcher,
   dispatchRequestPath,
   exitProxyUri,
@@ -213,15 +214,103 @@ test('dispatcher: ALS context selects the exit by model (two-tier health routing
   assert.match(hops[0]!, /a:1/)
 })
 
-test('dispatcher: empty/unusable pool falls back to direct, never fails closed', () => {
+/**
+ * 本地出口兜底 (live request 2026-10-18). The pool exists so this machine's IP
+ * stays off the wire (the free lane 403s the CN egress behind this host), so
+ * the DEFAULT is now fail-closed; the settings switch opts back into the old
+ * fail-open behaviour. An explicit 固定本机 pin is the operator asking for
+ * local egress and works either way.
+ */
+test('dispatcher: an empty pool fails closed by default — no local egress', () => {
   const pool = new ExitPool()
+  const { seam, hops } = fakeSeam()
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
+  const errors: Error[] = []
+  const handler = { onResponseError: (_controller: unknown, error: Error) => { errors.push(error) } } as never
+  const context: { exitId?: string } = {}
+  routingContext.run(context as never, () => {
+    router.dispatch({ origin: 'https://opencode.ai/inference/v1/x' } as never, handler)
+  })
+  assert.deepEqual(hops, [], 'nothing was dispatched — this machine never egressed')
+  assert.equal(errors.length, 1, 'the request failed instead of falling back')
+  assert.equal(errors[0]!.message, NO_EXIT_MESSAGE)
+  assert.equal(context.exitId, undefined, 'not stamped as a direct fallback')
+  assert.equal(pool.directRequests, 0, 'and not counted as one either')
+})
+
+test('dispatcher: 本地出口兜底 ON restores the direct fallback, live-switchable', () => {
+  const pool = new ExitPool()
+  const { seam, hops } = fakeSeam()
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], localFallback: true })
+  assert.equal(router.localFallback, true)
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never)
+  })
+  assert.deepEqual(hops, ['direct'], 'opted in: the machine takes the request')
+  assert.equal(pool.directRequests, 1, 'and the modal 直连兜底 row sees it')
+
+  // The settings page flips it on a running router.
+  router.setLocalFallback(false)
+  assert.equal(router.localFallback, false)
+  const errors: Error[] = []
+  routingContext.run({ model: 'm', session: 's2' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/x' } as never, { onResponseError: (_c: unknown, e: Error) => { errors.push(e) } } as never)
+  })
+  assert.deepEqual(hops, ['direct'], 'no second direct dispatch after the switch went off')
+  assert.equal(errors.length, 1)
+})
+
+test('dispatcher: an explicit 固定本机 pin still egresses locally with the fallback off', () => {
+  // The pin is the operator choosing this machine, not the pool falling back
+  // to it — pick() answers null for the sentinel, and that must not read as
+  // "no exit" once the switch is off.
+  const pool = new ExitPool()
+  pool.pinLocal()
   const { seam, hops } = fakeSeam()
   const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
   routingContext.run({ model: 'm', session: 's' }, () => {
     router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never)
   })
-  assert.deepEqual(hops, ['direct'])
+  assert.deepEqual(hops, ['direct'], 'the explicit pin wins over the switch')
 })
+
+test('dispatcher: an exit whose proxy agent cannot be built follows the same switch', () => {
+  // A row with an unusable address is "the pool cannot carry this request"
+  // just as much as an empty pool: falling back there would leak the very IP
+  // the switch is guarding.
+  const pool = new ExitPool()
+  pool.add(node({ id: 'p:1' }))
+  pool.markOk('p:1')
+  const directHops: string[] = []
+  const seam = {
+    ...fakeSeam().seam,
+    Agent: class {
+      constructor() {
+        return { dispatch: () => { directHops.push('direct'); return true } }
+      }
+    } as never,
+    ProxyAgent: class {
+      constructor() {
+        throw new Error('bad proxy uri')
+      }
+    } as never,
+  }
+
+  const strict = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
+  const errors: Error[] = []
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    strict.dispatch({ origin: 'https://opencode.ai/x' } as never, { onResponseError: (_c: unknown, e: Error) => { errors.push(e) } } as never)
+  })
+  assert.equal(errors.length, 1, 'strict: the build failure fails the request')
+  assert.deepEqual(directHops, [], 'strict: this machine never egressed')
+
+  const lenient = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], localFallback: true })
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    lenient.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never)
+  })
+  assert.deepEqual(directHops, ['direct'], 'opted in: the machine takes it')
+})
+
 
 test('installer: install/disable swaps the global dispatcher and restores the previous one', () => {
   const pool = new ExitPool()

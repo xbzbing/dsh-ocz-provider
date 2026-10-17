@@ -106,6 +106,14 @@ test('the probe-content field ships in the bundle', () => {
   assert.ok(source.includes('probeContentsHint'), 'and its hint (留空 = 默认 hello)')
 })
 
+test('the 本地出口兜底 switch ships in the bundle', () => {
+  const source = bundle()
+  // Live request 2026-10-18: 默认关闭，池内没有可用 IP 时不走本机出口.
+  assert.ok(source.includes('field-localFallback'), 'the switch is mounted in the pool card')
+  assert.ok(source.includes('本地出口兜底'), 'with its zh label')
+  assert.ok(source.includes('localFallbackHint'), 'and the hint that spells out both positions')
+})
+
 test('the 清空 control ships in the bundle', () => {
   const source = bundle()
   // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空的功能按钮.

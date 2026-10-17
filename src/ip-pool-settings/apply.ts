@@ -250,6 +250,9 @@ export function applyIpPoolSettings(
           // to the whole pool (a subscription-only profile used to sit on
           // "emergency" forever, live-observed 2026-10-12).
           freeEnabled: controller.settings().free.enabled,
+          // 本地出口兜底 (docs §3.3): the router's answer wins, this stands in
+          // while no dispatcher is installed (pool off in this process).
+          localFallback: controller.settings().localFallback,
           // The usage switch the card owns: every usage surface (this bridge's
           // per-exit numbers, the modal's tabs) follows it, while the footer
           // stays pinned to 总览 (live request 2026-10-14).

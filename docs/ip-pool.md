@@ -215,7 +215,7 @@ dispatch(opts, handler) {
   host = normalizeHost(opts.origin)
   if (!enabled || host !== 'opencode.ai') return direct.dispatch(opts, handler)
   exit = pool.pick(session(opts), currentModel())  // §3.3；session 从入站头解析，model 从 AsyncLocalStorage 读（不上行）
-  if (exit === null) return direct.dispatch(opts, handler)   // 池空/全冷却 → 直连
+  if (exit === null) return localFallback                      // 池空/全冷却：兜底开→直连，关→请求失败（§3.3）
   return exitAgents[exit.id].dispatch(opts, handler)
 }
 ```
@@ -291,7 +291,9 @@ interface ModelBan {
 2. 过滤：第一层非 `dead`、不在冷却期；**该 model 在该出口无 banned 封禁**（第二层）。全部被 ban → 当作该出口对该请求不可用，继续看别的出口。
 3. 排序优先级：健康 `ok` 优先 → `consecutiveLimited` 升序（先用没怎么被限的）→ `latencyMs` 升序 → 随机扰动（同优先级打散，避免雷群）。
 4. **会话粘性**：同一 DSH 会话（x-opencode-session 同值）优先复用上次出口——匿名通道对 session id 有亲和（x-session-affinity 头），频繁换出口可能被视为异常流量。粘性失效条件：该出口进入冷却/dead/对该请求的模型 banned。
-5. 全部不可用 → 返回 null → **直连**（never fail closed：池子是增强，不是依赖；strict 模式无此兜底，§3.6）。
+5. 全部不可用 → 返回 null → 由**本地出口兜底**开关决定（2026-10-18 新增，默认关）：开 = 直连（旧的 fail-open 行为，池子是增强不是依赖）；**关 = 该请求直接失败**（错误 `NO_EXIT_MESSAGE`，不落到本机、不计入直连桶）——池子的意义就是本机 IP 不上行，池子办不到时静默改用本机 IP 等于把兜底变成泄露。同一个判定也管「出口在表里但 ProxyAgent 建不起来」这条分支；**显式固定本机（`local` 哨兵，§3.6）不受开关限制**：那是用户主动要求走本机，不是系统的兜底。strict 模式仍然连失败换出口循环都不进（§3.6）。
+
+**空池同样是「无可用出口」**：`enabled` 为真时 dispatcher 一律安装（2026-10-18 起不再等池子非空），否则「启动时池子还没探活出任何 IP」这个窗口里流量会直接走本机——正好是兜底开关要防的场景。所以兜底关着时，刚启用池子的前几分钟请求会失败，直到第一个出口入池；兜底开着则退回直连。装配期日志会写出当前是哪种语义。
 
 「当前请求的 model」从 AsyncLocalStorage 读（stream 入口 set，dispatch 时 get，不上行到 pi-ai）：pi-ai 的请求体构造与 HTTP dispatch 分属两层，没有现成的「这次 fetch 是哪个模型」通路，ALS 是唯一干净的 per-request 上下文 seam。
 
@@ -477,6 +479,7 @@ POST {zen}/v1/chat/completions
 | subscriptionRefreshMs | 30min | 订阅刷新间隔（拉 URL 重跑解析，断路器同免费源） |
 | subscription.userAgent | `clash-verge/v2.4.2` | 订阅拉取的 User-Agent。机场普遍按 UA 做白名单：不在名单里会返回错误页。**这个值会过期**（它是客户端版本号，panel 会抬高下限）：实测同一机场 `clash-verge/1.6.0` → 502、`clash-verge/v2.0` 长期 200，2026-10-13 起 `v2.0` → `403 PLEASE UPGRADE CLIENT`，而 `clash-verge/v2.4.2` / `mihomo/1.19.8` / `clash.meta/1.19.8` 均 200。默认留在 Clash-Verge 家族：**家族决定返回格式**，换家族会静默改变其它机场拿到的体形状。部分机场按 UA 决定返回格式（Clash 形状给 `proxies:` YAML，v2ray 形状给 base64 链接）。空值回落默认值，设置页可改（立即生效，不用重启）。 |
 | pinnedStrict | false | 绝对固定模式（§3.6）：true 时 pinned 失败透传、不换出口不直连 |
+| localFallback | **false** | **本地出口兜底**（§3.3，2026-10-18）：池里没有可用出口时，true = 退回本机直连（暴露本机 IP），false = 请求失败。显式固定本机不受它限制 |
 
 全部进 settings namespace，设置页可调（maxConcurrentProbes 也开放：有些用户宁可慢也不并发）。
 
@@ -556,6 +559,7 @@ Config = Schema.object({
   }),
   pinnedExitId: Schema.string().default(''),       // 固定主力出口（§3.6；出口列表行内设置或此处直填地址）
   pinnedStrict: Schema.boolean().default(false), // true = 绝对固定：失败也不换出口、不直连（§3.6 行为契约）
+  localFallback: Schema.boolean().default(false), // 本地出口兜底（§3.3）：false = 池内无可用出口时请求失败，不用本机 IP
   cooldown: Schema.object({ /* §4.6 参数 */ }),
   maxRotateAttempts: Schema.number().default(3),
   usageScope: Schema.string().default('total'),  // 用量口径：'total' = 持久台账（§5.6），'run' = 本次重启；其它值一律按 total
@@ -576,6 +580,7 @@ Config = Schema.object({
 | 并发上限 | maxConcurrentProbes 数字框（1-8，默认 3）+ 说明「不同出口并发，同一出口串行」 |
 | 池子容量 | poolSize 数字框（1-100，默认 10）+ 说明「同时在线的出口数：上线先测速取最快的前 N 个，并把 sing-box 本地监听收缩到它们，其余留作候补」（§4.7） |
 | 用量统计（持久记录） | 口径切换（分段控件：「总览（累计）」/「本次重启」，**即点即生效**，不走保存按钮）+ 该口径下的请求/token/tok-s/会话数/活跃天数 + 说明。它决定**出口列表里的用量数字**看哪个口径；左下角入口的 token 固定显示当天用量（§5.5/§5.6） |
+| 本地出口兜底 | 开关（**主开关下方的独立行**）。开：池里没有可用 IP 时退回本机直连（暴露本机 IP）；关（**默认**）：请求直接失败，不用本机 IP。判定覆盖「池空 / 全冷却 / 出口的 ProxyAgent 建不起来」三种情况；弹窗里手动固定「本机」仍然生效 |
 | 出口列表 | 每行：地址、来源、延迟、质量级、出口 IP（悬停显示位置）、状态徽章（ok/冷却中/dead/已降级）、真实流量计数、单出口「探测」按钮 + 🔒「固定为主力」/⟳「轮换」组成的按钮组；顶部「批量探活」按钮（两级调度跑，显示队列进度 x/y） |
 | 模型封禁列表 | 折叠区：被 banned 的 (出口, 模型) 对及原因（403 region-blocked 等），供用户理解为什么某出口不服务某模型 |
 | 探活参数 | §4.6 表格的可调项 |
@@ -647,7 +652,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 | 请求数·输入·输出·缓存·延迟 | 按出口的进程内累计；输出列附带 `N tok/s`（解码窗口口径）；表头可点排序 |
 | 最后使用 | 该出口最近一次派发时刻；在途请求带徽章 |
 | 操作 | 两个**图标**按钮组成的**按钮组**（2026-10-14 新增，走 `/exit` bridge；两键之间无间隙：共用一条 1px 边框，只有外侧两角保留圆角；文字进 tooltip/aria-label）：🔒「固定」/「取消固定」= 后续流量固定走该出口；⟳「轮换」= 把这一行交给候选表——有候补就补位，没有候补就移到列表末尾（§4.7 的降级语义），两种结果文案不同。**这个动作一度叫「删除」，语义是错的**：没有任何东西被删除，行只是被轮换出去（有候补时总数不变） |
-| 本机行 | 本机出口（`direct` + `local` 两个桶合并）：状态绿点 + 「直连」，同样带 🔒 图标 = 固定本机（`local` 哨兵，§3.6） |
+| 本机行 | 本机出口（`direct` + `local` 两个桶合并）：状态绿点 + 「直连」，同样带 🔒 图标 = 固定本机（`local` 哨兵，§3.6）。兜底关闭时这一行仍可固定，它是用户的显式选择（§3.3） |
 
 要点：**弹窗没有 settings 表单**（它不在设置页的插槽里），所以固定/轮换不能像卡片那样走 `ConfigForm.mutate`，而是走 bridge 的 `/exit`（§5.3）——写设置的那一半由宿主侧完成，浏览器半只发意图。
 
@@ -734,7 +739,7 @@ zen-adapter.ts 改动极小：`stream()` 里把 pi-ai 的 `maxRetries: 0` 保持
 **方案（§3.4 的原设计位置回归）**：
 
 1. `zen-adapter.stream()` 发请求前 `pool.pick()` 选定出口；请求经**每请求注入的独立 client**（per-request dispatcher）发出，不走全局槽位。
-2. 失败按 §3.4 规则表换出口重试（429→markLimited 换；401/403→markModelSignal 换；传输错→markDeadStrike 换；上限 maxRotateAttempts，池空→直连一次，pinnedStrict→透传不进循环）。
+2. 失败按 §3.4 规则表换出口重试（429→markLimited 换；401/403→markModelSignal 换；传输错→markDeadStrike 换；上限 maxRotateAttempts，池空→本地出口兜底（§3.3：开=直连一次，关=失败），pinnedStrict→透传不进循环）。
 3. per-exit ProxyAgent LRU 池从 dispatcher 搬进 adapter（`#agentFor` 照搬，连接保持热复用，延迟代价≈0）。
 4. 被动信号挂点随迁（handler 包装器挂在 adapter 持有的 agent 上，逻辑照搬）。
 5. 双路径自适应：检测到全局槽位被占 → adapter 调度路径；槽位空闲 → 维持 dispatcher 路径（单插件场景零改动）。两套挂点共享 pool/健康表核心。

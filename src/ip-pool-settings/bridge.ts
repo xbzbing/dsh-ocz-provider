@@ -244,6 +244,13 @@ export interface PoolStatusView {
    * no ledger is wired; 0 when nothing was recorded today.
    */
   todayTokens: number
+  /**
+   * 本地出口兜底 in force on the running router (docs §3.3): false = a pool
+   * miss fails the request instead of egressing from this machine, which is
+   * what the modal's 直连兜底 row is quiet about. Optional so a client bundle
+   * can still read a host snapshot from before the switch existed.
+   */
+  localFallback?: boolean
   at: number
 }
 
@@ -274,6 +281,8 @@ export function buildStatusView(
     usage?: UsageStore
     /** Which population the per-exit/usage numbers report. */
     usageScope?: UsageScope
+    /** 本地出口兜底 as configured (the running router's value wins below). */
+    localFallback?: boolean
     projectOf?: ProjectResolver
     /** Host session titles for the top-session rows (read-time join). */
     sessionTitles?: SessionTitleMap
@@ -400,6 +409,10 @@ export function buildStatusView(
     zenClient: zenRequestHeaders()['x-opencode-client'] ?? 'cli',
     recentSpeed: tracker.speedAll(),
     todayTokens: todayTokensOf(store, now),
+    // Report the ROUTER's policy, not the setting plus a guess: the two can
+    // differ for a moment (install deferred, R1) and the card must not claim
+    // "no local egress" while traffic is still leaving from this machine.
+    localFallback: runtime?.installer?.localFallback ?? options.localFallback ?? false,
     at: now,
   }
 }

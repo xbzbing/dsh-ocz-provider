@@ -28,6 +28,8 @@ export interface InstallerDeps {
   proxyHosts?: string[]
   /** Path prefixes on the proxied hosts this plugin's own traffic uses. */
   proxyPathPrefixes?: string[]
+  /** 本地出口兜底 (docs §3.3); default false = pool-only, never local. */
+  localFallback?: boolean
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
@@ -88,6 +90,21 @@ export class RoutingInstaller {
   }
 
   /**
+   * 本地出口兜底 in force. Reported the same way as the host/path lists: the
+   * running router's own value wins, so the card can never display a switch
+   * position the router is not actually honouring.
+   */
+  get localFallback(): boolean {
+    return this.#current?.localFallback ?? (this.#deps.localFallback === true)
+  }
+
+  /** Live re-apply of 本地出口兜底 (settings page, docs §3.3/§5.1). */
+  setLocalFallback(value: boolean): void {
+    this.#deps.localFallback = value === true
+    this.#current?.setLocalFallback(value === true)
+  }
+
+  /**
    * Decide whether installing is safe (docs/ip-pool.md R1 coexistence policy).
    * The global dispatcher slot is single-owner: if another dispatcher-level
    * plugin (dsh-llm-proxy etc.) already installed its own layer, installing
@@ -128,6 +145,7 @@ export class RoutingInstaller {
       undici: this.#deps.undici,
       proxyHosts: this.#deps.proxyHosts,
       proxyPathPrefixes: this.#deps.proxyPathPrefixes,
+      localFallback: this.#deps.localFallback === true,
       logger: this.#deps.logger,
     })
     // Read BEFORE swapping: undici's `setGlobalDispatcher` returns void (not

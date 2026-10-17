@@ -41,6 +41,8 @@ interface IpPoolSettings {
   pinnedStrict: boolean;
   proxyHosts: string[];
   proxyPathPrefixes: string[];
+  /** 本地出口兜底 (docs §3.3); false = a pool miss fails the request. */
+  localFallback: boolean;
   maxRotateAttempts: number;
   /** 'total' (persisted ledger) or 'run' (this process); see the schema field. */
   usageScope: UsageScopeSetting;
@@ -131,6 +133,13 @@ interface IpPoolConfig {
   proxyHosts?: string[];
   /** Path prefixes on those hosts the pool carries (default /inference/v1). */
   proxyPathPrefixes?: string[];
+  /**
+   * 本地出口兜底 (docs §3.3): may a request the pool cannot carry egress from
+   * this machine? Default FALSE — an empty or fully-cooling pool fails the
+   * request instead of leaking the local IP. An explicit 固定本机 pin is
+   * honoured either way.
+   */
+  localFallback?: boolean;
   /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
   free?: {
     enabled?: boolean;
@@ -246,6 +255,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
+    localFallback: Schema<boolean, boolean, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
@@ -283,6 +293,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
+    localFallback: Schema<boolean, boolean, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;
@@ -361,6 +372,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
+    localFallback: Schema<boolean, boolean, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, NoInfer<Schemastery.ObjectT<NoInfer<{
@@ -398,6 +410,7 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     pinnedStrict: Schema<boolean, boolean, "defined">;
     proxyHosts: Schema<string[], string[], "defined">;
     proxyPathPrefixes: Schema<string[], string[], "defined">;
+    localFallback: Schema<boolean, boolean, "defined">;
     maxRotateAttempts: Schema<number, number, "defined">;
     usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;

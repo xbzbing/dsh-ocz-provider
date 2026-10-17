@@ -112,6 +112,8 @@ export interface IpPoolSettingsValue {
   pinnedExitId: string
   pinnedStrict: boolean
   proxyHosts: string[]
+  /** 本地出口兜底: false = a pool miss fails instead of using this machine. */
+  localFallback: boolean
   /** 'total' = the persisted ledger, 'run' = this host process. */
   usageScope: UsageScopeView
 }
@@ -185,6 +187,9 @@ export interface PoolStatusView {
   /** Today's all-in token figure (ledger day bucket): THE footer's token
    *  figure in every variant (2026-10-18). Optional for older host snapshots. */
   todayTokens?: number
+  /** 本地出口兜底 in force on the router (docs §3.3). Optional for older
+   *  host snapshots. */
+  localFallback?: boolean
   at: number
 }
 
@@ -264,6 +269,9 @@ const DEFAULTS: IpPoolSettingsValue = {
   pinnedExitId: '',
   pinnedStrict: false,
   proxyHosts: [],
+  // Mirrors the Host schema default (off): the switch ships disabled, so a
+  // pool miss fails rather than egressing from this machine.
+  localFallback: false,
   usageScope: 'total',
 }
 
@@ -292,6 +300,7 @@ interface FormState {
   singboxPath: string
   pinnedExitId: string
   pinnedStrict: boolean
+  localFallback: boolean
   probeModels: string[]
   probeContents: string[]
   maxConcurrentProbes: string
@@ -309,6 +318,7 @@ function emptyForm(): FormState {
     singboxPath: DEFAULTS.singbox.path,
     pinnedExitId: '',
     pinnedStrict: DEFAULTS.pinnedStrict,
+    localFallback: DEFAULTS.localFallback,
     probeModels: [],
     probeContents: [],
     maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
@@ -327,6 +337,7 @@ function formFromValue(value: IpPoolSettingsValue): FormState {
     singboxPath: value.singbox.path,
     pinnedExitId: value.pinnedExitId,
     pinnedStrict: value.pinnedStrict,
+    localFallback: value.localFallback === true,
     probeModels: [...value.probeModels],
     probeContents: [...(value.probeContents ?? [])],
     maxConcurrentProbes: String(value.maxConcurrentProbes),
@@ -379,6 +390,7 @@ function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<I
   push('singbox', { path: form.singboxPath }, value.singbox, base.singbox)
   push('pinnedExitId', form.pinnedExitId, value.pinnedExitId, base.pinnedExitId)
   push('pinnedStrict', form.pinnedStrict, value.pinnedStrict, base.pinnedStrict)
+  push('localFallback', form.localFallback, value.localFallback, base.localFallback)
   push('probeModels', form.probeModels, value.probeModels, base.probeModels)
   push('probeContents', form.probeContents, value.probeContents, base.probeContents)
   push('maxConcurrentProbes', Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes)
@@ -1181,6 +1193,28 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         </div>
       </div>
       <OverviewBar status={form.enabled ? status : null} t={t} />
+
+      {/* 本地出口兜底 (live request 2026-10-18): what a pool MISS means — no
+          pickable exit (empty at boot, all cooling, or an exit whose proxy
+          agent could not be built). Off (the default) fails the request,
+          which is the point of an exit pool: this machine's IP does not reach
+          the upstream. On restores the older fail-open behaviour and lights up
+          the modal's 直连兜底 row. An explicit 固定本机 pin is honoured either
+          way — that is the operator choosing this machine, not a fallback. */}
+      <div className={styles.settingRow}>
+        <span className={styles.settingRowControl} data-testid="field-localFallback">
+          <Switch
+            checked={form.localFallback}
+            label={t('localFallback')}
+            disabled={!writable || saving}
+            onChange={(next) => { setSaved(false); setForm({ ...form, localFallback: next }) }}
+          />
+        </span>
+        <div className={styles.settingRowText}>
+          <span className={styles.settingRowTitle}>{t('localFallback')}</span>
+          <span className={styles.fieldHint}>{t('localFallbackHint')}</span>
+        </div>
+      </div>
 
       <Group
         id="sources"

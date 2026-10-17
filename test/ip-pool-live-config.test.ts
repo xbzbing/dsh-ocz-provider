@@ -36,9 +36,12 @@ const ids = (pool: ExitPool): string[] => pool.list().map((entry) => entry.id).s
 /** Fake installer: records calls, keeps every global untouched. */
 function fakeInstaller() {
   const calls: string[] = []
+  /** Every 本地出口兜底 value applied through setLocalFallback, in order. */
+  const fallbacks: boolean[] = []
   let enabled = false
   return {
     calls,
+    fallbacks,
     install(): void {
       calls.push('install')
       enabled = true
@@ -53,6 +56,12 @@ function fakeInstaller() {
     },
     get enabled(): boolean {
       return enabled
+    },
+    setLocalFallback(value: boolean): void {
+      fallbacks.push(value)
+    },
+    get localFallback(): boolean {
+      return fallbacks.at(-1) ?? false
     },
     deferredReason: null as string | null,
   }
@@ -110,11 +119,15 @@ test('syncManualExits: pinning an admitted exit keeps the row and its source', (
 
 // -- assembly wiring -----------------------------------------------------------
 
-test('assembly: an empty pool installs nothing; the first admitted exit engages routing', async () => {
-  // Regression (live 2026-10-12): a subscription-only profile assembled empty,
-  // filled up minutes later, and NEVER installed the dispatcher — the card
-  // reported the pool as enabled while every request kept going direct. The
-  // free refill loop had its own hook; nothing watched subscription admissions.
+test('assembly: an empty pool still installs the dispatcher (本地出口兜底 decides what a miss means)', async () => {
+  // Two live lessons in one contract. (1) 2026-10-12: a subscription-only
+  // profile assembled empty, filled up minutes later, and NEVER installed the
+  // dispatcher — the card reported the pool as enabled while every request
+  // kept going direct. (2) 2026-10-18: with the dispatcher uninstalled, an
+  // empty pool is indistinguishable from "no pool at all", so 本地出口兜底
+  // could never refuse — this machine's IP went out during exactly the window
+  // the pool had nothing to offer. The layer therefore installs regardless of
+  // occupancy; admissions only recover an R1 deferral.
   const installer = fakeInstaller()
   const runtime = await startIpPool(
     { ipPool: { enabled: true, free: { enabled: false } } },
@@ -122,14 +135,32 @@ test('assembly: an empty pool installs nothing; the first admitted exit engages 
     { makeInstaller: () => installer },
   )
   assert.ok(runtime !== null)
-  assert.deepEqual(installer.calls, [], 'nothing to route through yet')
-
-  runtime.pool.add(node({ id: '127.0.0.1:30005' }))
-  assert.deepEqual(installer.calls, ['install'], 'the first exit engages routing without a settings save')
+  assert.deepEqual(installer.calls, ['install'], 'installed with an empty pool')
   assert.equal(runtime.installer.enabled, true)
 
-  runtime.pool.add(node({ id: '127.0.0.1:30006' }))
+  runtime.pool.add(node({ id: '127.0.0.1:30005' }))
   assert.deepEqual(installer.calls, ['install'], 'already engaged: no re-install per admission')
+  await runtime.dispose()
+})
+
+test('assembly: 本地出口兜底 reaches the installer at assembly and on every commit', async () => {
+  const installer = fakeInstaller()
+  let deps: { localFallback?: boolean } | undefined
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, free: { enabled: false }, localFallback: true } },
+    quiet,
+    { makeInstaller: (next) => { deps = next as { localFallback?: boolean }; return installer } },
+  )
+  assert.ok(runtime !== null)
+  assert.equal(deps?.localFallback, true, 'the switch is part of the installer wiring')
+  assert.deepEqual(installer.fallbacks, [true], 'and it is applied to the running router at assembly')
+
+  await runtime.reconfigure({ ipPool: { enabled: true, free: { enabled: false }, localFallback: false } })
+  assert.deepEqual(installer.fallbacks, [true, false], 'a settings commit flips it live, no restart')
+
+  // Absent means OFF: the schema default is the strict reading.
+  await runtime.reconfigure({ ipPool: { enabled: true, free: { enabled: false } } })
+  assert.deepEqual(installer.fallbacks, [true, false, false], 'an absent field resolves to the strict default')
   await runtime.dispose()
 })
 
