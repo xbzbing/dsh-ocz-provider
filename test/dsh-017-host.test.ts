@@ -211,8 +211,8 @@ test('plugin entry reads committed request headers live and releases its reader 
     assert.equal(opencodeUserAgent(), 'second-agent')
     assert.equal(disguiseHeaders(deriveRequestIDs([]))['x-opencode-client'], 'desktop')
     value = {}
-    assert.match(opencodeUserAgent(), /^opencode\/1\.18\.31 /)
+    assert.match(opencodeUserAgent(), /^opencode\/latest\/\d+\.\d+\.\d+\/cli$/)
   } finally { for (const dispose of h.effects) dispose() }
   value = { 'user-agent': 'must-not-leak-after-disposal' }
-  assert.match(opencodeUserAgent(), /^opencode\/1\.18\.31 /)
+  assert.match(opencodeUserAgent(), /^opencode\/latest\/\d+\.\d+\.\d+\/cli$/)
 })

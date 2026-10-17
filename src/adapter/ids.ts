@@ -235,21 +235,72 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
   return () => { if (readRequestHeaders === reader) readRequestHeaders = undefined }
 }
 
+/**
+ * The built-in Zen User-Agent: the shape the current (2.x) client sends,
+ * `opencode/<channel>/<version>/<client>`.
+ *
+ * Static extraction of OpenCode Desktop 2.0.32 puts the builder at
+ * `opencode/${channel}/${version}/${name}`, where `name` is the SAME value the
+ * client puts in its `x-opencode-client` header (`opencode/latest/2.0.32/desktop`
+ * was captured live on its wire the same night). The gate does not pin the UA
+ * string, but it does read fingerprint coherence, so the string is derived from
+ * the effective client flag rather than frozen with one segment: the Desktop
+ * toggle moves both spellings together.
+ *
+ * Live-probed 2026-10-17 against /inference/v1 through a non-CN egress, the v1
+ * recipe held constant (bash+read gate tools, `x-opencode-request: msg_*`,
+ * project `global`, no `x-session-affinity`): `opencode/latest/2.0.32/desktop`
+ * with client `desktop` -> 200 and `opencode/latest/2.0.32/cli` with client
+ * `cli` -> 200, both live SSE streams. Moving this string alone is therefore
+ * NOT a generation mix; the previous built-in was the 1.18.x CLI string
+ * `opencode/1.18.31 (<platform> <arch>; node<ver>)`.
+ */
+export const ZEN_UA_CHANNEL = 'latest'
+export const ZEN_UA_VERSION = '2.0.32'
+/** `x-opencode-client` value the client uses when no mode toggle is set. */
+export const DEFAULT_ZEN_CLIENT = 'cli'
+
+/** The built-in User-Agent for one `x-opencode-client` value. */
+export function zenUserAgent(client: string = DEFAULT_ZEN_CLIENT): string {
+  return `opencode/${ZEN_UA_CHANNEL}/${ZEN_UA_VERSION}/${client}`
+}
+
+/**
+ * Case-insensitive header merge: a later set wins, and a differently-cased
+ * spelling of the same name collapses instead of riding out twice (HTTP names
+ * are case-insensitive). Live overrides already arrive lowercased from
+ * `sanitizeRequestHeaders`; this gives caller-supplied base sets the same
+ * behaviour, which is what keeps the derived User-Agent coherent with the
+ * `x-opencode-client` the request actually carries.
+ */
+function mergeHeaders(...sets: RequestHeaders[]): RequestHeaders {
+  const merged: RequestHeaders = {}
+  for (const set of sets) {
+    for (const [name, value] of Object.entries(set)) {
+      const key = name.toLowerCase()
+      for (const existing of Object.keys(merged)) if (existing.toLowerCase() === key) delete merged[existing]
+      merged[key] = value
+    }
+  }
+  return merged
+}
+
 /** Common merge for chat, catalog and admission; caller-owned transport headers stay intact. */
 export function zenRequestHeaders(base: RequestHeaders = {}): RequestHeaders {
-  return {
-    'user-agent': legacyUserAgent(),
-    'x-opencode-client': 'cli',
-    ...base,
+  const merged = mergeHeaders(
+    { 'x-opencode-client': DEFAULT_ZEN_CLIENT },
+    base,
     // Lenient on purpose: the Config schema is a plain dict (a transform would
     // break the settings form — see config.ts), so this is where a hand-edited
     // profile patch is filtered down to safe, plugin-agnostic overrides.
-    ...sanitizeRequestHeaders(readRequestHeaders?.() ?? {}),
+    sanitizeRequestHeaders(readRequestHeaders?.() ?? {}),
+  )
+  return {
+    // Built-in only: an explicit `user-agent` (the `userAgent` config field or a
+    // live settings override) sits in `merged` below and wins over this one.
+    'user-agent': userAgentOverride || zenUserAgent(merged['x-opencode-client'] ?? DEFAULT_ZEN_CLIENT),
+    ...merged,
   }
-}
-
-function legacyUserAgent(): string {
-  return userAgentOverride || `opencode/1.18.31 (${process.platform} ${process.arch}; node${process.versions.node})`
 }
 
 /**
@@ -262,9 +313,9 @@ export function setUserAgentOverride(value: string | undefined): void {
 }
 
 /**
- * The User-Agent every Zen request carries: CLI-identical by default (ids.go
- * opencodeUserAgent, node runtime values), the configured `userAgent` when one
- * is set.
+ * The User-Agent every Zen request carries: the built-in 2.x shape above
+ * (`opencode/latest/2.0.32/<client>`) unless the `userAgent` config field or a
+ * live settings override names another string.
  *
  * The anonymous lane reads a whole FINGERPRINT — this header plus the
  * session/project/request id shapes and the tool definitions — so the two ways
@@ -304,7 +355,7 @@ export function opencodeUserAgent(): string {
  * while mixing the two fingerprints 403s every time (this UA with 2.x tool
  * names, their UA with our `x-opencode-request: msg_*`). Dropping
  * `x-opencode-request` from THIS set stays 200 as well, so the header is
- * optional here; it is kept because the 1.18.31 client sends it and `req_*`
+ * optional here; it is kept because the 1.x client sent it and `req_*`
  * is a rejection signal. Adopting any part of another generation's recipe
  * without the rest is what fails, not this set.
  */

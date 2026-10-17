@@ -146,7 +146,7 @@ test('live overrides reach chat, catalog and effective-UA status without reinsta
   } finally { dispose(); setUserAgentOverride(undefined) }
 })
 
-test('clearing overrides restores the legacy profile UA and disposing restores defaults', () => {
+test('clearing overrides restores the built-in UA and disposing restores defaults', () => {
   let value: Record<string, string> = { 'user-agent': desktopUA }
   setUserAgentOverride('legacy-agent')
   const dispose = setRequestHeadersReader(() => value)
@@ -156,7 +156,7 @@ test('clearing overrides restores the legacy profile UA and disposing restores d
     assert.equal(opencodeUserAgent(), 'legacy-agent')
     assert.equal(zenRequestHeaders()['x-opencode-client'], 'cli')
   } finally { dispose(); setUserAgentOverride(undefined) }
-  assert.match(opencodeUserAgent(), /^opencode\/1\.18\.31 \(/)
+  assert.match(opencodeUserAgent(), /^opencode\/latest\/\d+\.\d+\.\d+\/cli$/)
 })
 
 

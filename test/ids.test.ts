@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, setUserAgentOverride } from '../src/adapter/ids.ts'
+import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, setUserAgentOverride, ZEN_UA_CHANNEL, ZEN_UA_VERSION, zenRequestHeaders, zenUserAgent } from '../src/adapter/ids.ts'
 
 test('randomID differs per call with the requested size', () => {
   const a = randomID('req', 16)
@@ -164,14 +164,28 @@ test('disguiseHeaders carries the CLI-identical correlation set', () => {
   assert.equal(headers['x-opencode-request'], ids.request)
   assert.equal(headers['x-opencode-project'], ids.project)
   assert.ok(headers['user-agent'].startsWith('opencode/'))
-  assert.ok(headers['user-agent'].includes(process.platform))
+  // The built-in UA is the current client's shape, and its last segment is the
+  // same flag the request carries in x-opencode-client (OpenCode Desktop
+  // 2.0.32 builds `opencode/${channel}/${version}/${name}`).
+  assert.equal(headers['user-agent'], `opencode/${ZEN_UA_CHANNEL}/${ZEN_UA_VERSION}/cli`)
+  assert.equal(headers['user-agent'], zenUserAgent(headers['x-opencode-client']))
+})
+
+test('the built-in user-agent follows the effective x-opencode-client flag', () => {
+  // Desktop mode (a live settings override, or a caller-supplied base header)
+  // must move the UA's client segment with it, or the fingerprint stops being
+  // coherent with the header.
+  assert.equal(zenRequestHeaders({ 'x-opencode-client': 'desktop' })['user-agent'], `opencode/${ZEN_UA_CHANNEL}/${ZEN_UA_VERSION}/desktop`)
+  assert.equal(zenRequestHeaders({ 'X-Opencode-Client': 'desktop' })['user-agent'], `opencode/${ZEN_UA_CHANNEL}/${ZEN_UA_VERSION}/desktop`)
+  // an explicit user-agent still wins over the derived one
+  assert.equal(zenRequestHeaders({ 'user-agent': 'opencode/latest/2.0.32/desktop' })['user-agent'], 'opencode/latest/2.0.32/desktop')
 })
 
 test('the configured user-agent override moves every header set, and clearing restores the built-in value', () => {
   const ids = deriveRequestIDs([{ role: 'user', content: 'hello' }])
   const builtIn = opencodeUserAgent()
-  assert.match(builtIn, /^opencode\/1\.18\.31 \(/, 'the shipped value stays the CLI-identical one')
-  const desktop = 'opencode/1.19.0 (darwin 27.0.0; arm64)'
+  assert.match(builtIn, /^opencode\/latest\/\d+\.\d+\.\d+\/cli$/, 'the shipped value is the current client shape')
+  const desktop = 'opencode/latest/2.0.32/desktop'
   try {
     setUserAgentOverride(desktop)
     assert.equal(opencodeUserAgent(), desktop, 'the override wins')
