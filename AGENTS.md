@@ -136,3 +136,16 @@ dsh plugin --profile web add file:/Users/ankh/workspace/private/dsh-plugins/dsh-
 
 An install does NOT affect a running dsh web; restart the host to load new
 `lib/` code. Do not `npm publish` or bump versions without explicit consent.
+
+**A restart alone never refreshes new source.** pnpm treats the `file:`
+dependency as a COPY, not a link (`nodeLinker: hoisted`; `file:` packs and
+copies, `link:` would symlink), so
+`~/.dsh/profiles/web/node_modules/dsh-opencode-free-provider/lib/` keeps the
+`lib/` that existed when the add last ran. After changing `src/` (and running
+`pnpm build`), re-run the add command above — it re-copies `lib/`, `locale/`,
+`assets/` and `cordis.patch.yml` in a couple of seconds — and only then restart
+the host. Live 2026-10-18: a new settings switch stayed invisible through a
+restart for exactly this reason; the profile copy still held the previous
+build (`grep localFallback …/lib/client.js` returned 0 while the checkout's
+`lib/client.js` carried it). Check the profile copy's `lib/` timestamp — or
+grep it for a string only the new build has — before blaming the host.
