@@ -891,9 +891,23 @@
   max-height: 100%;
 }
 
-/* Scrollable region: the header/description/body ride together so tall exit
-   lists scroll vertically instead of clipping under the dialog's overflow. */
+/* The primitives' Modal wraps header (title + close), the optional description
+   and the body in ONE content column, and hands that column to contentClassName.
+   It used to be this project's scroller, so a tall exit list dragged the title
+   out of the card with it (live request 2026-10-18: 固定 title 位置). The column
+   now only stretches; the body scrolls, so the title and close button stay
+   parked at the card's top edge. */
 .statsContent {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The primitives' `.body`: the content column's children are the header DIV,
+   the optional description P, then the body DIV — so `div:last-child` is the
+   body whatever the hashed class names are. Both the flexible height and the
+   scrolling live here, which is what keeps the chrome above it still. */
+.statsContent > div:last-child {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
