@@ -182,8 +182,8 @@ export interface PoolStatusView {
   usage?: UsageView | null
   /** Pool-wide recent (3-min window) output speed in tok/s; 0 = hidden. */
   recentSpeed?: number
-  /** Today's all-in token figure (ledger day bucket): the footer compact
-   *  mode's first line. Optional for older host snapshots. */
+  /** Today's all-in token figure (ledger day bucket): THE footer's token
+   *  figure in every variant (2026-10-18). Optional for older host snapshots. */
   todayTokens?: number
   at: number
 }

@@ -257,24 +257,26 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [status])
 
   /**
-   * The footer's own numbers (live request 2026-10-14: 左下角显示总览). The
-   * ledger's ALL-TIME totals, never the scope the card's switch selected: the
-   * footer is the glanceable "what have I spent" figure, and it has to mean the
-   * same thing regardless of what the modal was last left on. Falls back to the
-   * live totals when the host serves no ledger.
+   * The footer's own numbers. Requests stay the ledger's ALL-TIME total and
+   * speed stays the recent-window gauge, but the token figure is TODAY's
+   * spend (live request 2026-10-18: 左下角的 tok 改为当天用量) — the day
+   * bucket the bridge already serves as `todayTokens`, never the scope the
+   * card's switch selected, so the footer means the same thing regardless of
+   * what the modal was last left on. Falls back to the live totals when the
+   * host serves no ledger (the bridge's todayTokens does the same, so both
+   * paths agree).
    */
   const overview = useMemo(() => {
-    const ledger = status?.usage
+    if (status === null) return totals
+    const ledger = status.usage
     if (ledger === null || ledger === undefined) return totals
-    const all = ledger.total
-    const allIn = grandTotal(all)
     return {
-      requests: all.requests,
-      tokens: allIn,
+      requests: ledger.total.requests,
+      tokens: status.todayTokens ?? 0,
       inFlight: totals.inFlight,
       // The footer's speed is the same recent-window gauge as the modal's —
       // a live number, not a lifetime average (live request 2026-10-15).
-      speed: status?.recentSpeed ?? 0,
+      speed: status.recentSpeed ?? 0,
     }
   }, [status, totals])
 
@@ -372,16 +374,18 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           rail (wide === false, 56px) always takes the single-line span.
           Live 2026-10-15: the squeezed label became two lines — TODAY's
           tokens on top (what this machine spent since midnight), the
-          recent-window tok/s underneath — while the rail keeps its one-line
-          all-time count.
+          recent-window tok/s underneath. Live 2026-10-18: that same
+          today-bucket number became THE footer token figure — the wide
+          sub-line and the rail no longer show the all-time total, so all
+          three variants render overview.tokens and never disagree.
         */}
         {wide ? (
           <span
             className={styles.footerCompactOnNarrow}
-            title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(status?.todayTokens ?? 0)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
+            title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
           >
             <span className={styles.footerCompactLine}>
-              {status === null ? '—' : `${compact(status.todayTokens ?? 0)} tok`}
+              {status === null ? '—' : `${compact(overview.tokens)} tok`}
             </span>
             {/* Hidden at 0 like everywhere else: an empty window means no
                 recent traffic, and "0 tok/s" would read as a stall. */}

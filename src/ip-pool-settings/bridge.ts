@@ -238,9 +238,10 @@ export interface PoolStatusView {
   recentSpeed: number
   /**
    * Today's all-in token figure (input + output + cache) from the ledger's
-   * day bucket — the footer compact mode's first line (live request
-   * 2026-10-15: 当天的 token 数量). Falls back to the process tracker's own
-   * totals when no ledger is wired; 0 when nothing was recorded today.
+   * day bucket — THE footer's token figure in every variant (live request
+   * 2026-10-18: 左下角的 tok 从总量改为当天用量; the compact two-line mode
+   * led on 2026-10-15). Falls back to the process tracker's own totals when
+   * no ledger is wired; 0 when nothing was recorded today.
    */
   todayTokens: number
   at: number
