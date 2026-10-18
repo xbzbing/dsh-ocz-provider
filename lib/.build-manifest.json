@@ -27,7 +27,7 @@
     "src/ip-pool-settings/apply.ts": "3ac934e8019a7441e78ca73af61bec277e0bcdc3",
     "src/ip-pool-settings/bridge.ts": "34552e26549d05e916c6c1fbc045668b595a2ee5",
     "src/ip-pool-settings/namespace.ts": "fdf277a05a33798733c8a57f57a9a766d2507446",
-    "src/ip-pool.ts": "2a7521c01646f59aaa3062c60e71bb3d8ae64898",
+    "src/ip-pool.ts": "78af4f30fd9e6c22c1f9ece29b2cf8f36bdb86db",
     "src/paths.ts": "e15b71368cc339dfc97673a8e87f5ad2d5f7e0a4",
     "src/pool/admission.ts": "bfa5a2820a00baf7e40d0828f56f0ffc0d7b8346",
     "src/pool/dispatcher.ts": "a60c7b14ac5032f703b43033ad16a17d14505e3c",

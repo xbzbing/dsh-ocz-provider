@@ -37,12 +37,15 @@ function dataDir(): string {
 
 /**
  * docs/ip-pool.md §4.6 probe timing. `PROBE_INTERVAL_MS` is the documented
- * periodic-recheck cadence, `DEAD_RETRY_MS` the documented dead retry; the
- * tick is far shorter than either because it is pure bookkeeping — it reads
- * health and enqueues only what is actually due.
+ * periodic-recheck cadence (operator decision 2026-10-18: 30min — a healthy
+ * exit stays verified three times longer, the probe quota stops cycling every
+ * 10 minutes), `DEAD_RETRY_MS` the documented dead retry; the tick is far
+ * shorter than either because it is pure bookkeeping — it reads health and
+ * enqueues only what is actually due. The refill loop keeps its own 10min
+ * cadence (refill.ts): replenishing the pool is not probing it.
  */
 const PROBE_TICK_MS = 60_000
-const PROBE_INTERVAL_MS = 10 * 60_000
+const PROBE_INTERVAL_MS = 30 * 60_000
 const DEAD_RETRY_MS = 2 * 60_000
 
 /** Parse one manual proxy string into an exit id + protocol, or null. */

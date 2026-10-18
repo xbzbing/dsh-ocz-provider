@@ -447,7 +447,7 @@ POST {zen}/v1/chat/completions
 | 触发 | 内容 | 频率 |
 | --- | --- | --- |
 | 启动/启用后首轮 | 全出口 × probeModels（两级调度，§4.1） | 一次性 |
-| 周期 | 冷却到期的 + 从未探过的（新入池出口）+ suspect 待复核的 | 默认 10min |
+| 周期 | 冷却到期的 + 从未探过的（新入池出口）+ suspect 待复核的 | 默认 30min（2026-10-18 由 10min 调整） |
 | 按需 | 设置页单出口「探测」/「批量探活」按钮 | 用户点击 |
 | 被动 | 真实请求的成败写入两级健康（免费的探活） | 每次请求 |
 
@@ -486,7 +486,7 @@ POST {zen}/v1/chat/completions
 | admissionFanout | **300** | 粗筛暴力并发（只打野生候选+IP 服务，不碰 Zen，§4.5；GoProxy ValidateConcurrency 同值） |
 | probeTimeoutMs | 8000 | 单探测超时 |
 | maxResponseMs | 3000 | 准入延迟门槛（critical 态放宽 6000） |
-| probeIntervalMs | 10min | 周期探活 + refill 状态检查节拍（上一轮未跑完则顺延） |
+| probeIntervalMs | 30min | 周期探活节拍（2026-10-18 由 10min 调整：健康出口三倍时间才复核一次，探活配额不再每 10min 轮转一轮；上一轮未跑完则顺延）。refill 状态检查节拍独立，固定 10min（src/pool/refill.ts），不受此项影响 |
 | limitedCooldownBase | 60s | 首次 429 冷却 |
 | limitedCooldownMax | 30min | 指数退避上限 |
 | deadRetryMs | 2min | dead 出口重新探测间隔 |
