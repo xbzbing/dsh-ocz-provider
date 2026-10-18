@@ -695,25 +695,16 @@ function ModelPicker(props: {
   )
 }
 
-/** Pool overview strip: Tag status badge + counts + pinned badge. */
+/** Pool overview strip: counts + deferred/pinned badges. */
 function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps['t'] }): ReactNode {
   const { status, t } = props
   if (status === null) return null
-  const stateLabel: Record<PoolStatusView['state'], string> = {
-    healthy: t('poolStateHealthy'),
-    warning: t('poolStateWarning'),
-    critical: t('poolStateCritical'),
-    emergency: t('poolStateEmergency'),
-  }
-  const stateTone: Record<PoolStatusView['state'], 'success' | 'warning' | 'danger'> = {
-    healthy: 'success',
-    warning: 'warning',
-    critical: 'danger',
-    emergency: 'danger',
-  }
+  /* No state badge up front (live request 2026-10-18: "8/8 为什么是枯竭"):
+     the headline `state` follows the FREE-lane subset (stateBasis 'free'),
+     while the number beside it counts the WHOLE pool — a drained free lane
+     read 枯竭 next to a healthy 池可用 8/8. The counts carry the meaning now. */
   return (
     <div className={styles.overviewBar} data-testid="ip-pool-overview">
-      <Tag tone={stateTone[status.state]}>{stateLabel[status.state]}</Tag>
       {status.deferredReason !== '' && (
         <Tag tone="danger">{t('deferredNotice').replace('{reason}', status.deferredReason)}</Tag>
       )}
