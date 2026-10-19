@@ -72,7 +72,10 @@ function scripted(scripts: PiEvent[][], efforts: string[] = [], beforeTerminal?:
         }
       })()
     },
-  } })
+  },
+  // One origin on purpose: the lane ladder (adapter/lane.ts) is not what this
+  // file tests, and a scripted 403 would otherwise buy itself a second rung.
+  zenBaseUrl: 'https://zen.test' })
   return { adapter, calls }
 }
 

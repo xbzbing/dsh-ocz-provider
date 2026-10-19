@@ -666,3 +666,89 @@ test('a deterministic refusal stays untagged — the host must not wait on it', 
   assert.equal(finish.reason.failure.code, 'REGION_BLOCKED')
   assert.equal(finish.reason.failure.providerRetryAfterMs, undefined, 'REGION_BLOCKED is not in retryableCodes — no wait, no retry')
 })
+
+/**
+ * The origin ladder (adapter/lane.ts), from the adapter's side: the same
+ * request bytes are sent to the second door only when the first one answers
+ * with an ORIGIN-shaped failure, and that switch never spends an exit
+ * rotation (on 2026-10-19 both doors served the identical recipe).
+ */
+function laneProvider(outcomes: Array<'refuse' | 'limited' | 'answer'>, seen: string[]) {
+  const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 }
+  const failure = (errorMessage: string) => ({
+    type: 'error',
+    error: { api: 'openai-completions', provider: 'oc2dsh', model: 'big-pickle', content: [], usage, stopReason: 'error', errorMessage },
+  })
+  return {
+    streamSimple(model: { baseUrl: string }, _context: unknown, _options: unknown): AsyncIterable<unknown> {
+      seen.push(model.baseUrl)
+      const outcome = outcomes[seen.length - 1] ?? 'answer'
+      return (async function* () {
+        if (outcome === 'refuse') {
+          yield failure('403: {"type":"error","error":{"type":"FreeTierError","message":"OpenCode\'s free tier can only be used from within OpenCode."}}')
+          return
+        }
+        if (outcome === 'limited') {
+          yield failure('429: Too Many Requests')
+          return
+        }
+        yield { type: 'start' }
+        yield { type: 'text_start', contentIndex: 0, partial: { content: [] } }
+        yield { type: 'text_delta', contentIndex: 0, delta: 'ok', partial: { content: [{ type: 'text', text: 'ok' }] } }
+        yield { type: 'text_end', contentIndex: 0, content: 'ok', partial: { content: [{ type: 'text', text: 'ok' }] } }
+        yield {
+          type: 'done',
+          message: { api: 'openai-completions', provider: 'oc2dsh', model: 'big-pickle', content: [{ type: 'text', text: 'ok' }], stopReason: 'stop', usage },
+        }
+      })()
+    },
+  }
+}
+
+async function laneStream(outcomes: Array<'refuse' | 'limited' | 'answer'>, seen: string[]) {
+  const adapter = new ZenAdapter(
+    {
+      list: () => ['big-pickle'],
+      decision: () => ({ allowed: true, source: 'test', known: true }),
+      reasoningCapability: () => undefined,
+    },
+    { zenBaseUrl: 'https://primary.test', fallbackBaseUrl: 'https://fallback.test', providerOverride: laneProvider(outcomes, seen) },
+  )
+  const chunks: Array<{ type: string; reason?: { kind: string; failure?: { message?: string; code?: string } } }> = []
+  for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] } as never)) {
+    chunks.push(chunk as never)
+  }
+  return chunks
+}
+
+test('an origin refusal is retried on the ladder\'s second rung, not on a new exit', async () => {
+  const seen: string[] = []
+  const chunks = await laneStream(['refuse', 'answer'], seen)
+  assert.deepEqual(seen, ['https://primary.test/v1', 'https://fallback.test/v1'])
+  assert.equal(chunks.some((chunk) => chunk.type === 'text-delta'), true, 'the fallback answer reached the host')
+  const finish = chunks.at(-1)
+  assert.equal(finish?.type, 'finish')
+  assert.equal(finish?.reason?.kind, 'stop')
+})
+
+test('a 429 is exit-shaped: it never buys a second origin', async () => {
+  const seen: string[] = []
+  const chunks = await laneStream(['limited'], seen)
+  assert.deepEqual(seen, ['https://primary.test/v1'])
+  const finish = chunks.at(-1)
+  assert.equal(finish?.type, 'finish')
+  assert.equal(finish?.reason?.kind, 'error')
+})
+
+test('both doors refusing surfaces one error that names both', async () => {
+  const seen: string[] = []
+  const chunks = await laneStream(['refuse', 'refuse'], seen)
+  assert.deepEqual(seen, ['https://primary.test/v1', 'https://fallback.test/v1'])
+  const finish = chunks.at(-1)
+  assert.equal(finish?.type, 'finish')
+  const message = finish?.reason?.failure?.message ?? ''
+  assert.match(message, /两条来源均失败/)
+  assert.match(message, /primary\.test -> fallback\.test/)
+  // No exit rotation happened, so the story must not claim one.
+  assert.equal(/轮换 \d+ 次/.test(message), false)
+})

@@ -19,10 +19,23 @@
  *   - the genuine pair plus one extra unrelated tool         -> 200
  *   - the genuine pair minus `bash`, or `bash` alone         -> 403
  *
- * So the check is: both names present, each `description` CONTAINING the
- * genuine text (substring, not equality) and each `parameters` EQUAL to the
- * genuine schema (`$schema` included). Extra tools are ignored — which is why
- * the adapter can keep forwarding the host's own tool set beside these two.
+ * So the check was, as measured 2026-10-14: both names present, each
+ * `description` CONTAINING the genuine text (substring, not equality) and each
+ * `parameters` EQUAL to the genuine schema (`$schema` included). Extra tools
+ * were ignored — which is why the adapter can keep forwarding the host's own
+ * tool set beside these two.
+ *
+ * RE-MEASURED 2026-10-19 (same endpoint, captured adapter bytes replayed, one
+ * variable per request, two models): that content check is GONE. Both
+ * definitions replaced by a bare `{description:"Agent tool X", parameters:`
+ * `{type:"object", properties:{}}}` answered 200, under this adapter's 2.x UA,
+ * under the 1.19.3 AI-SDK UA and under the 1.18.31 UA alike. The only
+ * structural requirement that day was a NON-EMPTY `tools` array carrying an
+ * entry NAMED `read` (bash-only / shell-only / edit-only / unrelated-only each
+ * 403, `read` alone 200). The genuine pair is nevertheless KEPT: the gate has
+ * flipped four times (09-16, 10-09, 10-13, 10-14) and on 10-14 the stubs above
+ * really were the rejection signal — carrying 300 lines of insurance is much
+ * cheaper than rediscovering this under a user-facing 403.
  *
  * Provenance: captured 2026-10-14 from OpenCode Desktop 1.19.0 by running the
  * app's own bundled server (`out/main/chunks/node-bfcslolZ.js`, started the

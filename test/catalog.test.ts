@@ -607,3 +607,32 @@ test('stale-while-revalidate: a fresh disk cache serves capability reads while t
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+/**
+ * The lane origin ladder (adapter/lane.ts) on the catalog path: a listing the
+ * primary door refuses is asked of the console door before the refresh round
+ * gives up. An injected base stays single-rung on purpose (lane.test.ts), so
+ * these two drive the ladder with an explicit fallback.
+ */
+test('fetchZenModels walks the ladder when the primary door refuses the listing', async () => {
+  const seen: string[] = []
+  const fetchImpl = (async (url: string | URL | Request) => {
+    const target = String(url)
+    seen.push(target)
+    if (target.startsWith('https://primary.test/')) return new Response('refused', { status: 403 })
+    return new Response(JSON.stringify(zenBody), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const ids = await fetchZenModels('https://primary.test/', fetchImpl, opencodeUserAgent(), 'https://console.test/')
+  assert.deepEqual(ids, ['qwen-free', 'paid-model', 'ghost-free', 'legacy-free'])
+  assert.deepEqual(seen, ['https://primary.test/v1/models', 'https://console.test/v1/models'])
+})
+
+test('fetchZenModels stops at the first door on a transport failure', async () => {
+  const seen: string[] = []
+  const fetchImpl = (async (url: string | URL | Request) => {
+    seen.push(String(url))
+    throw new Error('fetch failed')
+  }) as typeof fetch
+  await assert.rejects(fetchZenModels('https://primary.test', fetchImpl, opencodeUserAgent(), 'https://console.test'), /fetch failed/)
+  assert.deepEqual(seen, ['https://primary.test/v1/models'], 'a socket error is the egress talking, not the door')
+})

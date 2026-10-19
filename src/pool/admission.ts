@@ -21,6 +21,7 @@ import type { Dispatcher } from 'undici'
 import { ZEN_BASE_URL } from '../adapter/catalog.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/gate-tools.ts'
 import { canonicalSessionID, DEFAULT_PROJECT_ID, disguiseHeaders, mintedMessageID, opencodeUserAgent } from '../adapter/ids.ts'
+import { laneOrigins } from '../adapter/lane.ts'
 import { gradeOf, UNVERIFIED_QUALITY, type ExitNode, type ExitPool } from './pool.ts'
 import { exitProxyUri } from './dispatcher.ts'
 import { pickSmokeContent } from './smoke-content.ts'
@@ -33,6 +34,8 @@ export interface AdmissionDeps {
   }
   /** zen endpoint override for tests. */
   zenBaseUrl?: string
+  /** Second origin rung for tests; defaults to the lane ladder. */
+  fallbackBaseUrl?: string
   /** ip echo override for tests. */
   ipEchoUrl?: string
   /** chat model for the smoke request (probeModels[0] upstream). */
@@ -224,6 +227,11 @@ export async function admitCandidate(
   } = {},
 ): Promise<AdmissionResult> {
   const zenBase = deps.zenBaseUrl ?? ZEN_BASE_URL
+  // The lane's origin ladder (adapter/lane.ts): the adapter serves chat from
+  // whichever door answers, so an exit that reaches only ONE of the two origins
+  // is a good exit. Probing a single origin would discard it and churn the pool
+  // while real conversations kept working.
+  const origins = laneOrigins(zenBase, deps.fallbackBaseUrl)
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const smokeModel = deps.smokeModel ?? 'big-pickle'
   // One draw per call = one draw per exit probe (a pre-drawn pass value wins).
@@ -258,6 +266,25 @@ export async function admitCandidate(
       init.method === 'POST' ? 'smoke' : 'probe',
     )
 
+  /**
+   * Ask each origin in ladder order and keep the best answer: 200 wins
+   * outright, a 429 (quota consumed — the exit itself is fine, see the smoke
+   * comment below) beats any hard failure, and otherwise the FIRST door's
+   * status is the one reported, because that is the door the adapter prefers.
+   */
+  const probeLane = async (
+    path: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string },
+  ): Promise<number> => {
+    let verdict = 0
+    for (const origin of origins) {
+      const { statusCode } = await request(`${origin}${path}`, init)
+      if (statusCode === 200) return 200
+      if (verdict === 0 || (statusCode === 429 && verdict !== 429)) verdict = statusCode
+    }
+    return verdict
+  }
+
   try {
     // Steps 1+2 run inline only when the caller has not pre-screened the
     // candidate (coarseScreen/batch output = echoFacts; the refill loop
@@ -285,11 +312,11 @@ export async function admitCandidate(
     })
 
     // Step 3: HTTPS tunnel to the real upstream (models list, Bearer public).
-    const models = await request(`${zenBase.replace(/\/+$/, '')}/v1/models`, {
+    const modelsStatus = await probeLane('/v1/models', {
       headers: { authorization: 'Bearer public', 'user-agent': opencodeUserAgent(), 'x-opencode-client': 'cli', accept: 'application/json', ...probeHeaders() },
     })
-    if (models.statusCode !== 200) {
-      return { admitted: false, reason: `zen models HTTP ${models.statusCode}` }
+    if (modelsStatus !== 200) {
+      return { admitted: false, reason: `zen models HTTP ${modelsStatus}` }
     }
 
     // Step 4: anonymous-lane smoke (streaming, 1 token). The free lane
@@ -298,7 +325,7 @@ export async function admitCandidate(
     // `ses_*` session header and the request/project id shapes the adapter
     // sends (adapter/ids.ts). `tool_choice` is left to the model: the gate
     // rejects `'none'` outright (403), and a 200 is all this step reads.
-    const smoke = await request(`${zenBase.replace(/\/+$/, '')}/v1/chat/completions`, {
+    const smokeStatus = await probeLane('/v1/chat/completions', {
       method: 'POST',
       headers: {
         authorization: 'Bearer public',
@@ -314,12 +341,12 @@ export async function admitCandidate(
         tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
       }),
     })
-    if (smoke.statusCode !== 200) {
+    if (smokeStatus !== 200) {
       // 429 = the exit is good (alive + tunnel verified) but its anonymous
       // quota is currently consumed. Admit with limited: the caller cools it
       // and the periodic probe retries later (measured 2026-09-05: 429 is
       // the single largest smoke failure among tunnel-OK survivors).
-      if (smoke.statusCode === 429) {
+      if (smokeStatus === 429) {
         return {
           admitted: true,
           limited: true,
@@ -327,7 +354,7 @@ export async function admitCandidate(
           node: admittedNode(),
         }
       }
-      return { admitted: false, reason: `zen smoke HTTP ${smoke.statusCode}` }
+      return { admitted: false, reason: `zen smoke HTTP ${smokeStatus}` }
     }
 
     return { admitted: true, node: admittedNode() }

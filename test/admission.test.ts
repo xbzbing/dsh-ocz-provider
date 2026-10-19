@@ -351,3 +351,45 @@ test('admission reads Zen header edits between model-list and smoke requests', a
     assert.equal(transport.headers.get(ECHO_URL)?.['user-agent'], undefined, 'overrides must not leak to geo echo')
   } finally { release() }
 })
+
+/**
+ * The lane origin ladder (adapter/lane.ts), from the pool's side: the adapter
+ * serves chat from whichever door answers, so an exit that reaches only ONE of
+ * the two lane origins is a good exit. Probing a single origin would reject it
+ * and churn the pool while real conversations kept working.
+ */
+test('admission: walks the ladder and admits an exit that only reaches the console origin', async () => {
+  const transport = fakeTransport({
+    [ECHO_URL]: { status: 200, body: echoBody('5.5.5.5', 'US') },
+    'https://primary.test/v1/models': { status: 403, body: '{"type":"error"}' },
+    'https://console.test/v1/models': { status: 200, body: '{"data":[]}' },
+    'https://primary.test/v1/chat/completions': { status: 403, body: '{}' },
+    'https://console.test/v1/chat/completions': { status: 200, body: '{"id":"x"}' },
+  })
+  const result = await admitCandidate(
+    deps(transport, { zenBaseUrl: 'https://primary.test', fallbackBaseUrl: 'https://console.test' }),
+    { address: 'h:9', protocol: 'http', source: 'free' },
+  )
+  assert.ok(result.admitted, result.reason)
+  assert.deepEqual(transport.calls, [
+    ECHO_URL,
+    'https://primary.test/v1/models',
+    'https://console.test/v1/models',
+    'https://primary.test/v1/chat/completions',
+    'https://console.test/v1/chat/completions',
+  ])
+})
+
+test('admission: both doors failing rejects with the primary door\'s verdict', async () => {
+  const transport = fakeTransport({
+    [ECHO_URL]: { status: 200, body: echoBody('5.5.5.5', 'US') },
+    'https://primary.test/v1/models': { status: 502, body: 'bad gateway' },
+    'https://console.test/v1/models': { status: 503, body: 'unavailable' },
+  })
+  const result = await admitCandidate(
+    deps(transport, { zenBaseUrl: 'https://primary.test', fallbackBaseUrl: 'https://console.test' }),
+    { address: 'h:10', protocol: 'http', source: 'free' },
+  )
+  assert.equal(result.admitted, false)
+  assert.equal(result.reason, 'zen models HTTP 502')
+})

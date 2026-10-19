@@ -5,6 +5,7 @@ import * as openaiResponses from '@earendil-works/pi-ai/api/openai-responses'
 import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
 import { toStreamChunks, type HarnessChunk, type PiDoneMessage, type PiEvent } from './events.ts'
 import { conversationLabel, deriveRequestIDs, disguiseHeaders } from './ids.ts'
+import { isOriginFailure, laneOrigins } from './lane.ts'
 import { gateToolArgumentBridge } from './gate-tools.ts'
 import { nextRetryDelayMs, retryDelayKey } from './retry-delay.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
@@ -274,13 +275,19 @@ export function isVisionModel(id: string, declaredModalities?: string[]): boolea
   return /^mimo-v2\.6/i.test(String(id ?? ''))
 }
 
-function toPiModel(id: string, reasoning: boolean, limits?: { contextWindow?: number; maxOutput?: number }, declaredModalities?: string[]): Model<Api> {
+function toPiModel(
+  id: string,
+  reasoning: boolean,
+  limits?: { contextWindow?: number; maxOutput?: number },
+  declaredModalities?: string[],
+  baseUrl: string = ZEN_BASE_URL,
+): Model<Api> {
   return {
     id,
     name: id,
     api: apiForModel(id),
     provider: PROVIDER_ID,
-    baseUrl: `${ZEN_BASE_URL.replace(/\/+$/, '')}/v1`,
+    baseUrl: `${baseUrl.replace(/\/+$/, '')}/v1`,
     // The honest capability flag: gates pi-ai's reasoning_effort branch and
     // keeps developer-role replay suppressed (the Zen lane's compat detects
     // supportsDeveloperRole=false for opencode.ai, so the system slot is
@@ -334,9 +341,13 @@ export class ZenAdapter {
   readonly #firstEventMs: number
   readonly #bodyIdleMs: number
   readonly #responsesBodyIdleMs: number
+  /** The lane's origin ladder, primary first (adapter/lane.ts). */
+  readonly #origins: string[]
 
   constructor(catalog: CatalogLike, options: {
     zenBaseUrl?: string
+    /** Second origin rung; defaults to the lane ladder for a known origin. */
+    fallbackBaseUrl?: string
     providerOverride?: unknown
     /** Watchdog windows (tests inject short ones; defaults are live-tuned). */
     firstEventMs?: number
@@ -348,12 +359,13 @@ export class ZenAdapter {
     this.#firstEventMs = options.firstEventMs ?? DEFAULT_FIRST_EVENT_MS
     this.#bodyIdleMs = options.bodyIdleMs ?? DEFAULT_BODY_IDLE_MS
     this.#responsesBodyIdleMs = options.responsesBodyIdleMs ?? RESPONSES_BODY_IDLE_MS
+    this.#origins = laneOrigins(options.zenBaseUrl ?? ZEN_BASE_URL, options.fallbackBaseUrl)
     if (options.providerOverride !== undefined) {
       this.#provider = options.providerOverride as never
       this.#responsesProvider = null
       return
     }
-    const baseUrl = `${(options.zenBaseUrl ?? ZEN_BASE_URL).replace(/\/+$/, '')}/v1`
+    const baseUrl = `${this.#origins[0] ?? ZEN_BASE_URL}/v1`
     const auth = {
       apiKey: {
         name: 'OpenCode Zen anonymous lane',
@@ -559,7 +571,13 @@ export class ZenAdapter {
     // that renames a field still pairs, and a call whose shape already matches
     // is passed through untouched.
     const argumentBridge = gateToolArgumentBridge(context.tools)
-    const model = toPiModel(options.model, this.#catalog.reasoningCapability(options.model)?.reasoning === true, this.#catalog.limits?.(options.model), this.#catalog.modalities?.(options.model))
+    const model = toPiModel(
+      options.model,
+      this.#catalog.reasoningCapability(options.model)?.reasoning === true,
+      this.#catalog.limits?.(options.model),
+      this.#catalog.modalities?.(options.model),
+      this.#origins[0] ?? ZEN_BASE_URL,
+    )
     // IP-pool routing context (docs/ip-pool.md 3.3): pi-ai builds the request
     // body and dispatches it on separate layers with no channel for "which
     // model is this fetch for", so the per-request context rides AsyncLocalStorage.
@@ -595,9 +613,22 @@ export class ZenAdapter {
       ? Math.max(this.#bodyIdleMs, this.#responsesBodyIdleMs)
       : this.#bodyIdleMs
     const rotateStory: string[] = []
-    for (let attempt = 0; ; attempt += 1) {
+    // The origin ladder (adapter/lane.ts): the same request bytes are sent to
+    // the next origin when the current one answers with an ORIGIN-shaped
+    // failure — a gate refusal (401/403/404) or an edge 5xx. That switch costs
+    // one round trip and does NOT spend a pool rotation: a refusing origin is
+    // not a bad exit, and on 2026-10-19 both origins served the identical
+    // recipe, so the second door is a real second chance rather than a retry.
+    const origins = this.#origins
+    const originLabel = (origin: string): string => origin.replace(/^https?:\/\//, '')
+    let attempt = 0
+    let originIndex = 0
+    /** EXIT rotations actually spent — the origin switches above are not ones. */
+    let rotations = 0
+    for (;;) {
+      const origin = origins[originIndex] ?? origins[0] ?? ZEN_BASE_URL
       const events = routingContext.run(contextStore, () =>
-        this.#eventsFor(options, context, ids, model),
+        this.#eventsFor(options, context, ids, model, origin),
       ) as AsyncIterable<PiEvent>
       let deliveredContent = false
       let preContentFailure: { message: string } | null = null
@@ -723,6 +754,15 @@ export class ZenAdapter {
       const failureMessage = (preContentFailure as { message: string }).message
       const failure = classifyStreamFailure(failureMessage)
       const deterministic = isRegionBlocked(failureMessage)
+      const nextOrigin = origins[originIndex + 1]
+      if (nextOrigin !== undefined && isOriginFailure(failureMessage)) {
+        // Origin-shaped, and there is another door: re-run the same attempt
+        // against it. `attempt` is deliberately NOT incremented, so a refusal
+        // that both origins share still leaves the full pool budget intact.
+        rotateStory.push(`#${attempt + 1} ${failure ?? 'origin'} ${originLabel(origin)} -> ${originLabel(nextOrigin)}: ${failureMessage.slice(0, 60)}`)
+        originIndex += 1
+        continue
+      }
       const rotate = failure !== null
         && attempt < MAX_ROTATES
         && shouldRotate(failure, options.model, ids.session, attempt + 1, deterministic)
@@ -730,19 +770,19 @@ export class ZenAdapter {
       if (!rotate) {
         // last resort: rewrite the terminal error to tell the whole story
         // (the user saw minutes of silence — the surfaced error must say
-        // what was tried, not just the last attempt's failure)
+        // what was tried, not just the last attempt's failure). The count is
+        // of EXIT rotations; an origin failover says so instead.
+        const story = rotateStory.length > 1
+          ? ` (oc2dsh ${rotations > 0 ? `轮换 ${rotations} 次后放弃` : '两条来源均失败'}: ${rotateStory.join(' -> ')})`
+          : ''
         for (let i = 0; i < buffered.length; i += 1) {
           const e = buffered[i] as PiEvent & { error?: { errorMessage?: string }; message?: { errorMessage?: string; stopReason?: string } }
           if (e.type === 'error' && e.error) {
-            e.error.errorMessage = rotateStory.length > 1
-              ? `${e.error.errorMessage} (oc2dsh 轮换 ${rotateStory.length - 1} 次后放弃: ${rotateStory.join(' -> ')})`
-              : e.error.errorMessage
+            e.error.errorMessage = `${e.error.errorMessage}${story}`
             break
           }
           if (e.type === 'done' && e.message?.stopReason === 'error') {
-            e.message.errorMessage = rotateStory.length > 1
-              ? `${e.message.errorMessage} (oc2dsh 轮换 ${rotateStory.length - 1} 次后放弃: ${rotateStory.join(' -> ')})`
-              : e.message.errorMessage!
+            e.message.errorMessage = `${e.message.errorMessage}${story}`
             break
           }
         }
@@ -750,7 +790,11 @@ export class ZenAdapter {
         return
       }
       // rotate: loop re-runs #eventsFor inside the same ALS store; the pool
-      // has already degraded the failed exit, so pick lands elsewhere.
+      // has already degraded the failed exit, so pick lands elsewhere. A fresh
+      // exit starts at the ladder's first rung again.
+      attempt += 1
+      rotations += 1
+      originIndex = 0
     }
   }
 
@@ -759,6 +803,7 @@ export class ZenAdapter {
     context: PiContext,
     ids: ReturnType<typeof deriveRequestIDs>,
     model: ReturnType<typeof toPiModel>,
+    origin?: string,
   ): unknown {
     // Structural boundary: PiContext (own types, unit-tested) -> pi-ai Context.
     const isResponses = model.api === 'openai-responses'
@@ -793,7 +838,12 @@ export class ZenAdapter {
     const provider = isResponsesModel(model.id) && this.#responsesProvider
       ? this.#responsesProvider
       : this.#provider
-    return provider.streamSimple(model, context as unknown as Context, {
+    // The origin is the ONE thing a failover moves: baseUrl is read off the
+    // model by pi-ai's api layer, and both origins live on opencode.ai, so the
+    // compat auto-detection (which branches on the host) cannot tell them
+    // apart. Everything else — headers, ids, body shaping — stays identical.
+    const target = origin === undefined ? model : { ...model, baseUrl: `${origin.replace(/\/+$/, '')}/v1` }
+    return provider.streamSimple(target, context as unknown as Context, {
       apiKey: ANONYMOUS_KEY,
       sessionId: ids.session,
       headers: disguiseHeaders(ids),

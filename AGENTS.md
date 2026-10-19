@@ -87,7 +87,7 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie and transport/body format headers are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.0.32/<client>`, whose last segment mirrors the effective `x-opencode-client` (so Desktop mode sends `/desktop`); it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep Node's happy-eyeballs fallback. Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts |
-| Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call) | src/adapter/catalog.ts `ZEN_BASE_URL` |
+| Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
 | Config schema nodes must stay plain | NEVER put `.transform()` (or any callback-bearing node) in `Config`. dsh-settings rebuilds the served form from `Config.toJSON()` (`plainSchema`) and serializes it a SECOND time for the browser; a transform's `callback` survives the first `toJSON()` but is dropped on that rebuild, so the browser rehydrates a callback-less node, `ConfigFormController.decode()` throws `callback is not a function`, and the whole configuration card stays loading forever — invisible (live 2026-10-15, introduced with the Zen 请求头 field). Validate at the editor and request boundaries instead | src/config.ts, test/request-headers.test.ts, scripts/smoke-dsh-compat.mjs |
 
@@ -110,9 +110,15 @@ coherence**, not an allow-list. The full picture, each point live-probed, lives
 in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
 `src/adapter/ids.ts`. Headlines:
 
-- endpoint `/inference/v1`; body must be streaming with genuine `bash` + `read`
-  tool definitions (`src/adapter/gate-tools.ts`, captured verbatim —
-  `parameters` byte-equal, `description` matched as a substring);
+- one recipe, two origins: `/inference` (primary) and `/zen` (fallback) both
+  accept this fingerprint, walked as a ladder on an origin-shaped failure
+  (`src/adapter/lane.ts`; the console origin was re-probed live 2026-10-19);
+- body must be streaming with genuine `bash` + `read` tool definitions
+  (`src/adapter/gate-tools.ts`, captured verbatim — `parameters` byte-equal,
+  `description` matched as a substring). Re-probed 2026-10-19: that content
+  check was OFF (gutted definitions passed; only a `read`-named entry was
+  required) — the genuine pair stays as insurance, the gate has flipped four
+  times;
 - session id: canonical `ses_*` whose inverted 48-bit word carries a counter
   inside 0-63 (the ONLY accepted window; the timestamp half is unchecked) —
   the prefix is derived from the digest with counter 1, never clock-minted

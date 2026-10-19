@@ -344,11 +344,15 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  * there the same day (adapter/catalog.ts `ZEN_BASE_URL`). A chat request
  * answers 200 only when ALL of these hold:
  *
- *   1. the endpoint is `/inference/v1`: the old `/zen/v1` now answers 403
- *      FreeTierError for EVERY shape, including a byte-copy of the client's
- *      own request. `/zen/v1/models` alone still answers 200, which is why
- *      the catalog and the settings card's `/status` stayed green while every
- *      chat died;
+ *   1. the endpoint is `/inference/v1`: the lane moved there on 2026-10-14
+ *      (adapter/catalog.ts `ZEN_BASE_URL`) and `/zen/v1` answered 403
+ *      FreeTierError to a request that passed on the new origin — including a
+ *      byte-copy of the client's own request. `/zen/v1/models` alone answered
+ *      200, which is why the catalog and the settings card's `/status` stayed
+ *      green while every chat died. RE-PROBED 2026-10-19: `/zen/v1` serves the
+ *      SAME recipe again (200 SSE, no redirect, two models, both egress
+ *      families), so the lane now has two doors and the adapter walks them as
+ *      a ladder on an origin-shaped failure — 401/403/404/5xx (adapter/lane.ts);
  *   2. a canonical `ses_*` id rides `x-opencode-session` (or
  *      `x-opencode-session-id`) — and NOT `x-session-affinity` /
  *      `X-Session-Id`, which the client sends only for its other providers and
@@ -365,7 +369,11 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  *   4. a streaming body (`stream: true`);
  *   5. a `tools` array carrying `bash` AND `read` with the GENUINE definitions
  *      (adapter/gate-tools.ts — the placeholder stubs this file used to inject
- *      are now themselves a rejection signal), while extra tools are ignored;
+ *      are now themselves a rejection signal), while extra tools are ignored.
+ *      RE-PROBED 2026-10-19: the definitions were no longer validated (both
+ *      gutted -> 200, under three different UAs and two models) and the only
+ *      structural requirement was a non-empty `tools` array with an entry
+ *      NAMED `read`; the genuine pair stays as insurance (gate-tools.ts);
  *   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass).
  *
  * NOT gates, measured live: `Bearer public`, `max_tokens`, `temperature`, and
@@ -381,7 +389,9 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  * The two shapes are mutually exclusive at the edges: a no-tools request is
  * only accepted with the client's exact title-generator prompt, which is why
  * this adapter always ensures the gate tools are present rather than ever
- * sending an empty `tools` array.
+ * sending an empty `tools` array. Whatever the gate's current strictness, the
+ * SHAPE of the request is the contract: one recipe, two origins
+ * (adapter/lane.ts), never a mixture of generations.
  */
 export const GATE_TOOL_ALIASES: Record<string, string> = {}
 

@@ -2,6 +2,7 @@ import { readFile, rename, rm, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { opencodeUserAgent, zenRequestHeaders } from './ids.ts'
+import { isOriginFailure, laneOrigins } from './lane.ts'
 
 /**
  * Port of agent/internal/catalog (opencode2api models.go + model_metadata.go,
@@ -15,7 +16,7 @@ import { opencodeUserAgent, zenRequestHeaders } from './ids.ts'
  */
 
 /**
- * The anonymous lane's base URL (every caller appends `/v1`).
+ * The anonymous lane's PRIMARY base URL (every caller appends `/v1`).
  *
  * It was `https://opencode.ai/zen` until 2026-10-14, when OpenCode moved the
  * whole lane — free models included — to `https://opencode.ai/inference/v1`.
@@ -28,11 +29,15 @@ import { opencodeUserAgent, zenRequestHeaders } from './ids.ts'
  * 2026-10-14 from OpenCode Desktop 1.19.0 (a `POST` to
  * `/inference/v1/chat/completions` that answered 200).
  *
- * Live-probed the same day: a request that passes on `/inference/v1` — the
- * genuine gate tools, a `msg_*` request id, the real project id, the minted
- * `ses_*` session — answers **403 FreeTierError** on `/zen/v1`, so the old
- * lane is closed rather than merely deprecated. `/zen/v1/models` alone still
- * answers 200, which is why this plugin's catalog stayed green (and its
+ * Live-probed the same day, `/zen/v1` answered 403 FreeTierError to a request
+ * that passed on `/inference/v1`, so the plugin treated the old lane as closed
+ * for five days. Re-probed 2026-10-19 (single variable per request, captured
+ * adapter bytes replayed, two models, both egress families): `/zen/v1` serves
+ * the SAME recipe again — 200 SSE, no redirect, and its `/v1/models` lists the
+ * same 85 ids. Both origins are therefore live doors of one lane, which is why
+ * the base is now the head of a ladder (adapter/lane.ts `laneOrigins`) rather
+ * than a single hard-coded host. `/zen/v1/models` answering while chat refused
+ * is also what hid the 2026-10-14 move: the catalog stayed green (and
  * `adapter-status.json` reported `ready`) while every chat request failed.
  */
 export const ZEN_BASE_URL = 'https://opencode.ai/inference'
@@ -542,7 +547,27 @@ export async function fetchZenModels(
   zenBaseUrl: string,
   fetchImpl: typeof fetch,
   userAgent: string,
+  fallbackBaseUrl?: string,
 ): Promise<string[]> {
+  // The same lane ladder the chat walks (adapter/lane.ts): a listing that one
+  // origin refuses or does not serve is asked of the other before the refresh
+  // round gives up. Anything that is not an origin-shaped answer (a socket
+  // error, a DNS failure) is the egress talking, so it stops the walk instead
+  // of blaming the second door.
+  const origins = laneOrigins(zenBaseUrl, fallbackBaseUrl)
+  let lastError: Error | undefined
+  for (const origin of origins) {
+    try {
+      return await fetchModelsAt(origin, fetchImpl, userAgent)
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      if (!isOriginFailure(lastError.message)) break
+    }
+  }
+  throw lastError ?? new Error('no lane origin configured')
+}
+
+async function fetchModelsAt(zenBaseUrl: string, fetchImpl: typeof fetch, userAgent: string): Promise<string[]> {
   const response = await withTimeout(
     fetchImpl(`${zenBaseUrl.replace(/\/+$/, '')}/v1/models`, {
       headers: zenRequestHeaders({
