@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { ExitPool, gradeOf, type ExitNode } from '../src/pool/pool.ts'
+import { ABUSIVE_COOLDOWN_MS, ExitPool, gradeOf, type ExitNode } from '../src/pool/pool.ts'
 
 let clock = 1_000_000
 const now = () => clock
@@ -636,4 +636,77 @@ test('refresh never rewrites identity, source or the pin flag', () => {
   assert.equal(row.source, 'subscription')
   assert.equal(row.pinned, true)
   assert.equal(row.latencyMs, 50, 'the measured field still lands')
+})
+
+/**
+ * Live 2026-10-19: a retired sing-box port (the subscription had been
+ * regenerated with a different node order) took 48 connect failures in a row.
+ * Each round the pool struck it dead, the trusted-admission fallback re-admitted
+ * the paid line as unverified, and 'unknown' is still USABLE — so it was picked
+ * (and pinnable) again. Un-verifying must never be a promotion.
+ */
+test('markUnverified never revives a dead exit', () => {
+  const p = pool()
+  p.add(node({ id: 'sing:30032', source: 'subscription', exitIP: '61.92.237.2', latencyMs: 0, quality: 'C' }))
+  p.recordPassiveTransport('sing:30032')
+  assert.equal(p.list()[0]!.health.state, 'dead', 'a connect failure strikes it dead')
+  assert.equal(p.isUsable('sing:30032', 'm'), false)
+
+  p.markUnverified('sing:30032')
+  assert.equal(p.list()[0]!.health.state, 'dead', 'the corpse stays dead until a probe proves it alive')
+  assert.equal(p.isUsable('sing:30032', 'm'), false, 'not pickable, and therefore not pinnable')
+
+  // A probe that really answered is what re-arms it (markOk).
+  p.markOk('sing:30032')
+  assert.equal(p.list()[0]!.health.state, 'ok')
+  assert.equal(p.isUsable('sing:30032', 'm'), true)
+})
+
+/**
+ * OpenCode's IP-reputation refusal (…abusive traffic from this IP address…)
+ * outlives any rotation, so the exit is benched for hours and the reason is
+ * recorded for the card. Live 2026-10-19: 6 of 10 subscription exits answered
+ * exactly this, from four different countries.
+ */
+test('markAbusive benches the exit for the long window and records why', () => {
+  const p = pool()
+  p.add(node({ id: 'sub:jp', source: 'subscription', exitIP: '108.61.187.89' }))
+  p.markOk('sub:jp')
+
+  assert.equal(p.markAbusive('sub:jp'), clock + ABUSIVE_COOLDOWN_MS)
+  const health = p.list()[0]!.health
+  assert.equal(health.note, 'abusive')
+  assert.equal(health.noteAt, clock)
+  assert.equal(p.isUsable('sub:jp', 'm'), false, 'cooling counts, even though the state still reads ok')
+
+  // A pin cannot walk back onto a benched exit: pick() returns null (direct).
+  p.pin('sub:jp')
+  assert.equal(p.pick('ses-1', 'm'), null)
+
+  // Longer than any 429 backoff: still benched an hour later, free after three.
+  clock += 60 * 60 * 1000
+  assert.equal(p.isUsable('sub:jp', 'm'), false)
+  clock += ABUSIVE_COOLDOWN_MS
+  assert.equal(p.isUsable('sub:jp', 'm'), true, 'the window is a bench, not a ban')
+
+  // A probe that passes against the real lane clears the verdict.
+  p.markOk('sub:jp')
+  assert.equal(p.list()[0]!.health.note, '', 'a verified exit is clean again')
+  assert.equal(p.list()[0]!.health.noteAt, 0)
+})
+
+/**
+ * The adapter blames the exit that answered through exitOfSession(session),
+ * which is fed by the sticky binding pick() records. A pinned pick used to
+ * return BEFORE recording it, so a refusal landing on a pinned exit had no
+ * exit to blame and the row was never benched.
+ */
+test('pick records the sticky binding on the pin path too', () => {
+  const p = pool()
+  p.add(node({ id: 'sub:1', source: 'subscription', exitIP: '4.4.4.4' }))
+  p.pin('sub:1')
+  assert.equal(p.pick('ses-A', 'm'), 'sub:1')
+  assert.equal(p.exitOfSession('ses-A'), 'sub:1', 'the verdict knows which exit answered')
+  p.breakStickySession('ses-A')
+  assert.equal(p.exitOfSession('ses-A'), null)
 })

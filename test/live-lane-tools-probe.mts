@@ -23,12 +23,14 @@
  *
  * Run: node test/live-lane-tools-probe.mts
  *      PROBE_ONLY=zen-raw,inf-read-stub node test/live-lane-tools-probe.mts
- * Env: PROBE_MODEL (mimo-v2.6-flash-free), PROBE_GAP_MS (6000), PROBE_ONLY
+ * Env: PROBE_MODEL (mimo-v2.6-flash-free), PROBE_GAP_MS (6000), PROBE_ONLY,
+ *      PROBE_PROXY (e.g. http://127.0.0.1:1087 — ride that exit instead of the
+ *      local host; the family-pinned cases then ride it too)
  */
 import { appendFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Agent, fetch as undiciFetch, setGlobalDispatcher } from 'undici'
+import { Agent, fetch as undiciFetch, ProxyAgent, setGlobalDispatcher } from 'undici'
 
 import { ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import { localEgressConnectOptions } from '../src/pool/local-family.ts'
@@ -36,6 +38,8 @@ import { localEgressConnectOptions } from '../src/pool/local-family.ts'
 const MODEL = process.env.PROBE_MODEL ?? 'mimo-v2.6-flash-free'
 const GAP_MS = Number(process.env.PROBE_GAP_MS ?? 6000)
 const ONLY = (process.env.PROBE_ONLY ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+/** Optional egress: ride this proxy exit instead of this machine's own address. */
+const PROXY = process.env.PROBE_PROXY ?? ''
 const OUT = join(tmpdir(), 'oc2dsh-lane-tools-probe.json')
 
 const INFERENCE = 'https://opencode.ai/inference/v1/chat/completions'
@@ -44,7 +48,9 @@ const ZEN_MODELS = 'https://opencode.ai/zen/v1/models'
 /** The v1 lane's User-Agent: the AI SDK appends its provider-utils + runtime. */
 const V1_UA = 'opencode/1.19.3 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.14'
 
-const agent = new Agent({ connect: localEgressConnectOptions('auto') })
+const agent = PROXY === ''
+  ? new Agent({ connect: localEgressConnectOptions('auto') })
+  : (new ProxyAgent({ uri: PROXY }) as unknown as Agent)
 setGlobalDispatcher(agent)
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -104,7 +110,9 @@ async function post(label: string, url: string, headers: Headers, body: string, 
 
 /** The same POST over a pinned IPv4 egress, to tell "lane" from "family". */
 async function postOverIpv4(label: string, url: string, headers: Headers, body: string, note: string): Promise<void> {
-  const ipv4 = new Agent({ connect: localEgressConnectOptions('ipv4') })
+  // With PROBE_PROXY set the exit decides the address, so the family pin is
+  // inert and the case rides the configured proxy like every other case.
+  const ipv4 = PROXY === '' ? new Agent({ connect: localEgressConnectOptions('ipv4') }) : (new ProxyAgent({ uri: PROXY }) as unknown as Agent)
   try {
     const seen = /^ip=(.*)$/m.exec(await (await undiciFetch('https://www.cloudflare.com/cdn-cgi/trace', { dispatcher: ipv4 })).text())?.[1] ?? '?'
     const res = await undiciFetch(url, { method: 'POST', headers, body, dispatcher: ipv4 })
@@ -120,7 +128,7 @@ async function postOverIpv4(label: string, url: string, headers: Headers, body: 
 const traceText = await (await undiciFetch('https://www.cloudflare.com/cdn-cgi/trace', { dispatcher: agent })).text()
 const egressIP = /^ip=(.*)$/m.exec(traceText)?.[1] ?? '?'
 const egressLoc = /^loc=(.*)$/m.exec(traceText)?.[1] ?? '?'
-console.log(`egress ${egressIP} (loc=${egressLoc}) · model ${MODEL}${ONLY.length > 0 ? ` · only ${ONLY.join(',')}` : ''}\n`)
+console.log(`egress ${egressIP} (loc=${egressLoc})${PROXY === '' ? '' : ` via ${PROXY}`} · model ${MODEL}${ONLY.length > 0 ? ` · only ${ONLY.join(',')}` : ''}\n`)
 
 // --- control: one real adapter request, captured ----------------------------
 const realFetch = globalThis.fetch

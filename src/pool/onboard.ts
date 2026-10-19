@@ -109,6 +109,12 @@ export class Onboarder {
    */
   async run(exits: ConvertedExit[]): Promise<OnboardResult> {
     const { pool, prober, admission, logger } = this.#deps
+    // The addresses the PREVIOUS conversion produced, and the ones this one
+    // serves. sing-box assigns one local port per node INDEX, so a refresh that
+    // reorders or shrinks the subscription retires ports — and the pool would
+    // keep dialling the retired ones (see #pruneVanished).
+    const previous = new Set(this.#candidates.keys())
+    const current = new Set(exits.map((exit) => exit.address))
     this.#candidates = new Map()
     this.#selected = new Set()
     this.#reserve = []
@@ -122,7 +128,11 @@ export class Onboarder {
       refused: 0,
       reserve: 0,
     }
-    if (exits.length === 0) return result
+    if (exits.length === 0) {
+      // Nothing converted: every listener the last round opened is gone.
+      this.#pruneVanished(previous, current)
+      return result
+    }
 
     // 1. Speed pass: one coarse screen per candidate, through its own port.
     //    Bounded by the shared prober (same-exit serial, cross-exit capped), so
@@ -204,7 +214,40 @@ export class Onboarder {
     // 4+5. Connectivity test in speed order, replacing refusals.
     for (const candidate of selected) await this.#admitOrReplace(candidate, result)
     result.reserve = this.#reserve.length
+    this.#pruneVanished(previous, current)
     return result
+  }
+
+  /**
+   * Drop pool rows whose local listener this conversion no longer serves.
+   *
+   * Every address this onboarder creates is a sing-box inbound port, and ports
+   * follow node INDEX — so a subscription refresh that reorders or shrinks the
+   * node list retires ports while the pool keeps the old addresses. Dialling a
+   * retired port fails at CONNECT ("Connection error."), which the pool reads
+   * as an exit-shaped failure: it rotates, strikes the exit dead, re-admits it
+   * as an unverified trusted line, and does it all again. Live 2026-10-19: one
+   * retired port absorbed 48 consecutive connect failures and a pin on it made
+   * every request fail for as long as the operator kept it pinned.
+   *
+   * Only addresses THIS onboarder produced are considered, so a manual proxy a
+   * human added by hand is never touched. remove() also clears a pin that
+   * pointed at the vanished row, which is what turns "pinned to a corpse" into
+   * a pool that picks a live exit again.
+   */
+  #pruneVanished(previous: Set<string>, current: Set<string>): void {
+    const { pool, logger } = this.#deps
+    const dropped: string[] = []
+    for (const address of previous) {
+      if (current.has(address) || !pool.has(address)) continue
+      pool.remove(address)
+      dropped.push(address)
+    }
+    if (dropped.length > 0) {
+      logger?.info(
+        `oc2dsh: dropped ${dropped.length} exit(s) whose listener the new conversion no longer serves (${dropped.join(', ')})`,
+      )
+    }
   }
 
   /**

@@ -281,6 +281,16 @@ interface ModelBan {
 
 - **第一层（429/传输失败）按出口记**：429 = 匿名配额按出口 IP 计（design.md §3），整出口冷却，请求换出口——这正是「限额后自动换 IP」。dead（连接失败/超时）= 代理本身烂了。
 - **第二层（401/403）按出口×模型记**：403/401 多是模型级拒绝——区域封锁（如我们实测过 `muse-spark-1.2-contributor-free` 从本机 403 region-blocked）或下架（`hy3-free` 401 not supported，均见 catalog.ts 注释）。这类失败**不冷却整个出口**（同出口其他模型照常用），只把该 (exit, model) 标 banned，pick 时跳过。
+- **第三种 403：IP 信誉（`note: 'abusive'`，2026-10-19）**。匿名车道有两条 403，措辞不同、含义不同，必须分开读：
+
+  | 原文 | 含义 | 处置 |
+  | --- | --- | --- |
+  | `…can only be used from within OpenCode…` | 请求**形状**不对（指纹/世代不自洽） | 与出口无关；改配方，别动池子 |
+  | `…we've detected abusive traffic from this IP address… If you're on a VPN or proxy, turn it off…` | 出口 **IP 信誉**被封（上游按地址打标） | 该出口长冷却 3h（`markAbusive`），行上标「IP 被判滥用」 |
+
+  实测（2026-10-19 15:05，单变量回放真适配器报文）：10 个订阅出口里 6 个拿到 IP 信誉 403，横跨 HK/JP/FR/IN；同一天 15:45 复核，同样的出口在 `/inference` 仍 403、`/zen` 却放行——所以这条判定只在**两个 origin 同一次请求里都拒绝**时才成立，判定的粒度是「这个出口此刻能不能服务车道」，不是「这个 IP 永久死了」。冷却窗口（3h）比 429 退避长得多，因为上游的标记以小时计；探测仍可提前证明它恢复（`markOk` 会清掉 note）。
+- **`markUnverified` 不是复活**：可信来源（订阅）准入失败时保留节点但撤掉 `ok`，但它**不会**把已判 dead 的出口降回 `unknown`（`unknown` 仍然可用，于是就成了「每次重新准入又把尸体领回来」）。实况 2026-10-19：一个已被 sing-box 退役的本地端口连续吃下 48 次连接失败，每轮都是「strike dead → trusted 重新准入 → unknown → 再被选中」。
+- **退役端口会被清掉（`Onboarder#pruneVanished`）**：sing-box 每个节点按**索引**分一个本地端口，订阅刷新一旦重排/缩容就会退役旧端口；池子按上一轮转换出的地址集合与新集合做差，把不再有监听的行删掉（`pool.remove` 同时解除指向它的固定）。手工添加的代理不在 onboarder 的地址集合里，永远不动。
 - 两层都不持久化（内存态，重启重建；探活成本低）。backlog 同 §8。
 
 ### 3.3 出口选择（pick）

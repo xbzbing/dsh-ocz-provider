@@ -12,7 +12,7 @@ import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, t
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
 import { routingContext, type RoutingContext } from '../pool/dispatcher.ts'
-import { classifyStreamFailure, isRegionBlocked, shouldRotate } from '../pool/rotate.ts'
+import { classifyStreamFailure, isIpReputationRefusal, isRegionBlocked, shouldRotate } from '../pool/rotate.ts'
 import { attributeUsage } from '../pool/usage.ts'
 
 /**
@@ -754,6 +754,10 @@ export class ZenAdapter {
       const failureMessage = (preContentFailure as { message: string }).message
       const failure = classifyStreamFailure(failureMessage)
       const deterministic = isRegionBlocked(failureMessage)
+      // The gate's IP-reputation answer (…abusive traffic from this IP
+      // address…) is a property of the EXIT, so the pool benches that exit for
+      // hours instead of rotating back onto it in a moment.
+      const abusive = isIpReputationRefusal(failureMessage)
       const nextOrigin = origins[originIndex + 1]
       if (nextOrigin !== undefined && isOriginFailure(failureMessage)) {
         // Origin-shaped, and there is another door: re-run the same attempt
@@ -765,7 +769,7 @@ export class ZenAdapter {
       }
       const rotate = failure !== null
         && attempt < MAX_ROTATES
-        && shouldRotate(failure, options.model, ids.session, attempt + 1, deterministic)
+        && shouldRotate(failure, options.model, ids.session, attempt + 1, deterministic, abusive)
       rotateStory.push(`#${attempt + 1} ${failure ?? 'unknown'}: ${failureMessage.slice(0, 80)}`)
       if (!rotate) {
         // last resort: rewrite the terminal error to tell the whole story

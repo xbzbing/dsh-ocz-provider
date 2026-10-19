@@ -36,7 +36,24 @@ export interface ExitNode {
 }
 
 export type ExitState = 'unknown' | 'ok' | 'dead'
+/**
+ * How long an exit is benched after OpenCode's IP-reputation refusal
+ * (…abusive traffic from this IP address…). The flag lives upstream and is
+ * measured in hours — the same addresses answered 403 all afternoon on
+ * 2026-10-19 — so a minutes-long cooldown would just re-burn the same refusal
+ * on the next rotation. `dueForProbe` also skips cooling exits, so this window
+ * is exactly how long the row stays out; the card's 探测 action still probes
+ * it on demand, and a probe that passes clears the note (markOk).
+ */
+export const ABUSIVE_COOLDOWN_MS = 3 * 60 * 60 * 1000
 export type BanState = 'ok' | 'suspect' | 'banned'
+/**
+ * Why an exit is benched beyond a plain cooldown. `'abusive'` is OpenCode's
+ * IP-reputation refusal (…detected abusive traffic from this IP address…,
+ * measured 2026-10-19): the flag lives upstream for hours, so the exit is
+ * benched for the long haul instead of being retried every rotation.
+ */
+export type ExitNote = '' | 'abusive'
 
 interface ExitHealth {
   state: ExitState
@@ -56,6 +73,9 @@ interface ExitHealth {
    * thrash instead of waiting out the documented retry delay.
    */
   deadAt: number
+  /** Why the exit is benched, when the reason outlives a cooldown (ExitNote). */
+  note: ExitNote
+  noteAt: number
 }
 
 interface ModelBan {
@@ -339,6 +359,8 @@ export class ExitPool {
         inflight: false,
         deadStrikes: 0,
         deadAt: 0,
+        note: '',
+        noteAt: 0,
       })
     }
     if (isNew) this.#notifyAdmitted()
@@ -399,12 +421,36 @@ export class ExitPool {
    * deliberate: a probe-side failure (Zen rejecting the smoke request, an
    * echo endpoint hiccup) must not empty a healthy pool. It only means an
    * exit that was never measured no longer outranks one that was.
+   *
+   * NOT a revival: an exit already struck dead stays dead until a probe
+   * proves it alive (`markOk`). Un-verifying used to re-arm a corpse, so a
+   * trusted line whose local port no longer exists was re-admitted every
+   * round and absorbed every rotation — live 2026-10-19: one retired sing-box
+   * port took 48 connect failures in a row, each one preceded by this call
+   * dropping it back to 'unknown' (still pickable, and pinnable).
    */
   markUnverified(id: string): void {
     const health = this.#health.get(id)
     if (!health) return
-    health.state = 'unknown'
+    if (health.state !== 'dead') health.state = 'unknown'
     health.inflight = false
+  }
+
+  /**
+   * OpenCode refused this exit's IP on reputation grounds (…abusive traffic
+   * from this IP address…, live 2026-10-19): bench it for the long haul and
+   * record why. Rotating back onto the same address inside the flag's lifetime
+   * can only burn requests, and a pin on it turns into an endless failure loop
+   * — the cooldown makes `isUsable()` false, so pick() skips it whatever the
+   * pin says.
+   */
+  markAbusive(id: string, windowMs: number = ABUSIVE_COOLDOWN_MS): number {
+    const health = this.#health.get(id)
+    if (!health) return 0
+    health.cooldownUntil = Math.max(health.cooldownUntil, this.#now() + windowMs)
+    health.note = 'abusive'
+    health.noteAt = this.#now()
+    return health.cooldownUntil
   }
 
   #clearPinnedIf(id: string): void {
@@ -479,6 +525,10 @@ export class ExitPool {
       health.cooldownUntil = 0
       health.deadStrikes = 0
       health.deadAt = 0
+      // A probe proved the exit alive against the REAL lane, so any recorded
+      // bench reason (an abuse flag that has since cleared) is spent.
+      health.note = ''
+      health.noteAt = 0
     }
     // A verified-healthy exit is no longer demoted: the refusal that pushed it
     // to the tail was not permanent, and a later probe proved it.
@@ -711,7 +761,16 @@ export class ExitPool {
    */
   pick(session: string, model: string): string | null {
     if (this.pinnedId === LOCAL_EXIT_ID) return null
-    if (this.pinnedId !== '' && this.isUsable(this.pinnedId, model)) return this.pinnedId
+    if (this.pinnedId !== '' && this.isUsable(this.pinnedId, model)) {
+      // Record the binding even on the pin path: the verdicts that arrive
+      // AFTER the response (the adapter's 403 accounting — exitOfSession) need
+      // to know which exit answered, and while a pin is set that is always the
+      // pinned one. Without this, an IP-reputation refusal or a RegionError
+      // landed with no exit to blame, so the row was never benched — live
+      // 2026-10-19, a pin on a flagged exit kept failing with nothing recorded.
+      this.#sessionExit.set(session, this.pinnedId)
+      return this.pinnedId
+    }
 
     const last = this.#sessionExit.get(session)
     if (last !== undefined && this.isUsable(last, model)) return last

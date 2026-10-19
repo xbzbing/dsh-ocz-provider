@@ -333,3 +333,63 @@ test('replace() still swaps a reserve for an exit that is in the table', async (
   assert.equal(pool.list().length, 3, 'the pool holds its capacity')
   assert.equal(pool.demoted(online[0]!), false, 'a promoted replacement is not a demotion')
 })
+
+/**
+ * Live 2026-10-19: sing-box assigns one port per node INDEX, so a subscription
+ * refresh that reorders or shrinks the node list retires ports. The pool kept
+ * dialling one of them for hours — every request through it failed at CONNECT,
+ * the row was struck dead, the trusted-admission fallback re-admitted it as
+ * unverified (usable again), and a pin on it made the failure total.
+ */
+test('a refresh that retires a port drops the orphaned row, and unpins it', async () => {
+  const pool = new ExitPool({ poolSize: 20 })
+  const prober = new Prober({ pool, maxConcurrentProbes: 8 })
+  const logs: string[] = []
+  const logger = { info: (message: string) => logs.push(message), warn: (message: string) => logs.push(message) }
+  const three = candidates(3)
+  const [first, , third] = three as [ConvertedExit, ConvertedExit, ConvertedExit]
+  // The next conversion keeps the third node where it is and moves the other to
+  // a fresh port — the first two addresses no longer have a listener.
+  const moved: ConvertedExit = { ...first, address: `127.0.0.1:${BASE_PORT + 9}`, slot: 9 }
+  const second = [moved, third]
+  let current = three
+  const onboarder = new Onboarder({
+    pool,
+    prober,
+    admission: { pool, undici: seam() as never, blockedCountries: ['CN'], smokeModel: 'big-pickle', logger },
+    select: async (slots) => slots.map((slot) => current[slot]!),
+    logger,
+  })
+
+  await onboarder.run(current)
+  assert.equal(pool.list().length, 3)
+  pool.pin(first.address)
+  assert.equal(pool.pinnedId, first.address)
+
+  current = second
+  await onboarder.run(second)
+
+  assert.ok(!pool.has(first.address), 'the retired port left the pool')
+  assert.equal(pool.pinnedId, '', 'and took the pin with it (pool.remove clears it)')
+  assert.ok(pool.has(third.address), 'a port the new conversion still serves stays')
+  assert.ok(pool.has(moved.address), 'the moved node is admitted under its new port')
+  assert.ok(logs.some((line) => line.includes('no longer serves') && line.includes(first.address)), 'the drop is logged')
+})
+
+test('an empty conversion prunes every port the last one opened', async () => {
+  const pool = new ExitPool({ poolSize: 20 })
+  const prober = new Prober({ pool, maxConcurrentProbes: 8 })
+  const logger = { info: () => {}, warn: () => {} }
+  const nodes = candidates(2)
+  const onboarder = new Onboarder({
+    pool,
+    prober,
+    admission: { pool, undici: seam() as never, blockedCountries: ['CN'], smokeModel: 'big-pickle', logger },
+    select: async (slots) => slots.map((slot) => nodes[slot]!),
+    logger,
+  })
+  await onboarder.run(nodes)
+  assert.equal(pool.list().length, 2)
+  await onboarder.run([])
+  assert.equal(pool.list().length, 0, 'sing-box stopped: no listener survives, so no row survives')
+})

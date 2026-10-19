@@ -163,6 +163,8 @@ export interface PoolStatusView {
     cooldownUntil: number
     consecutiveLimited: number
     bannedModels: Array<{ model: string; state: 'suspect' | 'banned'; bannedAt: number }>
+    /** `'abusive'` = OpenCode flagged this exit's IP; the row is benched for hours. */
+    note?: string
     passive: { ok: number; limited: number; refused: number; dead: number; transport: number }
     /** Sum of the passive buckets — the stats modal's sort key. */
     requests: number
@@ -740,6 +742,10 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
   const stateCell = (exit: PoolStatusView['exits'][number]): ReactNode => {
     // StateDot carries the semantic colour; the label stays as text beside it.
     if (exit.state === 'dead') return <span className={styles.stateCell}><StateDot state="error" />{t('stateDead')}</span>
+    // The upstream IP flag outranks "cooling": 冷却 alone would read as a
+    // minutes-long quota wait, while this one is a reputation verdict that
+    // survives rotations — the row says so, or an operator keeps pinning it.
+    if (exit.note === 'abusive') return <span className={styles.stateCell}><StateDot state="warning" />{t('stateAbusive')}</span>
     // A demoted exit is kept but ranked last (upstream refused it and no
     // reserve was left): saying so beats reading it as a healthy row.
     if (exit.demoted === true) return <span className={styles.stateCell}><StateDot state="warning" />{t('stateDemoted')}</span>

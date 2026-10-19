@@ -12,6 +12,7 @@ import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
 import {
   classifyStreamFailure,
   createRotateDelegate,
+  isIpReputationRefusal,
   isRegionBlocked,
   setRotateDelegate,
   shouldRotate,
@@ -88,6 +89,12 @@ function muteProvider(armed: { timer?: NodeJS.Timeout }): { streamSimple(): Asyn
     },
   }
 }
+
+/** The other 403: the request shape, not the address (same from every exit). */
+const SHAPE_403 = '403: {"type":"FreeTierError","message":"OpenCode\'s free tier can only be used from within OpenCode."}'
+
+/** The live IP-reputation body, verbatim (2026-10-19). */
+const ABUSE = '403: {"type":"FreeTierError","message":"OpenCode\'s free models aren\'t available from your current network because we\'ve detected abusive traffic from this IP address. This isn\'t related to your account."}'
 
 const err = (message: string): ScriptedEvent => ({
   type: 'error',
@@ -338,4 +345,63 @@ test('adapter watchdog: mid-stream silence after delivered content surfaces, nev
     clearTimeout(armed.timer)
     setRotateDelegate(null)
   }
+})
+
+/**
+ * Two different 403s come off this lane and they mean different things:
+ * "…can only be used from within OpenCode" blames the REQUEST SHAPE (same from
+ * every address), while "…detected abusive traffic from this IP address" blames
+ * the ADDRESS (live 2026-10-19: 6 of 10 subscription exits, four countries).
+ * Only the second one is worth benching an exit for.
+ */
+test('isIpReputationRefusal separates the address verdict from the shape verdict', () => {
+  const abuse = '403: {"type":"FreeTierError","message":"OpenCode\'s free models aren\'t available from your current network because we\'ve detected abusive traffic from this IP address. This isn\'t related to your account. If you\'re on a VPN or proxy, turn it off and try again."}'
+  const shape = '403: {"type":"FreeTierError","message":"OpenCode\'s free tier can only be used from within OpenCode. Download it at https://opencode.ai and keep building."}'
+  assert.equal(isIpReputationRefusal(abuse), true)
+  assert.equal(isIpReputationRefusal(shape), false)
+  assert.equal(isIpReputationRefusal('Connection error.'), false)
+  // Both are still 'refused' for the rotate decision itself.
+  assert.equal(classifyStreamFailure(abuse), 'refused')
+  assert.equal(classifyStreamFailure(shape), 'refused')
+})
+
+test('the adapter hands the address verdict to the rotate delegate', async () => {
+  const seen: Array<{ failure: string; abusive: boolean; deterministic: boolean }> = []
+  setRotateDelegate({
+    decide(failure, _model, _session, _attempt, deterministic = false, abusive = false) {
+      seen.push({ failure, abusive, deterministic })
+      return false // surface the error: this test watches the verdict, not the retry
+    },
+  })
+  try {
+    await collect(adapterWith([[err(ABUSE)]]))
+    assert.deepEqual(seen, [{ failure: 'refused', abusive: true, deterministic: false }])
+    seen.length = 0
+    await collect(adapterWith([[err(SHAPE_403)]]))
+    assert.deepEqual(seen, [{ failure: 'refused', abusive: false, deterministic: false }], 'a shape refusal is not an address verdict')
+  } finally {
+    setRotateDelegate(null)
+  }
+})
+
+test('an address verdict benches the exit that answered for that session', () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'h:flagged', exitIP: '61.92.237.2' }))
+  pool.add(node({ id: 'h:clean', exitIP: '2.2.2.2', latencyMs: 900 }))
+  pool.markOk('h:clean')
+  pool.pin('h:flagged') // the operator's click: exactly the live 2026-10-19 case
+  const delegate = createRotateDelegate(pool, { maxAttempts: 3 })
+
+  // The dispatcher picks for the session (a pin still records the binding), the
+  // stream then dies with the address verdict, and the adapter asks this
+  // delegate through shouldRotate(..., abusive).
+  assert.equal(pool.pick('ses-1', 'big-pickle'), 'h:flagged')
+  assert.equal(delegate.decide('refused', 'big-pickle', 'ses-1', 1, false, true), true, 'another exit exists, so retry')
+
+  const flagged = pool.list().find((entry) => entry.id === 'h:flagged')!
+  assert.equal(flagged.health.note, 'abusive', 'the row carries the reason')
+  assert.ok(flagged.health.cooldownUntil > 0, 'benched, not merely demoted')
+  assert.equal(pool.isUsable('h:flagged', 'big-pickle'), false)
+  // The pin still names it, but pick() will not choose a benched exit.
+  assert.equal(pool.pick('ses-2', 'big-pickle'), 'h:clean')
 })

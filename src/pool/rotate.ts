@@ -30,9 +30,12 @@ export interface RotateDelegate {
    * @param deterministic - the failure is a property of the exit (upstream
    *        RegionError body); the sticky exit's (exit, model) pairing is
    *        banned at once instead of waiting for a second sample.
+   * @param abusive - the refusal names THIS EXIT'S IP as abusive (OpenCode's
+   *        network-reputation answer, isIpReputationRefusal); the exit is
+   *        benched for hours rather than rotated onto again in a moment.
    * @returns true to re-pick and restart the stream; false to surface the error.
    */
-  decide(failure: RotateFailure, model: string, session: string, attempt: number, deterministic?: boolean): boolean
+  decide(failure: RotateFailure, model: string, session: string, attempt: number, deterministic?: boolean, abusive?: boolean): boolean
 }
 
 let delegate: RotateDelegate | null = null
@@ -48,8 +51,23 @@ export function hasRotateDelegate(): boolean {
 }
 
 /** Ask the installed delegate; false when no pool is running. */
-export function shouldRotate(failure: RotateFailure, model: string, session: string, attempt: number, deterministic = false): boolean {
-  return delegate?.decide(failure, model, session, attempt, deterministic) ?? false
+export function shouldRotate(failure: RotateFailure, model: string, session: string, attempt: number, deterministic = false, abusive = false): boolean {
+  return delegate?.decide(failure, model, session, attempt, deterministic, abusive) ?? false
+}
+
+/**
+ * True when the refusal blames the exit's ADDRESS rather than the request:
+ * OpenCode's network-reputation answer, live-captured 2026-10-19 —
+ * "OpenCode's free models aren't available from your current network because
+ * we've detected abusive traffic from this IP address. … If you're on a VPN or
+ * proxy, turn it off and try again". Distinct from the other 403 the lane
+ * sends ("…can only be used from within OpenCode"), which is about the request
+ * shape and is identical from every address: this one is a property of the
+ * exit and outlives any rotation, so the pool benches the exit instead of
+ * treating it like a moment-to-moment refusal.
+ */
+export function isIpReputationRefusal(errorMessage: string): boolean {
+  return /abusive traffic|this ip address/i.test(errorMessage)
 }
 
 /** Map a pi-ai error message to the failure taxonomy (adapter-side parse). */
@@ -88,13 +106,17 @@ export function isRegionBlocked(errorMessage: string): boolean {
 export function createRotateDelegate(pool: ExitPool, options: { maxAttempts?: number } = {}): RotateDelegate {
   const maxAttempts = options.maxAttempts ?? 3
   return {
-    decide(failure, model, session, attempt, deterministic = false) {
+    decide(failure, model, session, attempt, deterministic = false, abusive = false) {
+      const failedExit = pool.exitOfSession(session)
+      // IP-reputation refusal: the address is the problem, not the model and
+      // not the moment. Bench the exit for the long window so neither pick()
+      // nor a pin can walk back onto it; the note rides the status card.
+      if (abusive && failedExit !== null) pool.markAbusive(failedExit)
       // Deterministic refusal (RegionError): ban the sticky exit's pairing
       // immediately — the dispatcher layer recorded the refusal but cannot
       // see the body; the adapter's classify knows it on sight (docs 4.2).
-      if (deterministic) {
-        const failedExit = pool.exitOfSession(session)
-        if (failedExit !== null) pool.markModelBanned(failedExit, model)
+      if (deterministic && failedExit !== null) {
+        pool.markModelBanned(failedExit, model)
       }
       if (attempt > maxAttempts) return false
       // Anything usable for this model left? (pick filters cooldowns, bans,
