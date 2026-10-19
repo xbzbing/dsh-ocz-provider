@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 
 import { opencodeUserAgent, zenRequestHeaders } from './ids.ts'
 import { isOriginFailure, laneOrigins } from './lane.ts'
+import { sanitizeModelContextWindows, type ModelContextWindows } from '../model-context.ts'
 
 /**
  * Port of agent/internal/catalog (opencode2api models.go + model_metadata.go,
@@ -140,6 +141,10 @@ export function decide(model: string, prices: Map<string, ModelPrice>, ready: bo
  * the MiMo V2.6 Flash model card and the official OpenCode CLI config use
  * 1048576. Checked BEFORE the metadata in `limits()`/`reasoningCapability()`/
  * `modalities()` — a fixed feed deletes its entry here.
+ *
+ * This is the BUILT-IN default. The operator-facing knob is the live
+ * `modelContextWindows` setting (src/model-context.ts), read by `limits()` and
+ * taking precedence over these entries for every model the Zen lane serves.
  */
 const LOCAL_MODEL_OVERRIDES: Readonly<Record<string, Partial<ModelPrice>>> = {
   'mimo-v2.6-flash-free': { contextWindow: 1048576 },
@@ -279,6 +284,13 @@ export interface CatalogOptions {
   onRefresh?: (status: CatalogSnapshot, lastError: string) => void
   /** Delay between startup retries while the live catalog is empty (default 15s). */
   startupRetryMs?: number
+  /**
+   * Live per-model context-window overrides (the `modelContextWindows`
+   * settings node), read on EVERY `limits()` call — a settings save applies to
+   * the next model resolution without rebuilding the catalog. Invalid entries
+   * are dropped by the sanitizer, never thrown.
+   */
+  contextWindows?: () => ModelContextWindows | undefined
 }
 
 const METADATA_REFRESH_MS = 24 * 60 * 60 * 1000
@@ -310,6 +322,8 @@ export class ModelCatalog {
   #stopped = false
   #onRefresh?: (status: CatalogSnapshot, lastError: string) => void
   #startupRetryMs: number
+  /** Live context-window overrides; undefined = the built-in/metadata only. */
+  #contextWindows?: () => ModelContextWindows | undefined
   /** In-flight refresh round (deduped so warm() shares start()'s first fetch). */
   #refreshing: Promise<void> | null = null
 
@@ -322,6 +336,7 @@ export class ModelCatalog {
     this.#now = options.now ?? Date.now
     this.#onRefresh = options.onRefresh
     this.#startupRetryMs = options.startupRetryMs ?? 15_000
+    this.#contextWindows = options.contextWindows
   }
 
   /**
@@ -479,16 +494,38 @@ export class ModelCatalog {
   /**
    * models.dev declared limits for one model: `contextWindow` (limit.context)
    * and `maxOutput` (limit.output). undefined when the metadata cannot speak
-   * for the model (pending, or id absent) or declares no limits — the caller
-   * then keeps its own defaults.
+   * for the model (pending, or id absent) and no live override is set — the
+   * caller then keeps its own defaults.
+   *
+   * The context window has a three-level precedence: the live
+   * `modelContextWindows` setting (works even while metadata is pending),
+   * then the built-in LOCAL_MODEL_OVERRIDES (metadata-dependent, as before),
+   * then models.dev. `maxOutput` is not overridable and always comes from
+   * the metadata/built-ins.
    */
   limits(model: string): { contextWindow?: number; maxOutput?: number } | undefined {
+    const live = this.#liveContextWindow(model)
     const price = applyLocalOverride(model, this.#prices.get(model))
-    if (!price) return undefined
-    if (price.contextWindow === undefined && price.maxOutput === undefined) return undefined
+    const contextWindow = live ?? price?.contextWindow
+    const maxOutput = price?.maxOutput
+    if (contextWindow === undefined && maxOutput === undefined) return undefined
     return {
-      ...(price.contextWindow !== undefined ? { contextWindow: price.contextWindow } : {}),
-      ...(price.maxOutput !== undefined ? { maxOutput: price.maxOutput } : {}),
+      ...(contextWindow !== undefined ? { contextWindow } : {}),
+      ...(maxOutput !== undefined ? { maxOutput } : {}),
+    }
+  }
+
+  /**
+   * The live setting for one id, sanitized on every read: a hand-edited
+   * profile patch can neither inject an out-of-range window nor break the
+   * lookup, and an edit takes effect on the next resolveModel call.
+   */
+  #liveContextWindow(model: string): number | undefined {
+    if (this.#contextWindows === undefined) return undefined
+    try {
+      return sanitizeModelContextWindows(this.#contextWindows())[model]
+    } catch {
+      return undefined
     }
   }
 

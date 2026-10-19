@@ -207,3 +207,13 @@ test('the 本机出口协议族 dropdown ships in the bundle', () => {
   assert.ok(source.includes('localIpFamilyHint'), 'and the hint that spells out the three positions')
   assert.ok(source.includes('localIpFamilyAuto'), 'plus the option labels')
 })
+
+test('the model context-window editor ships and writes its own root node', () => {
+  const source = bundle()
+  // Zen 接口实际支持 1M，但 models.dev 有可能只声明 200K：配置页给出逐模型覆盖。
+  assert.ok(source.includes('field-modelContextWindows'), 'the context editor is mounted in the pool card')
+  assert.ok(source.includes('模型上下文'), 'with its zh group title')
+  assert.ok(source.includes('modelContextHint'), 'and its syntax hint')
+  assert.ok(source.includes('modelContextInvalid'), 'plus the localised validation message')
+  assert.ok(/path:\s*\[\s*"modelContextWindows"\s*\]/.test(source), 'the write lands on its own root node, not inside ipPool')
+})

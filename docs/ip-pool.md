@@ -549,10 +549,10 @@ POST {zen}/v1/chat/completions
 
 ## 5. 设置页（DSH 设置 → 插件 → oc2dsh 详情）
 
-复刻 dsh-llm-proxy 验证过的三层结构，但按本机宿主实测裁剪（2026-09-05 基于 `@deepseek-ai/dsh@0.1.1-rc.2`；**0.1.7 修订**：入口从旧的「可配置插件」tab 移到插件详情页的 `plugins.item` 槽位，namespace 变成 Loader entry id `oc2dsh`，可编辑字段只有 `ipPool`）。
+复刻 dsh-llm-proxy 验证过的三层结构，但按本机宿主实测裁剪（2026-09-05 基于 `@deepseek-ai/dsh@0.1.1-rc.2`；**0.1.7 修订**：入口从旧的「可配置插件」tab 移到插件详情页的 `plugins.item` 槽位，namespace 变成 Loader entry id `oc2dsh`，可编辑字段是各顶层 volatile 节点）。
 
 - **settings 读写走官方通道，不建兜底**：宿主 `settings.describe/mutate` 对**所有已注册 namespace** 服务（源码核实无 allowlist；rc.6 才有硬编码清单），所以 dsh-llm-proxy 那套「官方 scope 不可用时切自建 bridge」的 compat 层我们**不做**。**2026-09-19 修订**：`ctx.settingsScope` 服务已被 DSH 移除，0.1.7 起改由 `@deepseek-ai/dsh-client-ui-settings` 提供的 `configForms` 服务承担；注入令牌必须同步改成 `configForms`，否则客户端停在 `pending (waiting for service: settingsScope)`、插件整体不激活。**0.1.7 终版修订**：卡片不再自己 `ctx.configForms.get(...)`，改用插件页交给 `view:'page'` 的 `ConfigPageForm`（`{ state, mutate }`），写路径 `form.mutate(ops, state.revision)`（字段级 path op，revision fencing 由 ConfigFormController 负责）；页面挂载门控用 `ctx.configForms.whileServed(['oc2dsh'], …)`，宿主不提供该 entry 设置时整张卡片不出现。
-- **可编辑字段只有 `ipPool`**：宿主 `volatileForm(schema)` 只保留**最近一个 volatile 祖先**下的字段（`packages/settings/settings/src/schema.ts`），所以被服务的表单值是 `{ ipPool: … }` 而非 namespace 本身——每条写路径都带 `ipPool` 前缀（`['ipPool', field]`）。namespace 也是 Loader entry id（`oc2dsh`），不再是单独的 `ip-pool` id。
+- **可编辑字段是顶层 volatile 节点**（`ipPool`、`requestHeaders`、`modelContextWindows`）：宿主 `volatileForm(schema)` 只保留**最近一个 volatile 祖先**下的字段（`packages/settings/settings/src/schema.ts`），所以被服务的表单值是这些节点组成的对象而非 namespace 本身——IP 池每条写路径都带 `ipPool` 前缀（`['ipPool', field]`），Zen 请求头与模型上下文各用自己的根路径。namespace 也是 Loader entry id（`oc2dsh`），不再是单独的 `ip-pool` id。
 - **bridge 只补官方通道做不到的两件事**：池运行时没有 settings 对应物的读（`/status`：四态、出口表、封禁表、Prober 进度 x/y）与动作（`/probe`：批量探活/单出口探活/手动 refill 入队）。**探测与状态必须宿主侧跑**：要走真实 undici/凭据路径。
 - 平台 seeds 实测（web-frontend dist 内核表）：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`。`@deepseek-ai/dsh-client-runtime/client` 在 0.1.7 宿主上已不在 seed 表内，客户端半也不再引用它（Context 类型直接取自 `@deepseek-ai/cordis`），故 externals 收敛为上表七项。
 
@@ -730,7 +730,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 │   │   └── singbox.ts                 # sing-box 子进程托管（配置生成/端口映射/重载，§1.2.2）
 │   ├── ip-pool-settings/              # IP-5 宿主半
 │   │   ├── apply.ts                   # volatile 引导 + loader/volatile-update 热更新
-│   │   ├── namespace.ts               # 导出 Config（ipPool 单一 volatile 节点）+ VolatileRef 读
+│   │   ├── namespace.ts               # 导出 IpPoolConfigSchema（ipPool 节点）+ VolatileRef 读
 │   │   └── bridge.ts                  # webServer 路由（/status /probe，loopback-only）
 │   └── client/                        # IP-5 浏览器半边（新）
 │       ├── index.ts                   # configForms.whileServed + slots.inject('plugins.item', id: 'oc2dsh')

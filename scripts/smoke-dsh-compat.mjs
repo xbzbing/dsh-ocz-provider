@@ -121,8 +121,12 @@ const form = settingsSchema.volatileForm(schema)
 assert.ok(form !== undefined, 'the host derives a live settings form for this entry')
 const rehydrated = new HostSchema(JSON.parse(JSON.stringify(form.toJSON())))
 for (const draft of [
-  { requestHeaders: {}, ipPool: { enabled: false } },
-  { requestHeaders: { 'User-Agent': 'host-form-test' }, ipPool: { enabled: false, manual: ['http://127.0.0.1:7897'] } },
+  { requestHeaders: {}, modelContextWindows: {}, ipPool: { enabled: false } },
+  {
+    requestHeaders: { 'User-Agent': 'host-form-test' },
+    modelContextWindows: { 'big-pickle': 1048576 },
+    ipPool: { enabled: false, manual: ['http://127.0.0.1:7897'] },
+  },
 ]) {
   assert.doesNotThrow(() => rehydrated(settingsSchema.projectForm(form, draft)), 'the browser form must decode the stored value')
 }
@@ -130,9 +134,16 @@ for (const draft of [
 // malformed headers out of a hand-edited profile patch.
 const { sanitizeRequestHeaders } = await import(new URL('src/request-headers.ts', pluginRoot))
 assert.deepEqual(sanitizeRequestHeaders({ Host: 'elsewhere', Authorization: 'x', 'User-Agent': ' kept ' }), { 'user-agent': 'kept' })
+const { sanitizeModelContextWindows } = await import(new URL('src/model-context.ts', pluginRoot))
+assert.deepEqual(
+  sanitizeModelContextWindows({ 'big-pickle': 1048576, 'bad id': 1048576, 'too-small': 10 }),
+  { 'big-pickle': 1048576 },
+  'a hand-edited context-window dict is filtered at the catalog boundary',
+)
 const config = entry.Config({ ipPool: { enabled: false } })
 assert.equal(typeof schema({}).ipPool.get, 'function')
 assert.equal(typeof config.ipPool.get, 'function', 'new Host schema wraps the live pool field')
+assert.equal(typeof config.modelContextWindows.get, 'function', 'new Host schema wraps the live context-window field')
 // These helpers are not the plugin's public exports; import sources for the
 // registry contract and lifecycle checks, using the same local build inputs.
 const { ZenAdapter: Adapter } = await import(new URL('src/adapter/zen-adapter.ts', pluginRoot))

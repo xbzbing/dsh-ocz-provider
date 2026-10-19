@@ -14,8 +14,9 @@
  * serving the `oc2dsh` namespace, so a deployment that serves no
  * oc2dsh settings shows no trace of the card.
  *
- * The form serves `ipPool` and the separate `requestHeaders` volatile nodes.
- * Pool writes stay under `ipPool`; Zen headers have their own root path.
+ * The form serves `ipPool` and the separate `requestHeaders` and
+ * `modelContextWindows` volatile nodes. Pool writes stay under `ipPool`; Zen
+ * headers and context windows have their own root paths.
  *
  * Export discipline: cross-plugin collaboration goes through cordis services
  * (`slots`, `locale`, `configForms`); the bundle purity gate forbids value

@@ -1,3 +1,4 @@
+import { parseModelContextWindows, type ModelContextWindows } from '../model-context.ts'
 import { parseRequestHeaders, type RequestHeaders } from '../request-headers.ts'
 
 /** Header edits live at the entry root, alongside (never inside) ipPool. */
@@ -7,6 +8,15 @@ export function requestHeadersWriteOps(text: string, current: RequestHeaders, ba
   return [write.op === 'unset'
     ? { op: 'unset' as const, path: ['requestHeaders'] }
     : { op: 'set' as const, path: ['requestHeaders'], value: write.value }]
+}
+
+/** Context-window edits are their own root node too (never inside ipPool). */
+export function modelContextWriteOps(text: string, current: ModelContextWindows, base: ModelContextWindows) {
+  const write = fieldWrite('modelContextWindows', parseModelContextWindows(text), current, base)
+  if (!write) return []
+  return [write.op === 'unset'
+    ? { op: 'unset' as const, path: ['modelContextWindows'] }
+    : { op: 'set' as const, path: ['modelContextWindows'], value: write.value }]
 }
 
 export interface FieldWrite { field: string; op: 'set' | 'unset'; value?: unknown }

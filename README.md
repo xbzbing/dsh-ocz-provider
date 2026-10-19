@@ -26,6 +26,7 @@ OpenCode 官方 CLI 无需登录即可使用的那批免费模型，它们会以
 - **CLI 同形伪装**——请求携带 OpenCode CLI 的 User-Agent 和整套会话/请求/项目关联头，按会话派生
 - **思考等级可选**——带推理的免费模型在 DSH 模型选择器里出现思考等级选项（模型声明档位的按声明展示，其余提供 Off/Minimal/Low/Medium/High）；Off 向上游发送 `reasoning_effort: "none"` 真正停思考，不选则保持上游默认
 - **按声明支持图片输入**——只要 [models.dev](https://models.dev) 的模型条目在 `modalities.input` 里列了 `image`，图片附件就会被放行；只声明 `text` 的模型仍然拒绝；元数据缺省时退回已验证的视觉家族
+- **上下文长度可逐模型校正**——models.dev 有时只声明 200K，而 Zen 接口实际支持 1M；在配置页按 `模型 ID = token 数` 覆盖，保存后下一次请求即生效，无需重启
 - **实时目录 + 三级回退**——上游实时列表 ∩ 元数据判定免费，断网时依次回退到磁盘缓存与已验证的静态名单
 - **自愈能力**——启动期快速重试、周期刷新，并落盘健康快照便于排查
 - **规范的错误呈现**——上游故障（限流、鉴权、超时、传输）以分类的 finish 原因送达 DSH，重试策略始终由 DSH 掌控
@@ -94,6 +95,7 @@ pnpm build && git add lib
 | `firstEventMs` / `bodyIdleMs` / `responsesBodyIdleMs` | `30000` / `120000` / `300000` | 仅 adapter，插件 0.3.7 起支持：流存活超时，单位毫秒，取 `1` 到 `600000` 的整数。分别控制首事件等待、流中静默，以及 Responses 模型（`muse-spark-*`）的静默下限。冷启动慢时可调大 `firstEventMs`。不设置则使用默认值；修改后重启 DSH。 |
 | `userAgent` | 内置值 `opencode/latest/2.0.32/<client>`（`<client>` 跟随 `x-opencode-client`，开启 Desktop 模式即为 `desktop`） | 仅 adapter：旧 profile UA 配置，供正式对话、目录刷新和准入探测使用；留空使用内置值。页面的 `requestHeaders` 中若有 `User-Agent`，优先使用页面值。修改此旧字段需重启或重新加载插件。 |
 | `requestHeaders` | `{}` | 仅 adapter：在插件配置页的「Zen 请求头」区域编辑，每行一个 `Header-Name: value`。保存后对下一次正式对话、模型目录和准入探测生效，不依赖 IP 池开关。名称不区分大小写；鉴权、Cookie、HTTP 传输及正文格式头由插件管理。 |
+| `modelContextWindows` | `{}` | 仅 adapter：逐模型覆盖上下文长度（`模型 ID` → token 数），在插件配置页的「模型上下文」区域编辑，每行 `模型 ID = 1048576`。用于 models.dev 只声明 200K、而接口实际支持 1M 的模型；保存后对下一次请求生效，无需重启。范围 1024–16777216；留空使用 models.dev 声明值（内置仍覆盖 `mimo-v2.6-flash-free` = 1048576）。 |
 
 在 **设置 → 插件 → OpenCode Zen 插件配置** 的「Zen 请求头」里，可以填写：
 
@@ -105,6 +107,15 @@ x-opencode-client: desktop
 这是本机 OpenCode 桌面版 1.19.0 原始后端隔离实测的 Zen 请求头；之前提取到的 `opencode/1.19.0 (darwin 27.0.0; arm64)` 属于 OpenAI/Codex 插件分支。页面会显示当前生效的 Zen User-Agent。清空编辑区并保存会恢复继承配置，默认仍沿用插件原有 UA，不自动切换指纹。请求头最多 32 个、总长最多 8192 字节，拒绝重复名称、空值及非法控制字符。只配置普通请求头，不在此存放凭据。
 
 校验发生在两个边界，而不是 schema 里：编辑区（`parseRequestHeaders`，严格，非法草稿直接拒绝保存）和每次请求（`sanitizeRequestHeaders`，宽松，静默丢弃非法或被插件托管的头）。`Config` 中的节点必须保持「无回调」——不能使用 `.transform()`：dsh-settings 会用 `Config.toJSON()` 重建配置表单并二次序列化，transform 的回调在这一步丢失，浏览器反序列化后校验会抛 `callback is not a function`，配置卡片将永远停在加载态（2026-10-15 实测：加入 Zen 请求头字段后整页不可见）。
+
+「模型上下文」区域解决的是元数据与实际能力不一致：models.dev 的 `limit.context` 有时只写 200K，而 Zen 接口对同一模型实际支持 1M（`mimo-v2.6-flash-free` 就属于这种情况，插件已内置覆盖）。这里按「模型 ID = token 数」逐行覆盖，例如：
+
+```text
+mimo-v2.6-flash-free = 1048576
+big-pickle = 1048576
+```
+
+保存后 `resolveModel` 在下一次请求读取新的窗口，无需重启。覆盖只改上下文窗口，不改最大输出；范围 1024–16777216，最多 128 个模型，空行忽略，`=` 和 `:` 都可作分隔符。不要设得比模型的最大输出 token 更小，否则宿主的压缩预算会腾不出空间。校验同样在两个边界（`parseModelContextWindows` 严格 / `sanitizeModelContextWindows` 宽松）。
 
 ## 工作原理
 

@@ -9,6 +9,7 @@ import type { RequestHeaders } from './request-headers.ts'
 import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { AgentProcess, type ReadyInfo } from './agent-process.ts'
 import { Config, configPaths, ensureToken, ordinaryConfig, resolveConfig, writeAgentConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
+import type { ModelContextWindows } from './model-context.ts'
 import { applyIpPoolSettings } from './ip-pool-settings/apply.ts'
 import { setUsageRecorder } from './pool/usage.ts'
 import { usageStore } from './pool/usage-store.ts'
@@ -162,6 +163,10 @@ function applyAdapter(
   const catalog = new ModelCatalog({
     refreshSeconds: cfg.refreshSeconds,
     cachePath: defaultCachePath(dataDir),
+    // Read the volatile node on every model resolution (never cached here):
+    // a settings save applies to the next request without a restart, exactly
+    // like requestHeaders does for the wire.
+    contextWindows: () => readVolatile<ModelContextWindows>(config.modelContextWindows),
     onRefresh: (status, lastError) => {
       writeStatus(status, lastError)
       if (lastError) logger.warn(`oc2dsh: catalog refresh issue: ${lastError}`)

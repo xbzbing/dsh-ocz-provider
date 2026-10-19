@@ -57,6 +57,29 @@ interface IpPoolSettings {
 /** The two usage scopes the UI switches between. */
 type UsageScopeSetting = 'total' | 'run';
 //#endregion
+//#region src/model-context.d.ts
+/**
+ * Per-model context-window overrides for the Zen lane (settings → 模型上下文).
+ *
+ * The Zen catalog and models.dev do not always agree with what the endpoint
+ * actually serves: models.dev declares `limit.context: 200000` for ids whose
+ * card (and live behaviour) is 1M — `mimo-v2.6-flash-free` is the original
+ * case, covered by a built-in override in adapter/catalog.ts. This module is
+ * the operator-facing knob for every other id: `model-id = <tokens>`.
+ *
+ * Like request-headers.ts this file is SHARED by the Host and the browser
+ * halves, so it must stay dependency-free (no node imports). Validation lives
+ * at both boundaries instead of the schema (AGENTS.md: a callback-bearing
+ * `Config` node breaks the settings form round trip):
+ *   - the editor calls {@link normalizeModelContextWindows} (strict: a bad
+ *     draft is refused with a message);
+ *   - every catalog read calls {@link sanitizeModelContextWindows} (lenient: a
+ *     hand-edited profile patch cannot inject an invalid window, and a bad
+ *     entry never breaks a request or a model lookup).
+ */
+/** Model id -> context window in tokens. */
+type ModelContextWindows = Record<string, number>;
+//#endregion
 //#region src/request-headers.d.ts
 /** Shared validation for the settings editor and the Zen request path. */
 type RequestHeaders = Record<string, string>;
@@ -119,6 +142,13 @@ interface Opencode2dshConfig {
   userAgent?: string;
   /** Live Zen-only header overrides. Override userAgent when User-Agent is present. */
   requestHeaders?: RequestHeaders;
+  /**
+   * Per-model context-window overrides (model id -> tokens), for ids whose
+   * models.dev `limit.context` understates what the endpoint really serves
+   * (e.g. 200K declared, 1M available). Read on every model resolution, so a
+   * settings save applies to the next request without a restart.
+   */
+  modelContextWindows?: ModelContextWindows;
   /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
@@ -233,6 +263,12 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   userAgent: Schema<string, string, "plain">;
   /** A separate volatile field: edits apply to the next Zen request without restart. */
   requestHeaders: Schema<RequestHeaders, RequestHeaders, "volatile-defined">;
+  /**
+   * Per-model context windows (model id -> tokens), served as their own
+   * volatile node and read at model-resolution time. Empty = models.dev's
+   * `limit.context` (with the built-in mimo override still in force).
+   */
+  modelContextWindows: Schema<ModelContextWindows, ModelContextWindows, "volatile-defined">;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -352,6 +388,12 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
   userAgent: Schema<string, string, "plain">;
   /** A separate volatile field: edits apply to the next Zen request without restart. */
   requestHeaders: Schema<RequestHeaders, RequestHeaders, "volatile-defined">;
+  /**
+   * Per-model context windows (model id -> tokens), served as their own
+   * volatile node and read at model-resolution time. Empty = models.dev's
+   * `limit.context` (with the built-in mimo override still in force).
+   */
+  modelContextWindows: Schema<ModelContextWindows, ModelContextWindows, "volatile-defined">;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -441,9 +483,10 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
  * consumers read `.get()` at the moment they need a snapshot and never cache
  * the object it returned.
  */
-interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestHeaders'> {
+interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestHeaders' | 'modelContextWindows'> {
   ipPool: VolatileRef<IpPoolSettings>;
   requestHeaders: VolatileRef<RequestHeaders>;
+  modelContextWindows: VolatileRef<ModelContextWindows>;
 }
 /**
  * Everything the plugin persists next to the agent: the generated

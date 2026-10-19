@@ -6,6 +6,7 @@ import { platform } from 'node:process'
 import Schema from '@deepseek-ai/schemastery'
 
 import { IpPoolConfigSchema, type IpPoolSettings, type VolatileRef } from './ip-pool-settings/namespace.ts'
+import { MIN_CONTEXT_WINDOW, type ModelContextWindows } from './model-context.ts'
 import type { LocalIpFamily } from './pool/local-family.ts'
 import { type RequestHeaders } from './request-headers.ts'
 
@@ -66,6 +67,13 @@ export interface Opencode2dshConfig {
   userAgent?: string
   /** Live Zen-only header overrides. Override userAgent when User-Agent is present. */
   requestHeaders?: RequestHeaders
+  /**
+   * Per-model context-window overrides (model id -> tokens), for ids whose
+   * models.dev `limit.context` understates what the endpoint really serves
+   * (e.g. 200K declared, 1M available). Read on every model resolution, so a
+   * settings save applies to the next request without a restart.
+   */
+  modelContextWindows?: ModelContextWindows
   /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
@@ -196,6 +204,16 @@ export function resolveConfig(config: Opencode2dshConfig = {}): ResolvedConfig {
 const RequestHeadersConfigSchema: Schema<RequestHeaders, RequestHeaders, 'volatile-defined'> =
   Schema.dict(Schema.string()).default({}).volatile()
 
+/**
+ * Per-model context windows, also a PLAIN dict for the same reason as
+ * `requestHeaders`: no `.transform()` (or any callback) may survive into the
+ * served form. Range/format validation lives in src/model-context.ts at the
+ * editor and catalog boundaries; the schema only keeps the value a dictionary
+ * of positive integers so the form still decodes a hand-edited profile.
+ */
+const ModelContextWindowsConfigSchema: Schema<ModelContextWindows, ModelContextWindows, 'volatile-defined'> =
+  Schema.dict(Schema.number().step(1).min(MIN_CONTEXT_WINDOW)).default({}).volatile()
+
 export const Config = Schema.object({
   /** Integration mode; `adapter` (default) is the shipped shape. */
   mode: Schema.union(['adapter', 'sidecar']).default('adapter'),
@@ -235,6 +253,12 @@ export const Config = Schema.object({
   userAgent: Schema.string(),
   /** A separate volatile field: edits apply to the next Zen request without restart. */
   requestHeaders: RequestHeadersConfigSchema,
+  /**
+   * Per-model context windows (model id -> tokens), served as their own
+   * volatile node and read at model-resolution time. Empty = models.dev's
+   * `limit.context` (with the built-in mimo override still in force).
+   */
+  modelContextWindows: ModelContextWindowsConfigSchema,
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: IpPoolConfigSchema.volatile(),
 })
@@ -247,13 +271,14 @@ export const Config = Schema.object({
  * consumers read `.get()` at the moment they need a snapshot and never cache
  * the object it returned.
  */
-export interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestHeaders'> {
+export interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestHeaders' | 'modelContextWindows'> {
   ipPool: VolatileRef<IpPoolSettings>
   requestHeaders: VolatileRef<RequestHeaders>
+  modelContextWindows: VolatileRef<ModelContextWindows>
 }
 
-/** Every field except the volatile ip-pool reference. */
-export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool' | 'requestHeaders'>
+/** Every field except the volatile ip-pool and live-Zen references. */
+export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool' | 'requestHeaders' | 'modelContextWindows'>
 
 /**
  * The ordinary half of a resolved config, for the call sites that reconfigure
@@ -261,7 +286,7 @@ export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool' | 'reques
  * would hand `startIpPool` the volatile reference where it expects values.
  */
 export function ordinaryConfig(config: ResolvedPluginConfig): OrdinaryPluginConfig {
-  const { ipPool: _ipPool, requestHeaders: _requestHeaders, ...ordinary } = config
+  const { ipPool: _ipPool, requestHeaders: _requestHeaders, modelContextWindows: _modelContextWindows, ...ordinary } = config
   return ordinary
 }
 

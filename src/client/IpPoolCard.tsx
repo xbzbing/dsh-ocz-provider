@@ -11,7 +11,8 @@
  * restart (docs/ip-pool.md §5).
  *
  * Pool edits use `['ipPool', <field>]`; Zen header overrides use the separate
- * `['requestHeaders']` volatile dictionary. Both share one revision and save.
+ * `['requestHeaders']` volatile dictionary, and per-model context windows the
+ * `['modelContextWindows']` node. All share one revision and save.
  */
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -40,9 +41,11 @@ import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-
 import type { en } from './locales.ts'
 import styles from './ip-pool.module.css'
 import { PinIcon, RotateIcon } from './icons.tsx'
-import { fieldWrite, poolWriteOps, requestHeadersWriteOps, type FieldWrite } from './settings-writes.ts'
+import { fieldWrite, modelContextWriteOps, poolWriteOps, requestHeadersWriteOps, type FieldWrite } from './settings-writes.ts'
+import { formatModelContextWindows, sanitizeModelContextWindows, type ModelContextWindows } from '../model-context.ts'
 import { desktopModeDraft, formatRequestHeaders, isDesktopModeDraft, normalizeRequestHeaders, parseRequestHeaders } from '../request-headers.ts'
 import { RequestHeadersEditor } from './RequestHeadersEditor.tsx'
+import { ModelContextEditor } from './ModelContextEditor.tsx'
 
 /** The reactive values and commands this page reads and writes through. */
 export interface ConfigPageForm {
@@ -364,6 +367,8 @@ function formFromValue(value: IpPoolSettingsValue): FormState {
 /** The served entry's value: the `ipPool` volatile node is the whole form. */
 interface ServedEntry {
   ipPool?: Partial<IpPoolSettingsValue>
+  /** Per-model context windows (a separate volatile node, top-level). */
+  modelContextWindows?: ModelContextWindows
 }
 
 /** Field writes landing the form on the resolved value, in write order. */
@@ -855,7 +860,7 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
 }
 
 /** The collapsible group ids, in display order. */
-type GroupId = 'sources' | 'scheduling' | 'probe' | 'usage' | 'headers' | 'exits'
+type GroupId = 'sources' | 'scheduling' | 'probe' | 'usage' | 'headers' | 'models' | 'exits'
 
 /** First-visit fold state: high-frequency groups open, advanced ones folded. */
 const GROUP_DEFAULTS: Record<GroupId, boolean> = {
@@ -864,6 +869,7 @@ const GROUP_DEFAULTS: Record<GroupId, boolean> = {
   probe: false,
   usage: true,
   headers: false,
+  models: false,
   exits: true,
 }
 
@@ -928,6 +934,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   const snapshot = settings?.state
   const [form, setForm] = useState<FormState>(() => emptyForm())
   const [headersText, setHeadersText] = useState('')
+  const [contextText, setContextText] = useState('')
   const [headerConflict, setHeaderConflict] = useState(false)
   const acceptedHeadersRef = useRef('')
   const [saving, setSaving] = useState(false)
@@ -964,6 +971,9 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       const headers = formatRequestHeaders(normalizeRequestHeaders(snapshot.value?.requestHeaders ?? {}))
       acceptedHeadersRef.current = headers
       setHeadersText(headers)
+      // Lenient on purpose: a hand-edited profile patch must not blank the
+      // card, and the draft is re-validated strictly on save.
+      setContextText(formatModelContextWindows(sanitizeModelContextWindows(snapshot.value?.modelContextWindows ?? {})))
     }
   }, [snapshot?.status, snapshot?.value])
 
@@ -1057,8 +1067,17 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}),
       normalizeRequestHeaders((snapshot?.base as Record<string, unknown> | undefined)?.requestHeaders ?? {}))
   } catch { headerFailure = { message: t('requestHeadersInvalid'), group: 'headers' } }
-  const validation = headerFailure ?? validate()
-  const dirty = writes.length > 0 || headerOps.length > 0 || validation !== null
+  let contextOps: ConfigPathOp[] = []
+  let contextFailure: ValidationFailure | null = null
+  try {
+    contextOps = modelContextWriteOps(
+      contextText,
+      sanitizeModelContextWindows(snapshot?.value?.modelContextWindows ?? {}),
+      sanitizeModelContextWindows((snapshot?.base as Record<string, unknown> | undefined)?.modelContextWindows ?? {}),
+    )
+  } catch { contextFailure = { message: t('modelContextInvalid'), group: 'models' } }
+  const validation = headerFailure ?? contextFailure ?? validate()
+  const dirty = writes.length > 0 || headerOps.length > 0 || contextOps.length > 0 || validation !== null
   const available = snapshot?.status === 'ready' && settings !== undefined
   const writable = available && snapshot.writable
 
@@ -1088,7 +1107,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       setError(validation?.message ?? t('saveError'))
       return
     }
-    if (writes.length === 0 && headerOps.length === 0) {
+    if (writes.length === 0 && headerOps.length === 0 && contextOps.length === 0) {
       setSaved(true)
       setError(null)
       return
@@ -1097,7 +1116,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     setError(null)
     try {
       const ok = await settings.mutate(
-        [...headerOps, ...poolWriteOps(writes)],
+        [...headerOps, ...contextOps, ...poolWriteOps(writes)],
         snapshot.revision,
       )
       setSaved(ok)
@@ -1117,6 +1136,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     const headers = formatRequestHeaders(normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}))
     acceptedHeadersRef.current = headers
     setHeadersText(headers)
+    setContextText(formatModelContextWindows(sanitizeModelContextWindows(snapshot?.value?.modelContextWindows ?? {})))
     setHeaderConflict(false)
     setSaved(false)
     setError(null)
@@ -1230,6 +1250,10 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     })
   const headersLineCount = headersText.split('\n').filter((line) => line.trim() !== '').length
   const headersSummary = headersLineCount === 0 ? t('summaryHeadersDefault') : t('summaryHeadersCustom', { count: String(headersLineCount) })
+  const contextLineCount = contextText.split('\n').filter((line) => line.trim() !== '').length
+  const contextSummary = contextLineCount === 0
+    ? t('summaryContextDefault')
+    : t('summaryContextCustom', { count: String(contextLineCount) })
   const exitsSummary = status === null
     ? t('summaryUnset')
     : t('footerUsable', { usable: String(status.availableTotal), total: String(status.total) })
@@ -1561,6 +1585,22 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           t={t}
           onChange={(text) => { setSaved(false); setHeadersText(text) }}
           onDesktopModeChange={(next) => { setSaved(false); setHeadersText(desktopModeDraft(headersText, next)) }}
+        />
+      </Group>
+
+      <Group
+        id="models"
+        title={t('groupModels')}
+        summary={contextSummary}
+        open={groups.models}
+        highlight={highlightGroup === 'models'}
+        onToggle={() => toggleGroup('models')}
+      >
+        <ModelContextEditor
+          text={contextText}
+          disabled={!writable || saving}
+          t={t}
+          onChange={(text) => { setSaved(false); setContextText(text) }}
         />
       </Group>
 

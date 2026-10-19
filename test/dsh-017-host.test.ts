@@ -75,12 +75,13 @@ function settings17() {
 /** Records the adapter registrations a host would see. */
 function host() {
   const registrations: string[][] = []
+  const adapters: unknown[] = []
   const injections: string[][] = []
   const effects: Array<() => void> = []
   const volatileListeners: Array<() => void> = []
   const ipPool = volatileRef({ enabled: false, manual: [] })
   const base: PluginContext = {    logger: { info() {}, warn() {}, error() {} },
-    llm: { registerAdapter: (providers) => { registrations.push([...providers]); return () => {} } },
+    llm: { registerAdapter: (providers, adapter) => { registrations.push([...providers]); adapters.push(adapter); return () => {} } },
     on(event, listener) {
       if (event === 'loader/volatile-update') volatileListeners.push(listener as () => void)
       return () => {}
@@ -92,7 +93,7 @@ function host() {
     },
     effect(fn) { const dispose = fn(); effects.push(dispose); return dispose },
   }
-  return { base, registrations, injections, effects, volatileListeners, ipPool }
+  return { base, registrations, adapters, injections, effects, volatileListeners, ipPool }
 }
 
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 30))
@@ -101,14 +102,16 @@ test('the plugin serves volatile settings nodes and the fiber needs only llm', a
   assert.deepEqual([...inject], ['llm'], 'settings must not gate the fiber: SettingsForms is disabled headless')
 
   // Config is what DSH 0.1.7 reads to decide what is editable. Each editable
-  // surface is its own TOP-LEVEL `.volatile()` node (`ipPool`, `requestHeaders`):
-  // dsh-settings' volatileForm() selects a node's whole plain schema, and a
-  // nested volatile is a schemastery error. Neither may be a `.transform()` —
-  // see the AGENTS.md row on callback-bearing schema nodes.
+  // surface is its own TOP-LEVEL `.volatile()` node (`ipPool`,
+  // `requestHeaders`, `modelContextWindows`): dsh-settings' volatileForm()
+  // selects a node's whole plain schema, and a nested volatile is a
+  // schemastery error. None may be a `.transform()` — see the AGENTS.md row on
+  // callback-bearing schema nodes.
   const resolved = Config({ mode: 'adapter' })
   const ipPool = resolved.ipPool as unknown as { get(): unknown }
   assert.equal(typeof ipPool.get, 'function', 'ipPool is a volatile reference')
   assert.equal(typeof (resolved.requestHeaders as unknown as { get(): unknown }).get, 'function', 'requestHeaders is a volatile reference')
+  assert.equal(typeof (resolved.modelContextWindows as unknown as { get(): unknown }).get, 'function', 'modelContextWindows is a volatile reference')
   assert.equal((resolved as { mode: unknown }).mode, 'adapter')
 })
 
@@ -215,4 +218,28 @@ test('plugin entry reads committed request headers live and releases its reader 
   } finally { for (const dispose of h.effects) dispose() }
   value = { 'user-agent': 'must-not-leak-after-disposal' }
   assert.match(opencodeUserAgent(), /^opencode\/latest\/\d+\.\d+\.\d+\/cli$/)
+})
+
+test('the modelContextWindows node reaches resolveModel live', async () => {
+  const h = host()
+  let value: Record<string, number> = { 'big-pickle': 1048576 }
+  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool, modelContextWindows: { get: () => value } })
+  await settle()
+
+  const adapter = h.adapters[0] as {
+    resolveModel(provider: string, model: string): { context: { contextWindow: number } }
+  }
+  assert.ok(adapter !== undefined, 'the adapter was registered')
+  // No models.dev metadata in this fake (start() is mocked), so the override
+  // is the only source — it must apply even while metadata is silent.
+  assert.equal(adapter.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 1048576)
+
+  // A save commits into the same reference; the next resolution reads it
+  // without reinstalling the adapter.
+  value = { 'big-pickle': 200000 }
+  assert.equal(adapter.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 200000)
+
+  // Clearing the override falls back to the shipped default (no metadata).
+  value = {}
+  assert.equal(adapter.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 262144)
 })
