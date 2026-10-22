@@ -28,7 +28,7 @@ import type { GateToolArgumentBridge } from './gate-tools.ts'
 export type HarnessChunk =
   | { type: 'block-start'; index: number; blockType: 'text' | 'reasoning' | 'tool-call' }
   | { type: 'text-delta'; index: number; text: string }
-  | { type: 'block-end'; index: number; block: { type: 'text'; text: string } | { type: 'reasoning'; text: string } | { type: 'tool-call'; id: string; name: string; arguments: string } }
+  | { type: 'block-end'; index: number; block: { type: 'text'; text: string } | { type: 'reasoning'; text: string; signature?: string } | { type: 'tool-call'; id: string; name: string; arguments: string } }
   | { type: 'reasoning-delta'; index: number; text: string }
   | { type: 'tool-call-delta'; index: number; id: string; name?: string; argumentsDelta: string }
   | { type: 'usage'; usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheWriteTokens?: number } }
@@ -114,25 +114,35 @@ function classifyError(text: string): string {
   // the host's own provider (already TRANSPORT there) was retried and recovered
   // the step every time. Keep the host's own wording so the two stay in step.
   if (/stream ended (?:before|without)\b/i.test(text)) return 'TRANSPORT'
+  // opencode2dsh #105: the same cut arrives under spellings the two regexes
+  // above miss. `\bsocket\b` never matches inside "WebSocket" (no boundary in
+  // the compound), `other side closed` is undici's SocketError
+  // (node_modules/undici/lib/dispatcher/client-h1.js and client-h2.js — the
+  // realistic cut through the exit pool), and `http2 request did not get a
+  // response` is undici's h2 premature close. All transport, all retryable.
+  if (/\bwebsocket\b|other side closed|http2 request did not get a response/i.test(text)) return 'TRANSPORT'
   if (/\b(?:network|connection|socket|fetch)\b|\bECONN[A-Z]+\b|terminated|premature close/i.test(text)) return 'TRANSPORT'
   return 'UPSTREAM'
 }
 
-function isContextOverflow(message: PiDoneMessage, contextWindow: number): boolean {
-  // pi-ai isContextOverflow equivalent: error-free finish whose input usage
-  // alone exceeds the resolved window.
-  return message.stopReason === 'stop' && message.usage.input > contextWindow
-}
-
-/** mapStopReason (dsh-llm-pi-ai index.js:1286-1330). */
-function mapStopReason(message: PiDoneMessage, contextWindow: number): FinishReason {
-  if (isContextOverflow(message, contextWindow) || (message.stopReason === 'error' && message.errorMessage !== undefined && /context/i.test(message.errorMessage) && /exceed|window|length|token/i.test(message.errorMessage))) {
+/**
+ * mapStopReason (dsh-llm-pi-ai index.js:1286-1330, minus the usage heuristic
+ * upstream dropped in opencode2api #101, ported as opencode2dsh #101).
+ *
+ * The request that reaches the wire carries 4-5k tokens more than the host
+ * estimates its history at (system prompt + the gate's genuine tool
+ * definitions + serialization), so a conversation filled to the declared
+ * window arrives with `usage.input > contextWindow` on a HEALTHY finish — the
+ * pre-fix heuristic then rewrote a turn the upstream had already answered
+ * into CONTEXT_WINDOW_EXCEEDED, which is not retryable and killed the whole
+ * turn. Only the provider's own overflow WORDING (a 400 whose message says
+ * context + exceed/window/length/token) is still classified as such.
+ */
+function mapStopReason(message: PiDoneMessage): FinishReason {
+  if (message.stopReason === 'error' && message.errorMessage !== undefined && /context/i.test(message.errorMessage) && /exceed|window|length|token/i.test(message.errorMessage)) {
     return {
       kind: 'error',
-      failure: {
-        message: message.errorMessage ?? `pi-ai detected context overflow for model "${message.model}"`,
-        code: CONTEXT_WINDOW_EXCEEDED,
-      },
+      failure: { message: message.errorMessage, code: CONTEXT_WINDOW_EXCEEDED },
     }
   }
   switch (message.stopReason) {
@@ -174,7 +184,6 @@ function mapUsage(usage: PiDoneMessage['usage']): Extract<HarnessChunk, { type: 
  */
 export async function* toStreamChunks(
   events: AsyncIterable<PiEvent>,
-  contextWindow: number,
   toolNameAlias?: Record<string, string>,
   toolArgumentBridge?: GateToolArgumentBridge,
 ): AsyncGenerator<HarnessChunk> {
@@ -201,9 +210,21 @@ export async function* toStreamChunks(
       case 'thinking_delta':
         yield { type: 'reasoning-delta', index: event.contentIndex, text: event.delta }
         break
-      case 'thinking_end':
-        yield { type: 'block-end', index: event.contentIndex, block: { type: 'reasoning', text: event.content } }
+      case 'thinking_end': {
+        // opencode2dsh #97: pi-ai stamps the wire field the thinking arrived
+        // on (`reasoning_content`) into the partial block's thinkingSignature;
+        // carrying it back on the harness block is what lets the replay put
+        // the reasoning text under that exact field (messages.ts toPiAssistant
+        // -> pi-ai's openai-completions serializer). Absent -> bare block.
+        const partial = event.partial.content[event.contentIndex]
+        const signature = typeof partial?.thinkingSignature === 'string' && partial.thinkingSignature.length > 0 ? partial.thinkingSignature : undefined
+        yield {
+          type: 'block-end',
+          index: event.contentIndex,
+          block: { type: 'reasoning', text: event.content, ...(signature !== undefined ? { signature } : {}) },
+        }
         break
+      }
       case 'toolcall_start': {
         const partial = event.partial.content[event.contentIndex]
         const id = partial?.type === 'toolCall' ? (partial.id ?? '') : ''
@@ -274,11 +295,11 @@ export async function* toStreamChunks(
       }
       case 'done':
         yield { type: 'usage', usage: mapUsage(event.message.usage) }
-        yield { type: 'finish', reason: mapStopReason(event.message, contextWindow) }
+        yield { type: 'finish', reason: mapStopReason(event.message) }
         return
       case 'error':
         yield { type: 'usage', usage: mapUsage(event.error.usage) }
-        yield { type: 'finish', reason: mapStopReason(event.error, contextWindow) }
+        yield { type: 'finish', reason: mapStopReason(event.error) }
         return
     }
   }

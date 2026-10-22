@@ -109,7 +109,7 @@ test('assistant history replays text, thinking and tool calls with parsed argume
       role: 'assistant',
       content: [
         { type: 'text', text: 'thinking out loud' },
-        { type: 'reasoning', text: 'internal scratch' },
+        { type: 'reasoning', text: 'internal scratch', signature: 'reasoning_content' },
         { type: 'tool-call', id: 't1', name: 'calc', arguments: '{"a":1}' },
       ],
       source: { kind: 'model', provider: 'oc2dsh', model: 'qwen-free' },
@@ -119,11 +119,28 @@ test('assistant history replays text, thinking and tool calls with parsed argume
   const assistant = expectAssistant(context.messages[0])
   assert.deepEqual(assistant.content, [
     { type: 'text', text: 'thinking out loud' },
-    { type: 'thinking', thinking: 'internal scratch' },
+    // #97: the streamed signature rides back so pi-ai sends the thinking as
+    // reasoning_content — DeepSeek's thinking mode rejects its absence.
+    { type: 'thinking', thinking: 'internal scratch', thinkingSignature: 'reasoning_content' },
     { type: 'toolCall', id: 't1', name: 'calc', arguments: { a: 1 } },
   ])
   assert.equal(assistant.stopReason, 'toolUse')
   assert.equal(assistant.model, 'qwen-free')
+})
+
+test('an unsigned reasoning block stays a bare thinking block (#97)', async () => {
+  const context = await toPiContext(
+    options({
+      messages: [
+        {
+          role: 'assistant',
+          content: [{ type: 'reasoning', text: 'internal scratch' }],
+          source: { kind: 'model', provider: 'oc2dsh', model: 'qwen-free' },
+        },
+      ],
+    }),
+  )
+  assert.deepEqual(expectAssistant(context.messages[0]).content, [{ type: 'thinking', thinking: 'internal scratch' }])
 })
 
 test('arguments parsing tolerates junk', async () => {

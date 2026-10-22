@@ -275,7 +275,8 @@ export function isVisionModel(id: string, declaredModalities?: string[]): boolea
   return /^mimo-v2\.6/i.test(String(id ?? ''))
 }
 
-function toPiModel(
+/** The pi-ai model literal for one catalog entry (exported for shape tests). */
+export function toPiModel(
   id: string,
   reasoning: boolean,
   limits?: { contextWindow?: number; maxOutput?: number },
@@ -297,6 +298,15 @@ function toPiModel(
     // data URLs, live-probed 2026-09-23; full round-trip through
     // DSH 0.1.7-rc.2 with mimo-v2.6-flash-free 2026-09-28).
     reasoning,
+    // opencode2dsh #97: DeepSeek's thinking mode rejects any replayed
+    // assistant turn without a reasoning_content field ("The reasoning_content
+    // in the thinking mode must be passed back to the API"), and pi-ai only
+    // auto-detects that requirement for provider 'deepseek' / a deepseek.com
+    // baseUrl — neither matches this lane. The flag makes pi-ai emit an empty
+    // reasoning_content for replayed turns that carried no thinking; turns
+    // that DID think carry their text under the streamed field via the
+    // signature on the reasoning block (events.ts -> messages.ts).
+    compat: { requiresReasoningContentOnAssistantMessages: true },
     input: isVisionModel(id, declaredModalities) ? ['text', 'image'] : ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: contextWindowFor(limits),
@@ -740,13 +750,13 @@ export class ZenAdapter {
       if (preContentFailure === null && deliveredContent) {
         // attributeUsage: this attempt's usage rides the exit the dispatcher
         // stamped into contextStore (exit-stats accounting, pool/usage.ts).
-        yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
+        yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       if (preContentFailure === null && !deliveredContent) {
         // stream ended cleanly with no content and no error: pass through
         // (pi-ai's empty-response classification owns this case)
-        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
+        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       // Exit-shaped failure before content: ask the pool whether rotating is
@@ -790,7 +800,7 @@ export class ZenAdapter {
             break
           }
         }
-        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), model.contextWindow, GATE_TOOL_ALIASES, argumentBridge))
+        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), GATE_TOOL_ALIASES, argumentBridge))
         return
       }
       // rotate: loop re-runs #eventsFor inside the same ALS store; the pool

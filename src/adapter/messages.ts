@@ -26,7 +26,7 @@ export interface HarnessTool {
 
 export type HarnessBlock =
   | { type: 'text'; text: string }
-  | { type: 'reasoning'; text: string }
+  | { type: 'reasoning'; text: string; signature?: string }
   | { type: 'tool-call'; id: string; name: string; arguments: string }
   | { type: 'image'; [key: string]: unknown }
   | { type: 'tool-result'; toolCallId: string; content: HarnessBlock[]; isError?: boolean; [key: string]: unknown }
@@ -75,7 +75,7 @@ export type PiMessage =
 
 export type PiAssistantBlock =
   | { type: 'text'; text: string }
-  | { type: 'thinking'; thinking: string }
+  | { type: 'thinking'; thinking: string; thinkingSignature?: string }
   | { type: 'toolCall'; id: string; name: string; arguments: Record<string, unknown> }
 
 export type PiContentBlock = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
@@ -212,7 +212,17 @@ function toPiAssistant(message: HarnessMessage, providerId: string): Extract<PiM
         content.push({ type: 'text', text: block.text })
         break
       case 'reasoning':
-        content.push({ type: 'thinking', thinking: block.text })
+        // opencode2dsh #97: DeepSeek's thinking mode rejects a replayed turn
+        // whose reasoning_content is missing, so the streamed signature (the
+        // wire field the thinking arrived on, events.ts thinking_end) rides
+        // back with the block; pi-ai's serializer then writes the thinking
+        // under that exact field. Unsigned blocks stay bare — the model's
+        // compat flag covers them with an empty reasoning_content.
+        content.push({
+          type: 'thinking',
+          thinking: block.text,
+          ...(block.signature !== undefined && block.signature.length > 0 ? { thinkingSignature: block.signature } : {}),
+        })
         break
       case 'tool-call':
         content.push({ type: 'toolCall', id: block.id, name: block.name, arguments: parseArguments(block.arguments) })

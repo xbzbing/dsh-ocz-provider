@@ -2,7 +2,7 @@ import { normalizeResponsesPayload } from '../src/adapter/zen-adapter.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ModelCatalog } from '../src/adapter/catalog.ts'
-import { isResponsesModel, PROVIDER_ID, PROVIDER_NAME, reasoningEfforts, reasoningEffortWire, WATCHDOG_FIRST_MESSAGE, ZenAdapter } from '../src/adapter/zen-adapter.ts'
+import { isResponsesModel, PROVIDER_ID, PROVIDER_NAME, reasoningEfforts, reasoningEffortWire, toPiModel, WATCHDOG_FIRST_MESSAGE, ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import { Config, resolveConfig } from '../src/config.ts'
 import { resetRetryDelays } from '../src/adapter/retry-delay.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
@@ -127,6 +127,15 @@ test('prepareCall returns the resolved model and a stream dispatcher', async () 
   const call = await adapter.prepareCall('oc2dsh', 'big-pickle')
   assert.equal(call.model.id, 'big-pickle')
   assert.equal(typeof call.stream, 'function')
+})
+
+test('the pi-ai model declares the DeepSeek reasoning replay requirement (#97)', () => {
+  // DeepSeek's thinking mode rejects replayed turns without reasoning_content;
+  // pi-ai only auto-detects that for provider 'deepseek' (or a deepseek.com
+  // baseUrl), neither of which matches this lane, so the model literal
+  // declares it — the flag gates pi-ai's empty reasoning_content backfill for
+  // thinking-free assistant turns.
+  assert.deepEqual(toPiModel('deepseek-v4.1-flash-free', true).compat, { requiresReasoningContentOnAssistantMessages: true })
 })
 
 test('listModels mirrors the catalog without duplicates', async () => {

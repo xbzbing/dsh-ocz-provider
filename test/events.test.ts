@@ -30,7 +30,6 @@ async function collect(events: PiEvent[]): Promise<HarnessChunk[]> {
     (async function* () {
       for (const event of events) yield event
     })(),
-    CONTEXT_WINDOW,
   )) {
     chunks.push(chunk)
   }
@@ -107,6 +106,19 @@ test('thinking events map to reasoning blocks', async () => {
   assert.deepEqual(chunks[2], { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'hmm' } })
 })
 
+test('a streamed thinkingSignature rides back on the reasoning block (#97)', async () => {
+  // pi-ai stamps the wire field the thinking arrived on into the partial
+  // block; DeepSeek's thinking mode needs it back on replay (messages.ts
+  // restores it as thinkingSignature so the text is sent as reasoning_content).
+  const partial = { content: [{ type: 'thinking', thinking: 'hmm', thinkingSignature: 'reasoning_content' }] }
+  const chunks = await collect([{ type: 'thinking_end', contentIndex: 0, content: 'hmm', partial }, done()])
+  assert.deepEqual(chunks[0], {
+    type: 'block-end',
+    index: 0,
+    block: { type: 'reasoning', text: 'hmm', signature: 'reasoning_content' },
+  })
+})
+
 test('finish reasons: length, aborted, rate limit and other errors', async () => {
   const length = await collect([done({ stopReason: 'length' })])
   assert.deepEqual(length[1], { type: 'finish', reason: { kind: 'max-tokens' } })
@@ -133,6 +145,14 @@ test('a stream cut before its terminal chunk is TRANSPORT, never UPSTREAM', asyn
     'Stream ended without finish_reason',
     // Parity guard for the host's wording — not an observed pi-ai message.
     'Stream ended before any event arrived',
+    // opencode2dsh #105: the same mid-stream cut under spellings \bsocket\b
+    // misses. "WebSocket" has no inner word boundary, and undici's own cuts
+    // arrive as "other side closed" (SocketError, client-h1.js/client-h2.js —
+    // the realistic cut through the exit pool) or the h2 premature close.
+    'WebSocket closed',
+    'websocket stream closed before response.completed',
+    'other side closed',
+    'http2 request did not get a response',
   ]
   for (const message of messages) {
     const completed = event({ stopReason: 'error', errorMessage: message })
@@ -180,9 +200,22 @@ test('an empty completed response is an EMPTY_RESPONSE error', async () => {
   assert.equal(failure.code, 'EMPTY_RESPONSE')
 })
 
-test('silent context overflow is surfaced as CONTEXT_WINDOW_EXCEEDED', async () => {
-  const chunks = await collect([event({ usage: { input: CONTEXT_WINDOW + 1, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: CONTEXT_WINDOW + 1 } })])
-  assert.equal(failureOf(expectFinish(chunks[1])).code, 'CONTEXT_WINDOW_EXCEEDED')
+test('a healthy finish over the declared window is NOT a context overflow (#101)', async () => {
+  // The wire carries 4-5k tokens more than the host estimates its history at
+  // (system prompt + the gate's genuine tool definitions + serialization), so
+  // usage.input alone can exceed the declared window on a turn the upstream
+  // already answered; the pre-fix heuristic rewrote exactly such turns into
+  // CONTEXT_WINDOW_EXCEEDED, which is not retryable and killed the turn.
+  const chunks = await collect([
+    event({ usage: { input: CONTEXT_WINDOW * 4, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: CONTEXT_WINDOW * 4 } }),
+  ])
+  assert.deepEqual(expectFinish(chunks[1]).reason, { kind: 'stop' })
+})
+
+test('the provider\'s own overflow wording is still CONTEXT_WINDOW_EXCEEDED (#101)', async () => {
+  const message = 'OpenAI API error (400): {"error":{"code":"context_length_exceeded","message":"This model\'s maximum context length is 65536 tokens. However, your messages resulted in 71233 tokens."}}'
+  const chunks = await collect([event({ stopReason: 'error', errorMessage: message })])
+  assert.deepEqual(failureOf(expectFinish(chunks[1])), { message, code: 'CONTEXT_WINDOW_EXCEEDED' })
 })
 
 test('a stream that ends without done/error is a bug and throws', async () => {
