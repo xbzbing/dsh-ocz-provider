@@ -12,7 +12,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
-import { buildPoolFromConfig, startIpPool, syncManualExits, applyProbeVerdict, probeTickEnabled } from '../src/ip-pool.ts'
+import { buildPoolFromConfig, startIpPool, syncManualExits, applyProbeVerdict } from '../src/ip-pool.ts'
 
 const quiet = { info: () => {}, warn: () => {} }
 
@@ -165,20 +165,12 @@ test('assembly: 本地出口兜底 reaches the installer at assembly and on ever
 })
 
 /**
- * Live 2026-10-13: with the pool switched OFF the settings card still showed
- * 13 exits — not because they were in use, but because the periodic probe tick
- * kept working (8 queued, 3 in flight, 70 enqueued lifetime) while nothing
- * routed through an exit. Off has to mean off, and the polarity here is the
- * load-bearing part: defaulting the tick off would silently stop probing for
- * everyone.
+ * The periodic probe tick is gone (operator decision 2026-10-23): liveness is
+ * judged by real requests (recordPassive/recordPassiveTransport), not a
+ * timer. The 2026-10-13 incident the old tick existed for — probing 13 exits
+ * while the pool was switched off — can no longer happen: with no timer
+ * there is no probe traffic at all unless an operator or an admission asks.
  */
-test('probeTickEnabled: absent means on, only an explicit false pauses the tick', () => {
-  assert.equal(probeTickEnabled(undefined), true, 'the documented default is enabled')
-  assert.equal(probeTickEnabled({}), true)
-  assert.equal(probeTickEnabled({ enabled: true }), true)
-  assert.equal(probeTickEnabled({ enabled: false }), false, 'off means off')
-})
-
 test('assembly: manual rows and the pin apply live through reconfigure', async () => {
   const installer = fakeInstaller()
   const runtime = await startIpPool(

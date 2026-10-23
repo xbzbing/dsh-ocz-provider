@@ -219,6 +219,21 @@ test('evictWorstFree drops C-grade before S-grade', () => {
   assert.ok(p.has('s:1'))
 })
 
+test('evictWorstFree drops a dead corpse before any live row (2026-10-23)', () => {
+  // With the periodic probe gone, a dead free row only leaves the pool through
+  // this eviction or the strike threshold — grading alone would evict a live
+  // C-grade exit while the dead S-grade corpse kept its slot.
+  const p = pool({ targetSize: 5 })
+  p.add(node({ id: 's:1', exitIP: '1.1.1.1', latencyMs: 100, quality: 'S' }))
+  p.add(node({ id: 'c:1', exitIP: '2.2.2.2', latencyMs: 3000, quality: 'C' }))
+  p.markOk('s:1')
+  p.markOk('c:1')
+  p.recordPassiveTransport('s:1') // dead S-grade corpse
+  assert.ok(p.evictWorstFree())
+  assert.ok(!p.has('s:1'), 'the corpse goes first')
+  assert.ok(p.has('c:1'), 'the live C-grade exit survives')
+})
+
 test('snapshot reports state, per-source counts and pinned (diagnostics, 5.3)', () => {
   const p = pool()
   p.add(node({ id: 'a:1', source: 'free' }))
@@ -349,50 +364,24 @@ test('markUnverified: keeps the node, drops the ok claim, and yields to verified
   assert.equal(p.list().find((entry) => entry.id === 'sub:1')!.health.state, 'dead')
 })
 
-test('dueForProbe: a dead exit is retried only after deadRetryMs', () => {
-  // Regression (live 2026-10-12): a false-positive transport strike retired an
-  // exit permanently — `isUsable()` hides dead exits from pick(), so nothing
-  // passive could ever call markOk() on one, and the documented periodic probe
-  // and deadRetryMs were never implemented. All 14 exits of a live profile
-  // died this way and the pool silently drained to zero.
-  const budget = { intervalMs: 600_000, deadRetryMs: 120_000 }
+test('no periodic probe: a dead exit stays parked until a real-request or manual verdict (2026-10-23)', () => {
+  // The due-probe loop (periodic recheck + deadRetryMs revival) is gone by
+  // operator decision: liveness is judged by real requests only. The 2026-10-12
+  // incident the loop existed for — 14 exits struck dead by false positives and
+  // the pool silently draining — now rests on the replacement paths: the strike
+  // threshold (free), the reserve swap (subscription), and the card's 探测
+  // action. Assert what remains: a dead row serves nothing, and a passing
+  // manual probe revives it.
   const p = pool()
   p.add(node({ id: 'x:1', source: 'subscription', exitIP: '5.5.5.5' }))
   p.markOk('x:1')
-  assert.deepEqual(p.dueForProbe(now(), budget), [], 'freshly probed and healthy: nothing due')
-
   p.recordPassiveTransport('x:1')
-  assert.deepEqual(p.dueForProbe(now(), budget), [], 'just died: the retry budget has not elapsed')
-
-  clock += 119_999
-  assert.deepEqual(p.dueForProbe(now(), budget), [], 'one millisecond short is still not due')
-
-  clock += 1
-  assert.deepEqual(p.dueForProbe(now(), budget), ['x:1'], 'at the budget the exit is retried')
-
-  // The retry is what revives it; without this the exit stays invisible.
-  p.markOk('x:1')
-  assert.equal(p.list()[0]!.health.state, 'ok')
-})
-
-test('dueForProbe: never-probed due at once, cooling and fresh exits wait', () => {
-  const budget = { intervalMs: 600_000, deadRetryMs: 120_000 }
-  const p = pool()
-  p.add(node({ id: 'new:1', source: 'free', exitIP: '1.1.1.1' }))
-  assert.deepEqual(p.dueForProbe(now(), budget), ['new:1'], 'never probed: due immediately')
-
-  p.add(node({ id: 'cool:1', source: 'free', exitIP: '2.2.2.2' }))
-  p.markLimited('cool:1')
-  assert.deepEqual(p.dueForProbe(now(), budget), ['new:1'], 'a cooling exit waits out its window')
-
-  p.add(node({ id: 'fresh:1', source: 'free', exitIP: '3.3.3.3' }))
-  p.markOk('fresh:1')
-  assert.deepEqual(p.dueForProbe(now(), budget), ['new:1'], 'a just-probed exit waits the cadence')
-
-  clock += 600_000
-  const due = p.dueForProbe(now(), budget)
-  assert.ok(due.includes('fresh:1'), 'past the cadence the healthy exit is rechecked')
-  assert.ok(due.includes('cool:1'), 'an expired cooldown is rechecked')
+  assert.equal(p.list()[0]!.health.state, 'dead')
+  assert.equal(p.pick('ses-1', 'm'), null, 'the dead row serves nothing')
+  clock += 5 * 60_000
+  assert.equal(p.pick('ses-2', 'm'), null, 'and no timer brings it back')
+  p.markOk('x:1') // the card's 探测 action, verdict pass
+  assert.equal(p.pick('ses-3', 'm'), 'x:1', 'a passing manual probe revives it')
 })
 
 // -- admission watchers (the engage-routing seam) ------------------------------

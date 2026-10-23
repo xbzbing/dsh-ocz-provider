@@ -41,9 +41,8 @@ export type ExitState = 'unknown' | 'ok' | 'dead'
  * (…abusive traffic from this IP address…). The flag lives upstream and is
  * measured in hours — the same addresses answered 403 all afternoon on
  * 2026-10-19 — so a minutes-long cooldown would just re-burn the same refusal
- * on the next rotation. `dueForProbe` also skips cooling exits, so this window
- * is exactly how long the row stays out; the card's 探测 action still probes
- * it on demand, and a probe that passes clears the note (markOk).
+ * on the next rotation. The card's 探测 action still probes it on demand, and
+ * a probe that passes clears the note (markOk).
  */
 export const ABUSIVE_COOLDOWN_MS = 3 * 60 * 60 * 1000
 export type BanState = 'ok' | 'suspect' | 'banned'
@@ -66,11 +65,8 @@ interface ExitHealth {
   /** Consecutive dead rechecks; eviction after deadEvictions (3.5). */
   deadStrikes: number
   /**
-   * When the exit was last struck dead (epoch ms); 0 = not dead. The dead
-   * re-probe budget (§4.6 deadRetryMs) measures from HERE, not from
-   * lastProbedAt: a long-lived exit struck a second ago is already past any
-   * lastProbedAt-based deadline, which would re-probe it immediately and
-   * thrash instead of waiting out the documented retry delay.
+   * When the exit was last struck dead (epoch ms); 0 = not dead. Diagnostic
+   * bookkeeping (the exit table and tests read it); markOk clears it.
    */
   deadAt: number
   /** Why the exit is benched, when the reason outlives a cooldown (ExitNote). */
@@ -660,33 +656,7 @@ export class ExitPool {
   }
 
   /**
-   * Exits due for a periodic probe (docs §4.3 周期 + §4.6 deadRetryMs): dead
-   * exits past their retry budget, cooling exits whose window expired, exits
-   * never probed, and anything past the periodic cadence. Pure read — the
-   * caller owns the clock, the timer and the enqueueing.
-   *
-   * This is the counterpart that keeps a dead strike survivable: `isUsable()`
-   * hides dead exits from `pick()` entirely, so nothing passive can ever call
-   * markOk() on one. Without a due list a single false-positive strike retired
-   * an exit for the life of the process.
-   */
-  dueForProbe(now: number, options: { intervalMs: number; deadRetryMs: number }): string[] {
-    const due: string[] = []
-    for (const [id, health] of this.#health) {
-      if (health.inflight) continue
-      if (health.state === 'dead') {
-        if (health.deadAt !== 0 && now - health.deadAt < options.deadRetryMs) continue
-      } else if (health.cooldownUntil > now) {
-        continue
-      } else if (health.lastProbedAt !== 0 && now - health.lastProbedAt < options.intervalMs) {
-        continue
-      }
-      due.push(id)
-    }
-    return due
-  }
-
-  /** The session's current sticky exit, if any (adapter-side 403 bookkeeping:
+   * The session's current sticky exit, if any (adapter-side 403 bookkeeping:
    *  the dispatcher recorded the refusal against this exit). */
   exitOfSession(session: string): string | null {
     return this.#sessionExit.get(session) ?? null
@@ -863,15 +833,28 @@ export class ExitPool {
     return Math.min(freeRoom, poolRoom)
   }
 
-  /** Replace the worst free node (C grade / oldest) to make room (3.5). */
+  /**
+   * Replace the worst free node to make room (3.5). A DEAD row ranks worse
+   * than any live one — with the periodic probe gone (2026-10-23) a corpse
+   * only leaves through this eviction or the strike threshold, and ranking by
+   * grade alone made refill churn evict a live C-grade exit while a dead
+   * S-grade corpse kept its slot. Ties keep the C-grade/oldest rule.
+   */
   evictWorstFree(): boolean {
     let worst: ExitNode | null = null
+    const deadRank = (node: ExitNode): number => (this.#health.get(node.id)?.state === 'dead' ? 1 : 0)
     for (const node of this.#nodes.values()) {
       if (node.source !== 'free') continue
       if (!worst) {
         worst = node
         continue
       }
+      const byDeath = deadRank(node) - deadRank(worst)
+      if (byDeath > 0) {
+        worst = node
+        continue
+      }
+      if (byDeath < 0) continue
       const byGrade = GRADE_RANK[node.quality] - GRADE_RANK[worst.quality]
       if (byGrade > 0 || (byGrade === 0 && node.addedAt < worst.addedAt)) worst = node
     }

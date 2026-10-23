@@ -36,17 +36,16 @@ function dataDir(): string {
 }
 
 /**
- * docs/ip-pool.md §4.6 probe timing. `PROBE_INTERVAL_MS` is the documented
- * periodic-recheck cadence (operator decision 2026-10-18: 30min — a healthy
- * exit stays verified three times longer, the probe quota stops cycling every
- * 10 minutes), `DEAD_RETRY_MS` the documented dead retry; the tick is far
- * shorter than either because it is pure bookkeeping — it reads health and
- * enqueues only what is actually due. The refill loop keeps its own 10min
- * cadence (refill.ts): replenishing the pool is not probing it.
+ * Liveness is judged by REAL requests, not a timer (operator decision
+ * 2026-10-23, replacing docs/ip-pool.md §4.3 周期 probing): the routing layer's
+ * passive verdicts (pool.recordPassive / recordPassiveTransport) already write
+ * the same two-tier health a probe would, so the periodic due-probe tick spent
+ * zen quota re-confirming exits that real traffic confirms for free. What the
+ * tick owned — reviving dead exits — now rests with the real-request path:
+ * a 2xx revives (markOk), repeated transport strikes evict free rows for the
+ * refill loop to replace, subscription rows swap for reserves (onDead), and a
+ * manual/pinned row waits for the settings card's 探测 action.
  */
-const PROBE_TICK_MS = 60_000
-const PROBE_INTERVAL_MS = 30 * 60_000
-const DEAD_RETRY_MS = 2 * 60_000
 
 /** Parse one manual proxy string into an exit id + protocol, or null. */
 export function parseManualProxy(
@@ -82,20 +81,6 @@ export function applyProbeVerdict(
   if (verdict.limited) pool.markLimited(id)
   else if (verdict.unverified) pool.markUnverified(id)
   else pool.markOk(id, model)
-}
-
-/**
- * Should the periodic probe tick do work?
- *
- * Off means off: while the pool is disabled nothing routes through an exit,
- * so the tick can only spend zen quota on exits nobody is using — and it made
- * the settings card's exit table churn while the operator believed the plugin
- * was idle (live 2026-10-13: 13 exits probed with the pool switched off).
- * Absent stays enabled: the documented default is on, and defaulting the tick
- * off would silently stop probing for everyone.
- */
-export function probeTickEnabled(ipPool: { enabled?: boolean } | undefined): boolean {
-  return ipPool?.enabled !== false
 }
 
 /** One manual/pinned row: unknown facts until the prober measures them. */
@@ -179,9 +164,9 @@ export function syncManualExits(pool: ExitPool, ipPool: Opencode2dshConfig['ipPo
 }
 
 /** Build the ExitPool from config (manual proxies + pinned). The pool starts
- *  with unknown health; the periodic/probe layer (IP-2) fills it in. Pinned
- *  nodes are admitted even without admission data — the user vouches for
- *  them (docs/ip-pool.md 3.1/4.5). */
+ *  with unknown health; real-request verdicts and the manual probe actions
+ *  (IP-2) fill it in. Pinned nodes are admitted even without admission data —
+ *  the user vouches for them (docs/ip-pool.md 3.1/4.5). */
 export function buildPoolFromConfig(config: Opencode2dshConfig): ExitPool {
   const pool = new ExitPool()
   syncManualExits(pool, config.ipPool)
@@ -216,7 +201,7 @@ export interface IpPoolRuntime {
     /** Live re-apply of 本机出口协议族. */
     setLocalIpFamily?(value: unknown): void
   }
-  /** Shared probe scheduler (admission + periodic probes + UI-triggered). */
+  /** Shared probe scheduler (admission + UI-triggered probes). */
   prober: Prober
   /** Subscription layer (null when no URLs configured). */
   subscriptions: SubscriptionFetcher | null
@@ -464,7 +449,7 @@ export async function startIpPool(
 
   /**
    * One exit's probe pass, shared by every trigger (manual 批量探活 / 单出口 /
-   * periodic due-probe) so the three can never drift apart.
+   * the enable-flip kick below) so the paths can never drift apart.
    */
   const probeOne = async (entry: ReturnType<ExitPool['list']>[number], models: string[]): Promise<void> => {
     const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
@@ -548,40 +533,9 @@ export async function startIpPool(
     return 1
   }
 
-  /**
-   * Periodic due-probe (docs §4.3 周期 + §4.6 deadRetryMs). Re-probes:
-   * dead exits once deadRetryMs has elapsed, cooling exits whose window
-   * expired, exits never probed, and anything past the periodic cadence.
-   *
-   * This is the ONLY way a dead exit can come back: `ExitPool.isUsable()`
-   * returns false for `state === 'dead'`, so `pick()` never hands one a real
-   * request and passive traffic can never call markOk() on it. Without this
-   * loop a single false-positive transport strike retired an exit for the
-   * life of the process — a live profile lost all 14 exits this way and the
-   * pool drained to zero while still reporting itself enabled.
-   *
-   * Cheap by construction: it only reads health and enqueues what is due, so
-   * the tick runs far more often than the 10-minute cadence in order to
-   * honour the 2-minute dead-retry budget.
-   */
-  const probeDue = async (): Promise<number> => {
-    if (!probeTickEnabled(config.ipPool)) return 0
-    const due = pool.dueForProbe(Date.now(), { intervalMs: PROBE_INTERVAL_MS, deadRetryMs: DEAD_RETRY_MS })
-    if (due.length === 0) return 0
-    const byId = new Map(pool.list().map((entry) => [entry.id, entry]))
-    const models = probeModelsOrDefault()
-    const tasks = due.flatMap((id): Array<import('./pool/prober.ts').ProbeTask> => {
-      const entry = byId.get(id)
-      return entry === undefined ? [] : [{ exitId: id, kind: 'probe-due', run: () => probeOne(entry, models) }]
-    })
-    if (tasks.length === 0) return 0
-    void prober.enqueueAll(tasks).catch(() => {})
-    return tasks.length
-  }
-
-  // Periodic tick (§4.3). unref'd so it never keeps the host process alive.
-  const probeTimer = setInterval(() => { void probeDue().catch(() => {}) }, PROBE_TICK_MS)
-  probeTimer.unref?.()
+  // No periodic probe: liveness comes from real requests (recordPassive /
+  // recordPassiveTransport at the routing layer). probeAll/probeExit above stay
+  // for the settings card's manual actions and the enable-flip kick below.
 
   // Adapter-layer rotate delegate (docs §3.4/§8.1, IP-7): lets zen-adapter
   // restart a pre-content stream on a fresh exit instead of surfacing the
@@ -621,11 +575,10 @@ export async function startIpPool(
       }
       if (wasEnabled !== enable) {
         logger.info(`oc2dsh: ip pool ${enable ? 'enabled' : 'disabled'} via settings (live)`)
-        // Switching on has to mean something within seconds: the periodic tick
-        // is paused while disabled, so without this kick the pool would sit
-        // unverified (pick() → null → direct) for up to a full probe interval
-        // — the "enabled but routing nothing" state this plugin keeps being
-        // caught in.
+        // Switching on has to mean something within seconds: liveness is now
+        // judged by real requests, and a pool that was switched off has no
+        // traffic to judge with — this one-shot kick re-verifies every row so
+        // the re-enable does not hand pick() rows whose upstream died meanwhile.
         if (enable) void probeAll().catch(() => {})
       }
     },
@@ -638,7 +591,6 @@ export async function startIpPool(
       await subscriptions?.refreshNow()
     },
     async dispose() {
-      clearInterval(probeTimer)
       setRotateDelegate(null)
       subscriptions?.stop()
       refill?.stop()

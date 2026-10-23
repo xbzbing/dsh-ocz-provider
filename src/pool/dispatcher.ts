@@ -601,9 +601,11 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       pool.recordPassiveTransport(exitId)
       pool.rerouteSession(session)
       end()
-      // One strike retires the exit (`markDeadStrike`), and until the periodic
-      // due-probe re-tests it (docs §4.6 deadRetryMs) `isUsable()` hides it
-      // from pick(), so a false positive used to be permanent. Log WHY: the
+      // One strike retires the exit (`markDeadStrike`) and `isUsable()` hides
+      // it from pick(). With the periodic probe gone (2026-10-23) liveness is
+      // judged by real requests only, so a dead row never self-heals: it
+      // leaves through the strike threshold (free), the reserve swap
+      // (subscription) or the card's 探测 action (manual/pinned). Log WHY: the
       // two silence windows and a real transport error mean very different
       // things, and without this line the three are indistinguishable after
       // the fact — a live profile lost all 14 exits and nothing said why.
