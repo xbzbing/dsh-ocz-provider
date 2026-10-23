@@ -70,16 +70,26 @@ export function conversationLabel(messages: Array<{ role: string; content: unkno
 
 /**
  * The project id sent upstream. `ProjectID` in the client is a PLAIN string —
- * `"global"` for a directory that is not a git worktree, otherwise the 40-hex
- * worktree hash (`ids.ts` `init_project_id`; live-observed `global` and
- * `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`). It has no prefix: the client's
- * id prefix table lists job/event/session/message/permission/question/part/
- * pty/tool/workspace and NOT project. The `prj_<24hex>` this adapter used to
- * mint is now a rejection signal — live-probed 2026-10-14 against
- * `/inference/v1` with an otherwise-passing request: `prj_*` -> 403
- * FreeTierError, `global` / a 40-hex id / the header omitted -> 200. The
- * adapter has no worktree, so it sends what the client sends for a non-git
- * directory.
+ * `"global"` for a directory that is not a git worktree, otherwise a 40-hex
+ * sha1 (live-observed `global` and `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`).
+ * It has no prefix: the client's id prefix table lists job/event/session/
+ * message/permission/question/part/pty/tool/workspace and NOT project. The
+ * `prj_<24hex>` this adapter used to mint is now a rejection signal —
+ * live-probed 2026-10-14 against `/inference/v1` with an otherwise-passing
+ * request: `prj_*` -> 403 FreeTierError, `global` / a 40-hex id / the header
+ * omitted -> 200. The adapter has no worktree, so it sends what the client
+ * sends for a non-git directory.
+ *
+ * The 40-hex derivation, pinned 2026-10-22 by static extraction of the 2.1.3
+ * `opencode-cli` and confirmed by recomputing the observed value: for a git
+ * repo it prefers `sha1("git-remote:" + host + "/" + path)` of the normalized
+ * `origin` URL (`git@github.com:xbzbing/dsh-git-panel.git` ->
+ * `github.com/xbzbing/dsh-git-panel` -> `c956d974…`), falling back to the
+ * repo's oldest root commit; a non-git directory hashes
+ * `sha1("directory:" + absPath)`; `"global"` is now only the no-VCS fallback.
+ * The adapter keeps `global` — a legitimate client value in the gate's
+ * accepted set — rather than fabricating a directory hash for a path the
+ * upstream has never seen.
  */
 export const DEFAULT_PROJECT_ID = 'global'
 
@@ -239,10 +249,16 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
  * The built-in Zen User-Agent: the shape the current (2.x) client sends,
  * `opencode/<channel>/<version>/<client>`.
  *
- * Static extraction of OpenCode Desktop 2.0.32 puts the builder at
+ * Static extraction of OpenCode Desktop 2.0.32 put the builder at
  * `opencode/${channel}/${version}/${name}`, where `name` is the SAME value the
  * client puts in its `x-opencode-client` header (`opencode/latest/2.0.32/desktop`
- * was captured live on its wire the same night). The gate does not pin the UA
+ * was captured live on its wire the same night). Re-extracted 2026-10-22 from
+ * Desktop 2.1.3 and its bundled `opencode-cli` (Bun binary, JS in cleartext):
+ * the builder and its wiring are unchanged — version const "2.1.3", channel
+ * "latest", default name "cli", and the Electron shell still spawns the CLI
+ * with `OPENCODE_CLIENT=desktop`, so a real Desktop now sends
+ * `opencode/latest/2.1.3/desktop` (its local server log confirms
+ * `cli starting version=2.1.3 channel=latest`). The gate does not pin the UA
  * string, but it does read fingerprint coherence, so the string is derived from
  * the effective client flag rather than frozen with one segment: the Desktop
  * toggle moves both spellings together.
@@ -256,7 +272,7 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
  * `opencode/1.18.31 (<platform> <arch>; node<ver>)`.
  */
 export const ZEN_UA_CHANNEL = 'latest'
-export const ZEN_UA_VERSION = '2.0.32'
+export const ZEN_UA_VERSION = '2.1.3'
 /** `x-opencode-client` value the client uses when no mode toggle is set. */
 export const DEFAULT_ZEN_CLIENT = 'cli'
 
@@ -314,7 +330,7 @@ export function setUserAgentOverride(value: string | undefined): void {
 
 /**
  * The User-Agent every Zen request carries: the built-in 2.x shape above
- * (`opencode/latest/2.0.32/<client>`) unless the `userAgent` config field or a
+ * (`opencode/latest/2.1.3/<client>`) unless the `userAgent` config field or a
  * live settings override names another string.
  *
  * The anonymous lane reads a whole FINGERPRINT — this header plus the
