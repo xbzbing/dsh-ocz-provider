@@ -81,6 +81,12 @@ export function classifyStreamFailure(errorMessage: string): RotateFailure | nul
   // reset, so a truncation that lands BEFORE content rotates to a fresh exit
   // instead of burning a host retry on the exit that just cut it.
   if (/stream ended (?:before|without)\b/.test(text)) return 'transport'
+  // opencode2dsh #105: the same cut under spellings \bsocket\b misses —
+  // "WebSocket" has no inner boundary, and undici's own cuts arrive as
+  // "other side closed" (SocketError, client-h1.js/client-h2.js — the
+  // realistic failure through the exit pool) or "http2 request did not get
+  // a response". Same taxonomy the adapter applies (events.ts classifyError).
+  if (/\bwebsocket\b|other side closed|http2 request did not get a response/.test(text)) return 'transport'
   if (/\b(?:network|connection|socket|fetch|terminated|premature close)\b|\beconn[a-z]+\b|timeout|timed out/.test(text)) return 'transport'
   // 5xx joins the rotate set: through a wild proxy a 500 is as often the
   // proxy mangling the tunnel as the upstream itself — one exit change

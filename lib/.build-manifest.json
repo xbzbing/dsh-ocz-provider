@@ -40,7 +40,7 @@
     "src/pool/pool.ts": "35f695c612e030606239a85e804d1cab43f4c824",
     "src/pool/prober.ts": "25c8874be8688c73557482695f46f6c16e4c1d6b",
     "src/pool/refill.ts": "dbd0d171a987e71879ba98bb17d3c323ae596409",
-    "src/pool/rotate.ts": "bcc4a902178f7f66dcfef48ef6aad65515df5d9a",
+    "src/pool/rotate.ts": "8a86d80c7d0cabe585d3ccf33bd1ec7a03612228",
     "src/pool/session-titles.ts": "c2c4a511b230357e5557cc7f4ffbe3afa802fde7",
     "src/pool/singbox.ts": "a8cf857c893a9e8d25813c82fc56fdac994d4920",
     "src/pool/smoke-content.ts": "4948396df2458392b3670645051d710bbc4f6f3d",

@@ -117,6 +117,12 @@ test('classifyStreamFailure maps the taxonomy', () => {
   assert.equal(classifyStreamFailure('Request timed out'), 'transport')
   // pi-ai's truncation sentinel: a cut before the terminal finish_reason chunk
   assert.equal(classifyStreamFailure('Stream ended without finish_reason'), 'transport')
+  // opencode2dsh #105: cuts \bsocket\b misses — "WebSocket" has no inner
+  // boundary; "other side closed" is undici's SocketError (the realistic
+  // exit-pool cut), and the h2 variant is its premature close.
+  assert.equal(classifyStreamFailure('WebSocket closed'), 'transport')
+  assert.equal(classifyStreamFailure('other side closed'), 'transport')
+  assert.equal(classifyStreamFailure('http2 request did not get a response'), 'transport')
   assert.equal(classifyStreamFailure('400 bad request'), null)
 })
 
