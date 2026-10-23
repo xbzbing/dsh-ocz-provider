@@ -52,10 +52,10 @@ dsh plugin --profile web add file:/path/to/dsh-ocz-provider
 
 ```sh
 pnpm build && pnpm pack
-dsh plugin --profile web add ./dsh-opencode-free-provider-<version>.tgz
+dsh plugin --profile web add ./dsh-opencode2free-provider-<version>.tgz
 ```
 
-注意不要用 `dsh plugin add @opencode2dsh/dsh-plugin` 装上游发到 npm 的包：它不含本 fork 的这些修复。本 fork 的包名 `dsh-opencode-free-provider` 没有发布到 npm，两条 Git 安装路径才是本 fork 的。
+注意不要用 `dsh plugin add @opencode2dsh/dsh-plugin` 装上游发到 npm 的包：它不含本 fork 的这些修复。本 fork 的包名 `dsh-opencode2free-provider` 没有发布到 npm，两条 Git 安装路径才是本 fork 的。
 
 **验证**：重启 `dsh web`，打开模型选择器，在 **OpenCode-Zen-Free** 分组里选模型即可。
 

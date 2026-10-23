@@ -1,7 +1,7 @@
 # oc2dsh DSH plugin — bundle patch: insert the plugin row (deployment-global).
 #
 # The loader imports the row's `name`, so it has to be this package's own name:
-# `dsh-opencode-free-provider`, whether the repository root arrived via
+# `dsh-opencode2free-provider`, whether the repository root arrived via
 # `file:<repo>`, `github:<owner>/<repo>` or `pnpm pack`. Keeping the row name
 # identical to the package name is what makes every install path converge on one
 # package instead of a second, registry-sourced copy (and it is what the client
@@ -19,5 +19,5 @@
 # no extra process. Override any option via the config object (src/config.ts).
 - insert:
     - id: oc2dsh
-      name: 'dsh-opencode-free-provider'
+      name: 'dsh-opencode2free-provider'
       config: {}

@@ -75,8 +75,8 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 
 | Setting | Value | Where |
 | --- | --- | --- |
-| Package name (installable unit) | `dsh-opencode-free-provider` | package.json |
-| Cordis patch row | `id: oc2dsh`, `name: dsh-opencode-free-provider` (the row name must equal the package name — the loader imports it) | cordis.patch.yml |
+| Package name (installable unit) | `dsh-opencode2free-provider` | package.json |
+| Cordis patch row | `id: oc2dsh`, `name: dsh-opencode2free-provider` (the row name must equal the package name — the loader imports it) | cordis.patch.yml |
 | Loader entry id / settings namespace | `oc2dsh` | src/index.ts `name`, src/ip-pool-settings/namespace.ts `IP_POOL_NAMESPACE`, src/client/index.ts `SETTINGS_NAMESPACE` |
 | Provider route id (llm-pi-ai, request header) | `oc2dsh` | src/adapter/zen-adapter.ts `PROVIDER_ID` |
 | Provider display name (model picker group) | `OpenCode-Zen-Free` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
@@ -139,7 +139,7 @@ and after any such change, and record the results in the code comments.
 dsh plugin --profile web add file:/Users/ankh/workspace/private/dsh-plugins/dsh-ocz-provider
 ```
 
-(Profile `web` carries this checkout as `"dsh-opencode-free-provider":
+(Profile `web` carries this checkout as `"dsh-opencode2free-provider":
 "file:…/dsh-plugins/dsh-ocz-provider"` in `~/.dsh/profiles/web/package.json`.)
 
 An install does NOT affect a running dsh web; restart the host to load new
@@ -148,7 +148,7 @@ An install does NOT affect a running dsh web; restart the host to load new
 **A restart alone never refreshes new source.** pnpm treats the `file:`
 dependency as a COPY, not a link (`nodeLinker: hoisted`; `file:` packs and
 copies, `link:` would symlink), so
-`~/.dsh/profiles/web/node_modules/dsh-opencode-free-provider/lib/` keeps the
+`~/.dsh/profiles/web/node_modules/dsh-opencode2free-provider/lib/` keeps the
 `lib/` that existed when the add last ran. After changing `src/` (and running
 `pnpm build`), re-run the add command above — it re-copies `lib/`, `locale/`,
 `assets/` and `cordis.patch.yml` in a couple of seconds — and only then restart

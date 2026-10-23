@@ -45,7 +45,7 @@ test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
 test('client bundle is built and well-formed', () => {
   const source = bundle()
   assert.ok(source.includes('window.__ModuleLoader__.load'), 'loader handoff present')
-  assert.ok(source.includes('"dsh-opencode-free-provider"'), 'scoped bundle id stamped')
+  assert.ok(source.includes('"dsh-opencode2free-provider"'), 'scoped bundle id stamped')
   assert.ok(source.includes('plugins.item'), 'plugins.item registration present')
   assert.ok(source.includes('/api/oc2dsh/ip-pool'), 'bridge prefix baked in')
   assert.ok(/exports\.apply\s*=/.test(source), 'apply exported')
