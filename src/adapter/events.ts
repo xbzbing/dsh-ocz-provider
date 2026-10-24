@@ -6,15 +6,18 @@
  * Two inbound rewrites live here, both seams for the free-lane gate's spelling:
  *
  *  - `toolNameAlias` (issue #56): wire tool names rewritten before the chunks
- *    leave the adapter — e.g. { shell: 'bash' } if a future gate spelling
- *    forces the `shell` alias for the host's bash tool. Empty on the shipped
- *    recipe (adapter/messages.ts `GATE_TOOL_ALIASES`): the wire names ARE the
- *    host's names, so nothing needs a rename.
- *  - `toolArgumentBridge` (2026-10-14): the gate validates the CONTENT of the
- *    `bash`/`read` definitions, so the adapter must put ITS definitions on the
- *    wire (adapter/gate-tools.ts) and map the model's arguments back to the
- *    host's declared shape — `filePath` -> `file_path`, `timeout` ->
- *    `timeoutMs`. A bridged call's argument deltas are withheld until
+ *    leave the adapter. ON the shipped 2.1.4 recipe (adapter/messages.ts
+ *    `GATE_TOOL_ALIASES`) it is `{ shell: 'bash' }`: the wire carries the
+ *    official `shell` definition while DSH names the same capability `bash`,
+ *    so the model's `shell` call arrives at the host as `bash`.
+ *  - `toolArgumentBridge` (2026-10-14, re-keyed 2026-10-24): the gate
+ *    validates the CONTENT of the gate definitions, so the adapter puts the
+ *    genuine ones on the wire (adapter/gate-tools.ts) and maps the model's
+ *    arguments back to the host's declared shape — the 2.1.4 wire's `path` ->
+ *    the host's `file_path`, `timeout` -> `timeoutMs`, and the host's required
+ *    `description` synthesized from the command. The bridge is keyed by the
+ *    POST-alias (host) name, because the alias is applied first.
+ *    A bridged call's argument deltas are withheld until
  *    `toolcall_end`, because the mapping is a whole-object rewrite while the
  *    deltas are JSON fragments; and the durable replay record joins the deltas
  *    (dsh-llm `expandAssistantStream`), so emitting raw deltas plus a corrected

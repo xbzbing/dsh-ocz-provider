@@ -86,7 +86,7 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/IpPoolCard.tsx `IP_POOL_FIELD` |
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie and transport/body format headers are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |
-| Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.0.32/<client>`, whose last segment mirrors the effective `x-opencode-client` (so Desktop mode sends `/desktop`); it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
+| Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.1.4/<client>`, whose last segment mirrors the effective `x-opencode-client` (so Desktop mode sends `/desktop`); it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep Node's happy-eyeballs fallback. Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts |
 | Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
@@ -113,20 +113,30 @@ in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
 
 - one recipe, two origins: `/inference` (primary) and `/zen` (fallback) both
   accept this fingerprint, walked as a ladder on an origin-shaped failure
-  (`src/adapter/lane.ts`; the console origin was re-probed live 2026-10-19);
-- body must be streaming with genuine `bash` + `read` tool definitions
-  (`src/adapter/gate-tools.ts`, captured verbatim — `parameters` byte-equal,
-  `description` matched as a substring). Re-probed 2026-10-19: that content
-  check was OFF (gutted definitions passed; only a `read`-named entry was
-  required) — the genuine pair stays as insurance, the gate has flipped four
-  times;
+  (`src/adapter/lane.ts`; the console origin was re-probed live 2026-10-19).
+  The official 2.1.4 client routes chats to the FAMILY path
+  `/inference/openai/v1` (models.dev `api` field, byte-capture 2026-10-24);
+  that path and the flat `/inference/v1` answer identically, but the family
+  `/models` 404s, so the flat route stays the one origin for chat + catalog +
+  admission;
+- body must be streaming with a NON-EMPTY `tools` array carrying an entry
+  NAMED `read`. The injected pair is the genuine 2.1.4 `shell` + `read`
+  (`src/adapter/gate-tools.ts`, byte-captured from the installed CLI —
+  `parameters` byte-equal, `description` matched as a substring, and the host's
+  superseded `bash` entry is dropped so the wire never mixes generations).
+  Re-probed 2026-10-24: content validation is OFF again (`read` alone passes,
+  `shell` alone 403s, the old `bash`+`read` pair still passes) — the genuine
+  pair stays as insurance, the gate has flipped five times;
 - session id: canonical `ses_*` whose inverted 48-bit word carries a counter
   inside 0-63 (the ONLY accepted window; the timestamp half is unchecked) —
   the prefix is derived from the digest with counter 1, never clock-minted
   (a process-global counter 403s everything minted after the 64th);
-- no `x-session-affinity`/`X-Session-Id` in this fingerprint;
-  `x-opencode-request` is a `msg_*` id (optional but never `req_*`);
-- `x-opencode-project` is prefix-less (`global`);
+- all FOUR session spellings ride the same id (`x-opencode-session`,
+  `x-opencode-session-id`, `x-session-affinity`, `x-session-id`) and
+  `x-opencode-request` is ABSENT — both facts byte-captured 2026-10-24; the
+  affinity pair was a foreign-client signal only under the 1.x header set;
+- `x-opencode-project` is prefix-less (`global` — the workspace dimension is
+  deliberately NOT simulated: no login, no 40-hex directory hash);
 - `tool_choice: 'none'` is rejected.
 
 Changing any single header/tool/ID shape in isolation is how this lane has

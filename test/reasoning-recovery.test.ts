@@ -99,7 +99,11 @@ test('reasoning-only length retries once with Off, streams immediately and aggre
   assert.deepEqual(calls[1]!.context, calls[0]!.context, 'retry uses the original conversation')
   assert.equal(calls[1]!.options.maxTokens, 64)
   assert.equal(calls[1]!.options.headers['x-opencode-session'], calls[0]!.options.headers['x-opencode-session'])
-  assert.notEqual(calls[1]!.options.headers['x-opencode-request'], calls[0]!.options.headers['x-opencode-request'])
+  // the 2.x wire carries no per-request header at all: the retry correlates
+  // through the same session id, exactly like the official client's own
+  // follow-up request (byte-capture 2026-10-24)
+  assert.equal(calls[1]!.options.headers['x-opencode-request'], undefined)
+  assert.equal(calls[0]!.options.headers['x-opencode-request'], undefined)
   assert.deepEqual(chunks.filter((c) => c.type === 'block-start').map((c) => c.index), [0, 1])
   assert.deepEqual(chunks.filter((c) => c.type === 'block-end').map((c) => c.index), [0, 1])
   assert.equal(chunks.find((c) => c.type === 'text-delta')?.index, 1)

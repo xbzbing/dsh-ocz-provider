@@ -147,16 +147,17 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   assert.equal(smokeBody.tool_choice, undefined, 'none is a 403 of its own since 2026-10-14')
   assert.deepEqual(smokeBody.messages, [{ role: 'user', content: 'hello' }], 'the unconfigured probe content is hello (live request 2026-10-14)')
   const smokeToolNames = smokeBody.tools?.map((t) => t.function.name) ?? []
-  assert.deepEqual([...smokeToolNames].sort(), ['bash', 'read'])
+  assert.deepEqual([...smokeToolNames].sort(), ['read', 'shell'])
   for (const tool of smokeBody.tools ?? []) {
-    const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'bash' | 'read']
+    const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'shell' | 'read']
     assert.deepEqual(tool.function, genuine.function, 'the smoke carries the genuine gate definitions')
   }
   const smokeHeaders = okTransport.headers.get(CHAT_URL)!
   assert.match(smokeHeaders['x-opencode-session'] ?? '', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/, 'canonical session header')
-  assert.match(smokeHeaders['x-opencode-request'] ?? '', /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/, 'the request id is a message id')
+  // the 2.1.4 recipe: four session spellings, no request header, prefix-less project
+  assert.equal(smokeHeaders['x-session-affinity'], smokeHeaders['x-opencode-session'], 'the affinity pair carries the same id')
+  assert.equal(smokeHeaders['x-opencode-request'], undefined, 'the 2.x wire carries no request header')
   assert.equal(smokeHeaders['x-opencode-project'], 'global', 'the prefix-less project id')
-  assert.equal(smokeHeaders['x-session-affinity'], undefined, 'the 2026-10-09 workaround is now poison')
 
   // transport errors surface as reasons (timeout / reset)
   transport = fakeTransport({ '*': new Error('connect ECONNREFUSED') })

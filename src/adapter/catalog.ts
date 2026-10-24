@@ -40,6 +40,17 @@ import { sanitizeModelContextWindows, type ModelContextWindows } from '../model-
  * than a single hard-coded host. `/zen/v1/models` answering while chat refused
  * is also what hid the 2026-10-14 move: the catalog stayed green (and
  * `adapter-status.json` reported `ready`) while every chat request failed.
+ *
+ * 2026-10-24 (2.1.4 capture + live probe): the CURRENT models.opencode.ai
+ * feed declares `api: https://opencode.ai/inference/openai/v1` for the
+ * `opencode` provider — the FAMILY path with an `/openai` segment — and the
+ * installed 2.1.4 CLI really posts there. Both were probed on the same exit,
+ * one variable at a time: the family chat path answers exactly like the flat
+ * one (429 = gate passed with the anonymous quota spent, on both), but
+ * `/inference/openai/v1/models` 404s while `/inference/v1/models` answers 200.
+ * Since the catalog, the settings card's `/status` and the pool's admission
+ * probe all share this base, the flat spelling stays: it is the one path that
+ * serves chat AND catalog, and the gate does not read the route.
  */
 export const ZEN_BASE_URL = 'https://opencode.ai/inference'
 

@@ -5,6 +5,7 @@ import {
   freeLaneGateTool,
   isGenuineFlatGateTool,
   isGenuineGateTool,
+  SUPERSEDED_GATE_TOOL_NAMES,
 } from './gate-tools.ts'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -363,27 +364,29 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  *      SAME recipe again (200 SSE, no redirect, two models, both egress
  *      families), so the lane now has two doors and the adapter walks them as
  *      a ladder on an origin-shaped failure — 401/403/404/5xx (adapter/lane.ts);
- *   2. a canonical `ses_*` id rides `x-opencode-session` (or
- *      `x-opencode-session-id`) — and NOT `x-session-affinity` /
- *      `X-Session-Id`, which the client sends only for its other providers and
- *      which now mark a foreign client (adapter/ids.ts). The id's 12-hex
+ *   2. a canonical `ses_*` id rides BOTH spelling pairs — `x-opencode-session`
+ *      + `x-opencode-session-id` AND `x-session-affinity` + `x-session-id`,
+ *      all four carrying the same id (byte-capture of the 2.1.4 CLI,
+ *      2026-10-24; the 2.x client sends the affinity pair for its own
+ *      `opencode` provider too — the 2026-10-14 reading that it marked a
+ *      foreign client was the 1.x generation's behaviour). The id's 12-hex
  *      prefix must be the client's DESCENDING word with its 12-bit counter in
  *      0-63: live-probed 2026-10-15, counters 0/1/32/63 -> 200, 64/128 -> 403,
  *      the timestamp half unchecked, so a clock-minted counter 403s everything
  *      minted after the 64th (the prefix is now digest-derived, counter 1);
- *   3. `x-opencode-request` is a `msg_*` message id and `x-opencode-project`
- *      is the prefix-less project id (`global`, or a 40-hex worktree hash) —
- *      `req_*` and `prj_*` each 403 on their own (adapter/ids.ts); the request
- *      header is optional (the 2.x client omits it) and its word is never
- *      decoded by the gate, while the project header is required;
+ *   3. `x-opencode-project` is the prefix-less project id (`global`, or a
+ *      40-hex worktree hash) — `prj_*` 403s on its own (adapter/ids.ts);
+ *      `x-opencode-request` is ABSENT on the 2.x wire (byte-capture
+ *      2026-10-24) and re-adding it still passes (2026-10-24: 429), so it is
+ *      optional — omitted here because a 1.x-only header inside a 2.x
+ *      fingerprint is the mix this lane rejects;
  *   4. a streaming body (`stream: true`);
- *   5. a `tools` array carrying `bash` AND `read` with the GENUINE definitions
- *      (adapter/gate-tools.ts — the placeholder stubs this file used to inject
- *      are now themselves a rejection signal), while extra tools are ignored.
- *      RE-PROBED 2026-10-19: the definitions were no longer validated (both
- *      gutted -> 200, under three different UAs and two models) and the only
- *      structural requirement was a non-empty `tools` array with an entry
- *      NAMED `read`; the genuine pair stays as insurance (gate-tools.ts);
+ *   5. a NON-EMPTY `tools` array carrying an entry NAMED `read`. RE-PROBED
+ *      2026-10-24 under the 2.1.4 header set, one variable per request (429 =
+ *      gate passed, 403 = gate rejected): the captured 12-tool payload 429,
+ *      `read` ALONE 429, `shell` alone 403, the previous `bash`+`read` pair
+ *      429. Content validation is OFF again; the genuine 2.1.4 `shell`+`read`
+ *      pair is injected as insurance (gate-tools.ts);
  *   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass).
  *
  * NOT gates, measured live: `Bearer public`, `max_tokens`, `temperature`, and
@@ -393,8 +396,11 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  * platform/parenthetical runtime tail (`opencode/1.18.31 (darwin arm64;
  * node24.21.0)` passed while a bare `opencode/1.19.0` failed, 2026-10-14),
  * whereas the 2.x shape `opencode/<channel>/<version>/<client>` is complete
- * without any tail — `opencode/latest/2.0.32/cli` and `.../desktop` each
- * answered 200 with this adapter's v1 body (2026-10-17).
+ * without any tail. The official 2.1.4 client routes to the FAMILY path
+ * `/inference/openai/v1` (models.dev `api` field; byte-capture 2026-10-24)
+ * and that chat path answers the same as the flat `/inference/v1` this
+ * adapter uses (both 429-pass on 2026-10-24; the family `/models` 404s, so
+ * the flat route stays the one origin for chat + catalog + admission).
  *
  * The two shapes are mutually exclusive at the edges: a no-tools request is
  * only accepted with the client's exact title-generator prompt, which is why
@@ -403,7 +409,7 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  * SHAPE of the request is the contract: one recipe, two origins
  * (adapter/lane.ts), never a mixture of generations.
  */
-export const GATE_TOOL_ALIASES: Record<string, string> = {}
+export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
 
 /** The name of a tool entry in either lane's shape (chat nests it, responses
  *  hoists it). */
@@ -414,13 +420,29 @@ function toolEntryName(entry: unknown, flat: boolean): string | undefined {
   return typeof name === 'string' ? name : undefined
 }
 
+/**
+ * Drop a SUPERSEDED 1.x wire name (`bash`) from a copied tool array. The
+ * host's own `bash` rides back in through the `shell` alias
+ * ({@link GATE_TOOL_ALIASES}), so the wire never mixes a 1.x tool name into
+ * the 2.x recipe. Returns the same array reference when nothing matched.
+ */
+function dropSupersededTools(tools: unknown[], flat: boolean): unknown[] {
+  const next = tools.filter((tool) => {
+    const name = toolEntryName(tool, flat)
+    return name === undefined || !(SUPERSEDED_GATE_TOOL_NAMES as readonly string[]).includes(name)
+  })
+  return next.length === tools.length ? tools : next
+}
+
 /** Responses uses flat function tools and its Zen gateway accepts auto only. */
 export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefined {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
   const body = payload as Record<string, unknown>
   if (!Array.isArray(body.input)) return undefined
-  const tools = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : []
-  let changed = false
+  const original = Array.isArray(body.tools) ? (body.tools as unknown[]) : []
+  const dropped = dropSupersededTools(original, true)
+  const tools = [...dropped]
+  let changed = dropped !== original
   for (const name of FREE_LANE_GATE_TOOL_NAMES) {
     const index = tools.findIndex((tool) => toolEntryName(tool, true) === name)
     if (index === -1) {
@@ -446,9 +468,11 @@ export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefi
  *
  * The gate tools must be the GENUINE definitions, so an entry that already
  * carries a gate name is REPLACED unless it is already genuine: the host's own
- * `bash`/`read` (DSH's are named exactly that) would otherwise ride out with
- * the host's schema and draw a 403. The adapter bridges the call's arguments
- * back to the host's shape on the way in (gate-tools.ts
+ * `read` (DSH names it exactly that) would otherwise ride out with the host's
+ * schema, and the host's `bash` would put a superseded 1.x name on a 2.x wire
+ * — `bash` is DROPPED and its role is taken by the injected `shell`, which the
+ * harness chunk stream renames back to `bash` (GATE_TOOL_ALIASES) and whose
+ * arguments are bridged to the host's declared shape on the way in (gate-tools.ts
  * `gateToolArgumentBridge`). Missing gate tools are appended, a
  * `tool_choice: 'none'` is dropped (the gate rejects it), and the function
  * returns undefined when nothing had to change — pi-ai then keeps the
@@ -458,8 +482,10 @@ export function ensureFreeLaneShape(payload: unknown): unknown | undefined {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
   const body = payload as Record<string, unknown>
   if (!Array.isArray(body.messages)) return undefined
-  const tools = Array.isArray(body.tools) ? [...(body.tools as unknown[])] : []
-  let changed = false
+  const original = Array.isArray(body.tools) ? (body.tools as unknown[]) : []
+  const dropped = dropSupersededTools(original, false)
+  const tools = [...dropped]
+  let changed = dropped !== original
   for (const name of FREE_LANE_GATE_TOOL_NAMES) {
     const index = tools.findIndex((tool) => toolEntryName(tool, false) === name)
     if (index === -1) {

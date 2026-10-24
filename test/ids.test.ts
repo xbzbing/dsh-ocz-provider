@@ -156,17 +156,18 @@ test('disguiseHeaders carries the CLI-identical correlation set', () => {
   assert.equal(headers['x-opencode-client'], 'cli')
   assert.equal(headers['x-opencode-session'], ids.session)
   assert.equal(headers['x-opencode-session-id'], ids.session)
-  // the client sends x-session-affinity / X-Session-Id only for its NON-opencode
-  // providers; adding them to an opencode-provider request is a 403 since
-  // 2026-10-14 (they were the 2026-10-09 workaround).
-  assert.equal(headers['x-session-affinity'], undefined)
-  assert.equal(headers['X-Session-Id'], undefined)
-  assert.equal(headers['x-opencode-request'], ids.request)
+  // The 2.1.4 client sends ALL FOUR session spellings carrying the same id
+  // (byte-capture 2026-10-24): the affinity pair stopped being a
+  // foreign-client signal when the generation moved to 2.x.
+  assert.equal(headers['x-session-affinity'], ids.session)
+  assert.equal(headers['x-session-id'], ids.session)
+  // The 2.x wire carries no x-opencode-request (byte-capture 2026-10-24).
+  assert.equal(headers['x-opencode-request'], undefined)
   assert.equal(headers['x-opencode-project'], ids.project)
   assert.ok(headers['user-agent'].startsWith('opencode/'))
   // The built-in UA is the current client's shape, and its last segment is the
   // same flag the request carries in x-opencode-client (OpenCode Desktop
-  // 2.1.3 builds `opencode/${channel}/${version}/${name}`).
+  // 2.1.4 builds `opencode/${channel}/${version}/${name}`).
   assert.equal(headers['user-agent'], `opencode/${ZEN_UA_CHANNEL}/${ZEN_UA_VERSION}/cli`)
   assert.equal(headers['user-agent'], zenUserAgent(headers['x-opencode-client']))
 })

@@ -453,13 +453,12 @@ test('ensureFreeLaneShape injects the genuine gate tools into toolless chat bodi
   assert.notEqual(next, undefined)
   assert.deepEqual(next.messages, payload.messages, 'messages untouched')
   const tools = next.tools as Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
-  // 2026-10-14: the gate validates the CONTENT of bash/read, so what gets
-  // injected is the genuine OpenCode definition (adapter/gate-tools.ts), not
-  // the placeholder stub the 2026-09-18 recipe shipped — that stub is now
-  // itself a 403.
-  assert.deepEqual(tools.map((t) => t.function.name).sort(), ['bash', 'read'])
+  // What gets injected is the genuine 2.1.4 OpenCode definition
+  // (adapter/gate-tools.ts, byte-captured 2026-10-24), not a paraphrase: the
+  // gate has validated content before (measured 403 on 2026-10-14).
+  assert.deepEqual(tools.map((t) => t.function.name).sort(), ['read', 'shell'])
   for (const tool of tools) {
-    const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'bash' | 'read']
+    const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'shell' | 'read']
     assert.deepEqual(tool.function, genuine.function)
   }
   // `tool_choice: 'none'` is a 403 of its own now, so nothing may set it
@@ -488,7 +487,7 @@ test('ensureFreeLaneShape appends only missing gate tools and keeps tool_choice'
   const next = ensureFreeLaneShape(payload) as Record<string, unknown>
   const tools = next.tools as Array<{ type: string; function: { name: string } }>
   assert.equal(tools.length, 3, 'existing tool kept, both gate tools appended')
-  assert.deepEqual(tools.map((t) => t.function.name).sort(), ['bash', 'read', 'webfetch'])
+  assert.deepEqual(tools.map((t) => t.function.name).sort(), ['read', 'shell', 'webfetch'])
   assert.equal(next.tool_choice, 'auto', 'client choice preserved')
 })
 
@@ -504,10 +503,14 @@ test('ensureFreeLaneShape replaces host-shaped gate tools and leaves genuine one
   }
   const next = ensureFreeLaneShape(hostShaped) as Record<string, unknown>
   const tools = next.tools as Array<{ function: { name: string; parameters: unknown } }>
-  assert.equal(tools.length, 3, 'replaced in place: no duplicate names on the wire')
+  assert.equal(tools.length, 3, 'no duplicate names on the wire')
+  // The host's `bash` is a SUPERSEDED 1.x wire name: dropped, its role taken
+  // by the injected `shell` (renamed back to `bash` for the harness through
+  // GATE_TOOL_ALIASES), so the wire never mixes tool generations.
+  assert.equal(tools.find((t) => t.function.name === 'bash'), undefined, 'the superseded name never rides out')
   assert.deepEqual(
-    tools.find((t) => t.function.name === 'bash')!.function.parameters,
-    GENUINE_GATE_TOOLS.bash.function.parameters,
+    tools.find((t) => t.function.name === 'shell')!.function.parameters,
+    GENUINE_GATE_TOOLS.shell.function.parameters,
     "the host's own bash schema cannot ride out — the gate compares parameters",
   )
   assert.deepEqual(tools.find((t) => t.function.name === 'read')!.function.parameters, GENUINE_GATE_TOOLS.read.function.parameters)
@@ -543,7 +546,9 @@ test('Responses free-lane bodies carry flat gate tools and supported tool choice
   const body = { input: [{ role: 'user', content: 'ping' }], tools: [{ type: 'function', name: 'bash', parameters: {} }], tool_choice: 'none' }
   const rewritten = ensureResponsesFreeLaneShape(body) as typeof body
   assert.equal(rewritten.input, body.input)
-  assert.deepEqual(rewritten.tools.map((tool) => tool.name), ['bash', 'read'])
+  // the host's `bash` entry is a superseded 1.x name: dropped, replaced by
+  // the flat 2.1.4 `shell` + `read` definitions
+  assert.deepEqual(rewritten.tools.map((tool) => tool.name), ['shell', 'read'])
   assert.equal(rewritten.tool_choice, 'auto')
   assert.equal(ensureResponsesFreeLaneShape(rewritten), undefined)
   assert.equal(ensureResponsesFreeLaneShape({ messages: [] }), undefined)

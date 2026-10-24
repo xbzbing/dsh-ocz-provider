@@ -312,7 +312,7 @@ test('stream keeps the free-lane gate rewrite alongside the effort injection', a
   assert.equal(shaped.reasoning_effort, 'none')
   assert.deepEqual(
     (shaped.tools as Array<{ function: { name: string } }>).map((t) => t.function.name).sort(),
-    ['bash', 'read'],
+    ['read', 'shell'],
   )
   // the injected tools are the genuine definitions and are NOT call-disabled:
   // `tool_choice: 'none'` is a 403 of its own since 2026-10-14
@@ -500,7 +500,7 @@ test('Responses streams pass a valid reasoning option and sanitize the payload',
   assert.deepEqual(payload.reasoning, { effort: 'high' })
   assert.equal(payload.reasoning_effort, undefined)
   assert.equal(payload.tool_choice, 'auto')
-  assert.deepEqual((payload.tools as Array<{ name: string }>).map((tool) => tool.name), ['bash', 'read'])
+  assert.deepEqual((payload.tools as Array<{ name: string }>).map((tool) => tool.name), ['shell', 'read'])
 })
 
 test('the wire request carries the correlation headers the free-lane gate requires', async () => {
@@ -523,32 +523,30 @@ test('the wire request carries the correlation headers the free-lane gate requir
     { providerOverride: provider },
   )
   for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [] })) void chunk
-  // live-probed 2026-10-14: a canonical ses_* id must ride x-opencode-session
-  // (or x-opencode-session-id), while the client's OTHER-provider spellings —
-  // x-session-affinity / X-Session-Id — are themselves a foreign-client signal
-  // (403). `x-opencode-request` must be a msg_* id and `x-opencode-project` the
-  // prefix-less project id (`prj_*` 403s).
-  for (const name of ['x-opencode-session', 'x-opencode-session-id']) {
+  // The 2.1.4 recipe (byte-capture 2026-10-24): a canonical ses_* id rides ALL
+  // FOUR session spellings, `x-opencode-request` is absent, and
+  // `x-opencode-project` is the prefix-less project id (`prj_*` 403s).
+  for (const name of ['x-opencode-session', 'x-opencode-session-id', 'x-session-affinity', 'x-session-id']) {
     assert.match(headers?.[name] ?? '', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/, name + ' carries the canonical shape')
   }
-  assert.equal(headers?.['x-session-affinity'], undefined, 'the 2026-10-09 workaround is now poison')
-  assert.equal(headers?.['X-Session-Id'], undefined)
-  assert.match(headers?.['x-opencode-request'] ?? '', /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/, 'request id is a message id')
-  assert.equal(headers?.['x-opencode-project'], 'global', 'the client sends a prefix-less project id')
+  assert.equal(headers?.['x-opencode-request'], undefined, 'the 2.x wire carries no request header')
+  assert.match(headers?.['x-opencode-project'] ?? '', /^(global|[0-9a-f]{40})$/, 'the client sends a prefix-less project id')
   assert.equal(headers?.['x-opencode-client'], 'cli')
-  assert.match(headers?.['user-agent'] ?? '', /^opencode/)
+  assert.match(headers?.['user-agent'] ?? '', /^opencode\/latest\/2\.1\.4\//)
 })
 
-test('the tool-name alias seam passes through names unchanged on the shipped recipe', async () => {
-  // GATE_TOOL_ALIASES is empty today (bash+read are host-named); the seam in
-  // toStreamChunks exists for a future gate spelling that forces an alias.
+test('the tool-name alias seam renames the wire `shell` back to the host `bash`', async () => {
+  // The shipped recipe puts the 2.1.4 `shell` definition on the wire, so the
+  // model CALLS `shell`; GATE_TOOL_ALIASES maps that back to DSH's `bash`
+  // before the chunks leave the adapter, and the argument bridge (wired in
+  // zen-adapter) rewrites the call's arguments to the host's declared shape.
   const provider = {
     streamSimple(_model: unknown, _context: unknown, _options: unknown): AsyncIterable<{ type: string }> {
       return (async function* () {
         yield { type: 'start' }
-        yield { type: 'toolcall_start', contentIndex: 0, partial: { content: [{ type: 'toolCall', id: 'call_1', name: 'bash' }] } }
+        yield { type: 'toolcall_start', contentIndex: 0, partial: { content: [{ type: 'toolCall', id: 'call_1', name: 'shell' }] } }
         yield { type: 'toolcall_delta', contentIndex: 0, delta: '{"command":"ls"}' }
-        yield { type: 'toolcall_end', contentIndex: 0, toolCall: { id: 'call_1', name: 'bash', arguments: { command: 'ls' } } }
+        yield { type: 'toolcall_end', contentIndex: 0, toolCall: { id: 'call_1', name: 'shell', arguments: { command: 'ls' } } }
         yield { type: 'done', message: { stopReason: 'toolUse', content: [], usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 } } }
       })()
     },
@@ -567,7 +565,7 @@ test('the tool-name alias seam passes through names unchanged on the shipped rec
     if (chunk.type === 'block-end' && chunk.block.type === 'tool-call') names.push(chunk.block.name)
   }
   assert.ok(names.length > 0)
-  assert.ok(names.every((name) => name === 'bash'), 'names pass through: ' + JSON.stringify(names))
+  assert.ok(names.every((name) => name === 'bash'), 'shell is renamed to the host bash: ' + JSON.stringify(names))
 })
 
 test('a retryable failure carries the next ladder rung as providerRetryAfterMs', async () => {

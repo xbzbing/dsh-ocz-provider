@@ -89,7 +89,10 @@ export function conversationLabel(messages: Array<{ role: string; content: unkno
  * `sha1("directory:" + absPath)`; `"global"` is now only the no-VCS fallback.
  * The adapter keeps `global` — a legitimate client value in the gate's
  * accepted set — rather than fabricating a directory hash for a path the
- * upstream has never seen.
+ * upstream has never seen. Decision re-affirmed 2026-10-24: the workspace
+ * dimension stays as-is (no login, no project hash), and the 2.1.4 probe
+ * confirmed `global` still passes the gate alongside a 40-hex id and even
+ * with the project header omitted entirely.
  */
 export const DEFAULT_PROJECT_ID = 'global'
 
@@ -97,10 +100,12 @@ export const DEFAULT_PROJECT_ID = 'global'
  * Derive the correlation ids for one upstream request. In adapter mode there
  * are no inbound opencode headers, so the seed is the conversation itself.
  *
- * Both non-session ids are now shape-checked by the gate (live-probed
- * 2026-10-14): `x-opencode-request` must be a `msg_*` MESSAGE id — the client
- * sends `input.user.id`, i.e. the user turn's id — and a `req_<hex>` there
- * answers 403; `x-opencode-project` must be the prefix-less project id above.
+ * `request` (a `msg_*` id) is still minted but NO LONGER SENT: the 2.x
+ * client's wire carries no `x-opencode-request` header (byte-capture
+ * 2026-10-24). It stays in the record because the pool's admission probe
+ * reuses the same shape-checked minter and because `req_*` remains a
+ * documented rejection signal if the header ever has to come back.
+ * `x-opencode-project` must be the prefix-less project id above.
  */
 export function deriveRequestIDs(messages: Array<{ role: string; content: unknown }>): RequestIDs {
   let signal = conversationSeed(messages)
@@ -277,9 +282,13 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
  * `opencode/latest/2.1.3/cli` -> 200 and `opencode/latest/2.1.3/desktop` ->
  * 200, all live SSE on mimo-v2.6-flash-free. The version bump therefore rides
  * the same proven-safe UA-only dimension.
+ *
+ * The CURRENT value tracks the installed client byte-for-byte: the 2.1.4
+ * CLI's own loopback capture (2026-10-24, `docs/local/capture-214/`) sent
+ * `user-agent: opencode/latest/2.1.4/cli` with `x-opencode-client: cli`.
  */
 export const ZEN_UA_CHANNEL = 'latest'
-export const ZEN_UA_VERSION = '2.1.3'
+export const ZEN_UA_VERSION = '2.1.4'
 /** `x-opencode-client` value the client uses when no mode toggle is set. */
 export const DEFAULT_ZEN_CLIENT = 'cli'
 
@@ -337,7 +346,7 @@ export function setUserAgentOverride(value: string | undefined): void {
 
 /**
  * The User-Agent every Zen request carries: the built-in 2.x shape above
- * (`opencode/latest/2.1.3/<client>`) unless the `userAgent` config field or a
+ * (`opencode/latest/2.1.4/<client>`) unless the `userAgent` config field or a
  * live settings override names another string.
  *
  * The anonymous lane reads a whole FINGERPRINT — this header plus the
@@ -358,35 +367,55 @@ export function opencodeUserAgent(): string {
 
 /**
  * The full disguise header set sent with every upstream request
- * (design.md 2.4; gateway.go newUpstreamRequest:640-669), as re-derived from
- * the real client on 2026-10-14.
+ * (design.md 2.4; gateway.go newUpstreamRequest), now the official 2.1.4
+ * client's own set — byte-captured 2026-10-24 by driving the installed
+ * `opencode-cli 2.1.4` against a loopback server (16 headers logged, nothing
+ * left 127.0.0.1). The client sends exactly:
  *
- * For a provider whose id starts with `opencode` the client sends exactly
- * `x-opencode-session-id`, `x-opencode-session`, `x-opencode-request`,
- * `x-opencode-client` and `User-Agent`; `x-session-affinity` and `X-Session-Id`
- * belong to its OTHER providers' branch. The 2026-10-09 gate accepted any one
- * of the three session spellings, so this adapter sent all three — but the
- * 2026-10-14 gate treats them as a foreign-client signal: live-probed against
- * `/inference/v1` with an otherwise-passing request, adding
- * `x-session-affinity` and/or `X-Session-Id` -> 403 FreeTierError, while
- * `x-opencode-session` alone (or with `x-opencode-session-id`) -> 200.
+ *   authorization: Bearer public      content-type: application/json
+ *   user-agent: opencode/latest/2.1.4/cli      accept: `*` + `/` star
+ *   b3: <trace>-<span>-1-<parent>     traceparent: 00-<trace>-<span>-01
+ *   x-opencode-client: cli
+ *   x-opencode-project: <40-hex | global>
+ *   x-opencode-session / x-opencode-session-id /
+ *   x-session-affinity / x-session-id   (all four = the same ses_* id)
  *
- * 2026-10-15: that check is FINGERPRINT COHERENCE, not a fixed allow-list.
- * Replaying upstream's own 2.x recipe (jasonxu114514/opencode2api PR #83: UA
- * `opencode/latest/<ver>/cli`, all four session spellings, a 40-hex project
- * and the 2.x `shell/edit/glob/grep/read` definitions) also answers 200 —
- * while mixing the two fingerprints 403s every time (this UA with 2.x tool
- * names, their UA with our `x-opencode-request: msg_*`). Dropping
- * `x-opencode-request` from THIS set stays 200 as well, so the header is
- * optional here; it is kept because the 1.x client sent it and `req_*`
- * is a rejection signal. Adopting any part of another generation's recipe
- * without the rest is what fails, not this set.
+ * and NO `x-opencode-request` — the header is absent repo-wide in 2.1.3 and
+ * 2.1.4 (static extraction) and absent from this capture. This set therefore
+ * carries the four session spellings and drops `x-opencode-request`, which is
+ * the reverse of the 1.x generation's rule below.
+ *
+ * HISTORY (each point live-probed against `/inference/v1`):
+ *   - 2026-10-14, 1.x generation: the client sent only `x-opencode-session` +
+ *     `x-opencode-session-id` + `x-opencode-request` for its `opencode`
+ *     provider, and adding `x-session-affinity`/`X-Session-Id` -> 403: the
+ *     affinity pair marked a FOREIGN client under that fingerprint;
+ *   - 2026-10-15: that was fingerprint COHERENCE, not an allow-list —
+ *     replaying upstream's 2.x recipe (all four spellings, 40-hex project,
+ *     2.x tool names) also answered 200, while mixing the generations 403'd
+ *     every time;
+ *   - 2026-10-24, 2.x generation (this set, one variable per request through
+ *     a pool exit where the gate answers before the quota layer: 429 =
+ *     gate PASSED, 403 = gate REJECTED): the whole 2.1.4 recipe -> 429;
+ *     minus the affinity pair -> 429; plus `x-opencode-request` -> 429;
+ *     UA `2.1.3` -> 429; project 40-hex -> 429; project header omitted ->
+ *     429; `ses_short` session id -> 403 (calibration). On that day the only
+ *     live rejection signals were a malformed session id and a `tools` array
+ *     without a `read` entry (adapter/gate-tools.ts) — but the RECIPE is
+ *     still shipped whole, because that is what has stayed green while the
+ *     gate flipped five times.
+ *
+ * The OTel pair (`b3`/`traceparent`) is deliberately NOT fabricated: the
+ * client mints it per request from its tracer, the gate ignores it (this set
+ * passed without it on 2026-10-24), and a hand-rolled trace id would be one
+ * more shape to keep coherent for no measured benefit.
  */
 export function disguiseHeaders(ids: RequestIDs): Record<string, string> {
   return zenRequestHeaders({
     'x-opencode-session': ids.session,
     'x-opencode-session-id': ids.session,
-    'x-opencode-request': ids.request,
+    'x-session-affinity': ids.session,
+    'x-session-id': ids.session,
     'x-opencode-project': ids.project,
   })
 }
