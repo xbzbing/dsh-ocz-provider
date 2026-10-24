@@ -3,9 +3,18 @@
  * with the three-format auto-detector (subscription.ts) and routes the
  * parsed nodes (docs/ip-pool.md 1.2 source 3):
  *
- *   - plaintext nodes (http/socks5) -> admission smoke -> ExitPool
+ *   - plaintext nodes (http/socks5) -> speed test only -> ExitPool
  *   - encrypted nodes (vmess/vless/trojan/ss/hysteria2/anytls/tuic) ->
- *     parked as pending-conversion until the sing-box layer lands (IP-4)
+ *     parked until a conversion core is configured, then sing-box conversion
+ *     -> the bounded onboarding pipeline (also speed test only, see onboard.ts)
+ *
+ * NEITHER path ever sends a request to OpenCode (operator decision 2026-10-24:
+ * 添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟): the speed
+ * test (ip-api echo through the candidate) measures the exit's IP, geo and the
+ * latency the pool row displays, and nothing else. OpenCode's opinion of an
+ * exit IP arrives passively from real traffic (pool.recordPassive). What still
+ * probes OpenCode is the settings card's 探测/批量探活 action — an explicit
+ * user request, outside this flow.
  *
  * Deliberately gentle: subscription servers are paid account resources
  * (ban risk), so one request per URL per refresh — no retries, no fan-out
@@ -21,7 +30,7 @@
 
 import { ExitPool, type ExitNode } from './pool.ts'
 import { Prober, type ProbeTask } from './prober.ts'
-import { admitCandidate, admitTrusted, type AdmissionDeps } from './admission.ts'
+import { admitBySpeed, type AdmissionDeps } from './admission.ts'
 import { Onboarder } from './onboard.ts'
 import { parseSubscription, type ParsedNode, DEFAULT_SUBSCRIPTION_USER_AGENT } from './subscription.ts'
 import { SingBoxSupervisor, isDialableServer, type ConvertedExit } from './singbox.ts'
@@ -217,10 +226,12 @@ export class SubscriptionFetcher {
   }
 
   /**
-   * An exit in the pool was refused by the upstream lane after onboarding (a
-   * periodic probe verdict, or a passive 401/403 the runtime observed). Swap in
-   * the next-fastest reserve; with the reserve exhausted the exit is kept and
-   * moved to the pool tail, so the pool holds its size.
+   * An exit in the pool must give up its slot after onboarding (a passive
+   * 401/403 or transport death the runtime observed, a dead rotation, or the
+   * operator's 轮换 button). Swap in the next-fastest reserve — admitted from
+   * its cached speed facts, never with a probe (2026-10-24 contract); with the
+   * reserve exhausted the exit is kept and moved to the pool tail, so the pool
+   * holds its size.
    *
    * Returns true when a replacement was admitted. False also covers "no
    * onboarder yet" (no subscription round has run in this process).
@@ -309,15 +320,15 @@ export class SubscriptionFetcher {
       }
       // Encrypted nodes -> sing-box conversion -> local SOCKS5 exits (IP-4),
       // then the bounded onboarding pipeline (speed pass -> keep the fastest
-      // poolSize -> shrink the conversion to them -> OpenCode connectivity test
-      // -> replace refusals from the reserve). Without a supervisor configured
-      // they stay parked as pending.
+      // poolSize -> shrink the conversion to them -> admit from the speed
+      // facts; later swaps reuse the cached facts, no probe — onboard.ts).
+      // Without a supervisor configured they stay parked as pending.
       if (pending.length > 0 && this.#supervisor) {
         const supervisor = this.#supervisor
         try {
           const exits = await supervisor.reload(pending)
-          // Keep the speed-pass facts per address so a later refusal can be
-          // replaced from the reserve (the onboarder holds that state).
+          // Keep the speed-pass facts per address so a later swap can be
+          // admitted from them without probing (the onboarder holds that state).
           const onboarder = new Onboarder({
             pool: this.#deps.pool,
             prober: this.#deps.prober,
@@ -328,9 +339,10 @@ export class SubscriptionFetcher {
           this.#onboarder = onboarder
           const outcome = await onboarder.run(exits)
           this.#state.convertedAdmitted = outcome.admitted
-          // The conversion ran: nothing is parked any more, whether or not the
-          // connectivity test admitted each exit (the ones it refused are kept
-          // in the pool at the tail, so they are not "pending" either).
+          // The conversion ran: nothing is parked any more — every screened
+          // candidate is either in the pool or held as reserve (unmeasured
+          // ones are parked in the pool at the tail, neither "pending" nor
+          // health-claiming).
           this.#state.pendingConversion = []
           this.#logger?.info(
             `oc2dsh: sing-box converted ${exits.length} encrypted node(s); onboarding kept ${outcome.online + outcome.admitted} of ${outcome.screened} screened (${outcome.admitted} admitted, ${outcome.promoted} promoted, ${outcome.demoted} demoted, ${outcome.reserve} reserve)`,
@@ -341,15 +353,19 @@ export class SubscriptionFetcher {
           this.#logger?.warn(`oc2dsh: sing-box conversion failed: ${text}`)
         }
       }
-      // Plaintext nodes go through the trusted admission smoke (never the
-      // hot coarse screen: subscription nodes are paid resources, docs 4.1).
+      // Plaintext nodes get the SPEED TEST only — steps 1-2 (exit IP, geo,
+      // latency), never a request to OpenCode (operator decision 2026-10-24:
+      // 添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟), and
+      // never the hot coarse screen either: subscription nodes are paid
+      // resources, so the single speed request still rides the bounded Prober
+      // (docs 4.1: subscription never goes hot).
       const tasks: ProbeTask[] = plaintext
         .filter((candidate) => !this.#deps.pool.has(candidate.address))
         .map((candidate): ProbeTask => ({
           exitId: candidate.address,
-          kind: 'subscription-smoke',
+          kind: 'subscription-speed',
           run: async () => {
-            const verdict = await admitTrusted(this.#deps, {
+            const verdict = await admitBySpeed(this.#deps, {
               address: candidate.address,
               protocol: candidate.protocol,
               source: 'subscription',

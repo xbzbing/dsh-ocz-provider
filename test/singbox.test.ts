@@ -237,7 +237,7 @@ test('generateConfig: byte-identical nodes still get one port each — the pool 
 
 // -- conversion pipeline (fetcher + supervisor seam) ---------------------------
 
-test('subscription refresh with supervisor: encrypted nodes convert and smoke into the pool', async () => {
+test('subscription refresh with supervisor: encrypted nodes convert and speed-admit into the pool', async () => {
   const fixture = ANYTLS_SUBSCRIPTION
   const report = parseSubscription(fixture)
   assert.equal(report.nodes.length, 38)
@@ -265,6 +265,9 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
       return true
     },
   }
+  // The seam serves ONLY the speed pass (ip-api). Anything else is recorded:
+  // the subscription flow must never send a request to OpenCode (2026-10-24).
+  const probeAttempts: string[] = []
   const seam = {
     ProxyAgent: class {
       constructor(opts: { uri: string }) {
@@ -290,7 +293,8 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
           body: { text: async () => JSON.stringify({ status: 'success', query: `7.7.${Number(port) % 250}.${(Number(port) / 250) | 0}`, countryCode: 'US', city: 'c', country: 'c' }) },
         }
       }
-      return { statusCode: 200, body: { text: async () => '{"ok":true}' } }
+      probeAttempts.push(url)
+      return { statusCode: 418, body: { text: async () => 'probe attempted' } }
     }) as never,
   }
   const fetcher = new SubscriptionFetcher(
@@ -310,6 +314,10 @@ test('subscription refresh with supervisor: encrypted nodes convert and smoke in
   // Every admitted address is one of the converted candidates (slot-stable
   // ports), and the other 18 are reserve rather than listeners.
   assert.ok(pool.list().every((entry) => /^127\.0\.0\.1:310\d\d$/.test(entry.id)))
+  // The whole pipeline ran on speed tests alone: no request to OpenCode
+  // (2026-10-24 contract), and every admitted row carries its speed facts.
+  assert.deepEqual(probeAttempts, [], 'the conversion pipeline sent ZERO requests to OpenCode')
+  assert.ok(pool.list().every((entry) => entry.exitIP !== ''), 'every row carries a speed-test exit IP')
 })
 
 test('subscription refresh without supervisor: encrypted nodes park as pending', async () => {
@@ -409,16 +417,16 @@ test('subscription refresh: a node whose server cannot be dialled is skipped, ne
 })
 
 /**
- * The end-to-end shape of the 2026-10-13 outage: every converted node whose
- * smoke fails comes back `admitted: true` from the trusted fallback. Before
- * the fix the fetcher called markOk() on all of them, so dead exits entered
- * the pool as healthy, grade-S candidates.
+ * The end-to-end shape of the 2026-10-13 outage: every converted node that
+ * can't be measured came back `admitted: true` from the trusted fallback with
+ * no facts. Before the fix the fetcher called markOk() on all of them, so dead
+ * exits entered the pool as healthy, grade-S candidates.
  *
- * Under the onboarding pipeline (live request 2026-10-13) the same input ends
- * differently by design: the speed pass measures nothing, so the candidates go
- * unranked, the connectivity test refuses every one, and — with no reserve left
- * to promote — each is KEPT but demoted to the tail. The pool holds its
- * capacity instead of draining, and nothing claims health.
+ * Under the onboarding pipeline the same input ends differently by design
+ * (and since 2026-10-24 without any probe either): the speed pass measures
+ * nothing, so the candidates go unranked and each is KEPT but parked
+ * unverified at the tail. The pool holds its capacity instead of draining,
+ * and nothing claims health.
  */
 test('subscription refresh: nodes that fail every measurement stay unverified at the tail', async () => {
   const fixture = ANYTLS_SUBSCRIPTION

@@ -5,7 +5,7 @@ import http from 'node:http'
 import * as realUndici from 'undici'
 
 import { ExitPool } from '../src/pool/pool.ts'
-import { admitCandidate, admitTrusted, coarseScreen, type AdmissionDeps } from '../src/pool/admission.ts'
+import { admitCandidate, admitBySpeed, admitTrusted, coarseScreen, type AdmissionDeps } from '../src/pool/admission.ts'
 import { GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
 import { setRequestHeadersReader } from '../src/adapter/ids.ts'
 
@@ -250,6 +250,43 @@ test('admission: the trusted fallback reports `unverified` and never grades an u
   assert.equal(measured.node?.exitLocation, 'KR Seoul')
   assert.equal(measured.node?.latencyMs, 455)
   assert.equal(measured.node?.quality, 'S')
+})
+
+/**
+ * The subscription contract (operator decision 2026-10-24: 添加订阅后，不对
+ * OpenCode 进行任何主动探测，只显示测速的延迟): a subscription add/refresh
+ * runs admitBySpeed — the ip-api echo ONLY. The models list and the anonymous
+ * smoke are never touched, and a failed speed test keeps the paid line
+ * unverified instead of rejecting it (docs 4.5).
+ */
+test('admission: admitBySpeed runs the speed test alone and never touches OpenCode', async () => {
+  const warnings: string[] = []
+  const transport = fakeTransport({
+    [ECHO_URL]: { status: 200, body: echoBody('203.0.113.7', 'JP', 'Tokyo') },
+  })
+  const silent = { ...deps(transport), logger: { warn: (m: string) => warnings.push(m) } }
+
+  const result = await admitBySpeed(silent, { address: '1.2.3.4:8080', protocol: 'http', source: 'subscription' })
+  assert.ok(result.admitted)
+  assert.equal(result.unverified, undefined, 'a measured speed pass is a verification')
+  assert.equal(result.node?.exitIP, '203.0.113.7')
+  assert.equal(result.node?.exitLocation, 'JP Tokyo')
+  assert.ok(['S', 'A', 'B', 'C'].includes(result.node!.quality), 'grade comes from the measured latency')
+  // The ONLY request made was the echo: no models list, no chat smoke.
+  assert.deepEqual(transport.calls, [ECHO_URL], 'admitBySpeed issues exactly one request — the speed test')
+
+  // Failure keeps the paid line: admitted, unverified, no facts, worst grade.
+  const failing = fakeTransport({ [ECHO_URL]: new Error('connect ETIMEDOUT') })
+  const failed = await admitBySpeed(
+    { ...deps(failing), logger: { warn: (m) => warnings.push(m) } },
+    { address: '5.6.7.8:1080', protocol: 'socks5', source: 'subscription' },
+  )
+  assert.ok(failed.admitted, 'a paid line is never rejected over one probe failure (docs 4.5)')
+  assert.equal(failed.unverified, true)
+  assert.equal(failed.node?.exitIP, '')
+  assert.equal(failed.node?.quality, 'C', 'unmeasured -> worst grade, never gradeOf(0)=S')
+  assert.ok(warnings.some((line) => line.includes('5.6.7.8:1080')))
+  assert.deepEqual(failing.calls, [ECHO_URL], 'even the failure path only ever ran the speed test')
 })
 
 test('admission: scheme-carrying manual addresses build a valid agent URI (issue #44)', async () => {

@@ -11,9 +11,22 @@
  *
  * All requests carry their own ProxyAgent (per-request dispatch, verified
  * against npm undici): the admission path never touches the global
- * dispatcher. manual/subscription/goproxy candidates skip steps 1-3 and run
- * step 4 only (their node facts already exist); pinned nodes are admitted
- * with warnings instead of rejections (the user vouches, 3.1).
+ * dispatcher.
+ *
+ * Which steps a source runs:
+ *   - free candidates        -> the full chain (steps 1-4)
+ *   - manual/subscription/   -> admitTrusted: smoke only (their node facts
+ *     goproxy probe action     already exist) — this is the SETTINGS CARD's
+ *                              探测/批量探活 action, an explicit user request
+ *   - subscription add/      -> admitBySpeed: steps 1-2 ONLY — the speed test
+ *     refresh                   whose latency the pool displays. Per operator
+ *                              decision 2026-10-24 (添加订阅后，不对 OpenCode
+ *                              进行任何主动探测，只显示测速的延迟) neither the
+ *                              refresh nor a later reserve swap sends a single
+ *                              request to OpenCode; acceptance of an exit IP
+ *                              is learned passively from real traffic.
+ *                              pinned nodes are admitted with warnings instead
+ *                              of rejections (the user vouches, 3.1).
  */
 
 import type { Dispatcher } from 'undici'
@@ -406,6 +419,62 @@ export async function admitTrusted(
       // A never-measured exit gets the WORST grade, not the best: gradeOf(0)
       // is 'S', which ranked dead nodes above live ones until 2026-10-13.
       quality: kept === undefined ? UNVERIFIED_QUALITY : kept.quality ?? gradeOf(kept.latencyMs),
+      addedAt: Date.now(),
+    },
+  }
+}
+
+/**
+ * Speed-test-only admission for PAID sources (subscription refresh, operator
+ * decision 2026-10-24: 添加订阅后，不对 OpenCode 进行任何主动探测，只显示
+ * 测速的延迟). Runs coarseScreen — connectivity, exit IP, geo, latency — and
+ * NOTHING else: no Zen models list, no anonymous-lane smoke, no request of any
+ * kind to OpenCode. The measured latency IS the value the pool row displays;
+ * whether OpenCode will accept this exit IP is left entirely to passive
+ * verdicts from real traffic (pool.recordPassive), the standing liveness model
+ * since 2026-10-23.
+ *
+ * Failure never rejects a paid line (docs §4.5): the node is kept UNVERIFIED
+ * with unknown facts — same trusted-source contract as admitTrusted's
+ * fallback, minus the probe that used to decide it.
+ */
+export async function admitBySpeed(
+  deps: Pick<AdmissionDeps, 'undici' | 'ipEchoUrl' | 'blockedCountries' | 'logger'>,
+  candidate: { address: string; protocol: 'http' | 'socks5'; source: ExitNode['source'] },
+  options: { pinned?: boolean } = {},
+): Promise<AdmissionResult> {
+  const verdict = await coarseScreen(deps, candidate, { pinned: options.pinned })
+  if ('exitIP' in verdict) {
+    return {
+      admitted: true,
+      node: {
+        id: candidate.address,
+        protocol: candidate.protocol,
+        source: candidate.source,
+        pinned: options.pinned ?? false,
+        exitIP: verdict.exitIP,
+        exitLocation: verdict.exitLocation,
+        latencyMs: verdict.latencyMs,
+        quality: gradeOf(verdict.latencyMs),
+        addedAt: Date.now(),
+      },
+    }
+  }
+  deps.logger?.warn(`opencode2dsh: speed test failed for paid exit ${candidate.address} (${verdict.rejected}); kept UNVERIFIED with unknown exit facts (no OpenCode probe runs for subscriptions)`)
+  return {
+    admitted: true,
+    unverified: true,
+    reason: verdict.rejected,
+    node: {
+      id: candidate.address,
+      protocol: candidate.protocol,
+      source: candidate.source,
+      pinned: options.pinned ?? false,
+      exitIP: '',
+      exitLocation: '',
+      latencyMs: 0,
+      // Never measured -> worst grade (gradeOf(0) is 'S', the 2026-10-13 trap).
+      quality: UNVERIFIED_QUALITY,
       addedAt: Date.now(),
     },
   }

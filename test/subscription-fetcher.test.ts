@@ -5,9 +5,15 @@ import { ExitPool } from '../src/pool/pool.ts'
 import { Prober } from '../src/pool/prober.ts'
 import { SubscriptionFetcher } from '../src/pool/subscription-fetcher.ts'
 
-/** A fake undici seam: every admission request answers 200 (smoke passes). */
+/**
+ * A fake undici seam serving ONLY the speed test (ip-api). Any other URL — a
+ * Zen models list, a chat smoke, anything OpenCode — is recorded as a probe
+ * attempt the 2026-10-24 contract forbids; tests assert the record stays empty.
+ */
 function seam() {
+  const probeAttempts: string[] = []
   return {
+    probeAttempts,
     ProxyAgent: class {
       constructor(opts: { uri: string }) {
         this.uri = opts.uri
@@ -24,7 +30,8 @@ function seam() {
           body: { text: async () => JSON.stringify({ status: 'success', query: `8.8.${address.length}.1`, countryCode: 'US', city: 'c', country: 'c' }) },
         }
       }
-      return { statusCode: 200, body: { text: async () => '{"ok":true}' } }
+      probeAttempts.push(url)
+      return { statusCode: 418, body: { text: async () => 'probe attempted' } }
     }) as never,
   }
 }
@@ -54,11 +61,12 @@ function makeFetcher(
 ) {
   const pool = new ExitPool()
   const prober = new Prober({ pool })
+  const transport = seam()
   const fetcher = new SubscriptionFetcher(
-    { pool, prober, undici: seam() as never, fetchImpl },
+    { pool, prober, undici: transport as never, fetchImpl },
     { logger: logger ?? { info: () => {}, warn: () => {} }, ...options },
   )
-  return { pool, fetcher }
+  return { pool, fetcher, probeAttempts: transport.probeAttempts }
 }
 
 /** A fetch stub that records the User-Agent of every subscription pull. */
@@ -69,15 +77,19 @@ function uaRecorder(seen: Array<string | undefined>): typeof fetch {
   }) as unknown as typeof fetch
 }
 
-test('subscription refresh: plaintext nodes smoke into the pool, encrypted park as pending', async () => {
-  const { pool, fetcher } = makeFetcher((async () => new Response(SUB_BODY)) as unknown as typeof fetch)
+test('subscription refresh: plaintext nodes speed-test into the pool, encrypted park as pending', async () => {
+  const { pool, fetcher, probeAttempts } = makeFetcher((async () => new Response(SUB_BODY)) as unknown as typeof fetch)
   fetcher.setUrls(['https://sub.example.com/token-abcdef-123456'])
   const state = await fetcher.refresh()
-  // plaintext nodes admitted through the trusted smoke
+  // plaintext nodes admitted from the SPEED TEST alone (2026-10-24: no
+  // OpenCode probe runs for a subscription — the row shows the speed latency)
   assert.equal(state.plaintextAdmitted, 2)
   assert.ok(pool.has('1.2.3.4:8080'))
   assert.ok(pool.has('5.6.7.8:1080'))
   assert.ok(pool.list().every((n) => n.source === 'subscription'))
+  assert.ok(pool.list().every((n) => n.exitIP !== '' && n.latencyMs >= 0), 'speed-test facts landed on both rows')
+  assert.ok(pool.list().every((n) => n.health.state === 'ok'), 'the speed pass is the health verdict')
+  assert.deepEqual(probeAttempts, [], 'ZERO requests to OpenCode on a subscription refresh (2026-10-24 contract)')
   // the anytls node parked for IP-4 conversion, not in the pool
   assert.equal(state.pendingConversion.length, 1)
   assert.equal(state.pendingConversion[0]?.type, 'anytls')

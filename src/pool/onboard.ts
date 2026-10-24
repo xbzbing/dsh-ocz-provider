@@ -1,5 +1,6 @@
 /**
- * Pool onboarding — which exits actually go online (live request 2026-10-13).
+ * Pool onboarding — which exits actually go online (live request 2026-10-13;
+ * pipeline revised 2026-10-24).
  *
  * The problem this answers: a 44-node airport used to convert into 44 local
  * SOCKS listeners and put every one of them in the pool. The operator wants a
@@ -11,23 +12,37 @@
  *      only measurement that can rank these nodes at all: the airport fronts
  *      many distinct nodes on ONE edge host:port and separates them by TLS
  *      SNI, so every candidate answers a bare TCP handshake identically.
+ *      Per operator decision 2026-10-24 (添加订阅后，不对 OpenCode 进行任何
+ *      主动探测，只显示测速的延迟) this speed pass is the ONLY probe the
+ *      subscription flow runs — the previous step-4 OpenCode connectivity
+ *      test (models list + 1-token smoke) is gone, and so is the smoke that
+ *      used to run on every reserve promotion. Whatever OpenCode thinks of an
+ *      exit's IP is answered passively by real traffic (pool.recordPassive /
+ *      recordPassiveTransport at the routing layer — the standing 2026-10-23
+ *      liveness model), never by an active request from this flow.
  *   2. SELECT — keep the fastest `pool.poolSize`, in speed order.
  *   3. SHRINK — re-run the conversion with only those slots, which is what
  *      actually caps the local listeners (44 inbounds -> 20). The ports are
  *      slot-stable, so nothing that stays selected is repointed.
- *   4. CONNECT — the OpenCode connectivity test (models list + 1-token smoke)
- *      on the selection, fastest first.
- *   5. REPLACE — a candidate the upstream lane refuses is swapped for the next
- *      fastest reserve. With the reserve exhausted the refused exit is KEPT but
- *      demoted to the tail, so the pool holds its size instead of draining to
- *      nothing (docs §4.5's "never evict a paid line over one probe failure",
- *      now with a rank instead of an implicit first-place tie).
+ *   4. ADMIT — put the selection in the pool from its speed facts: measured
+ *      rows claim `ok` with the speed-test latency/grade they displayed,
+ *      unmeasured ones (blocked echo endpoint) are kept at the tail
+ *      unverified so a paid line is never dropped over a probe failure
+ *      (docs §4.5).
+ *   5. REPLACE — a swap requested later (a dead rotation, a passive 401/403,
+ *      the operator's 轮换 button) hands the refused row's slot to the next
+ *      fastest reserve, admitted from its CACHED speed facts without probing
+ *      anything. With the reserve exhausted the refused exit is KEPT but
+ *      demoted to the tail, so the pool holds its size instead of draining
+ *      to nothing (docs §4.5's "never evict a paid line over one probe
+ *      failure", now with a rank instead of an implicit first-place tie).
  *
- * 429 is not a refusal: the exit is alive and its quota is spent, so it is
- * admitted and cooled (`markLimited`), never swapped out.
+ * What still probes OpenCode: the settings card's 探测/批量探活 actions and
+ * the free-source refill — explicit user actions or a different source class,
+ * outside this module.
  */
 
-import { admitTrusted, coarseScreen, type AdmissionDeps, type AdmissionResult, type EchoFacts } from './admission.ts'
+import { coarseScreen, type AdmissionDeps, type EchoFacts } from './admission.ts'
 import { gradeOf, UNVERIFIED_QUALITY, type ExitPool } from './pool.ts'
 import type { Prober, ProbeTask } from './prober.ts'
 import type { ConvertedExit } from './singbox.ts'
@@ -71,10 +86,9 @@ export interface OnboardResult {
   admitted: number
   /** Refused exits swapped for a reserve. */
   promoted: number
-  /** Refused exits kept at the tail (no reserve left). */
+  /** Refused exits kept at the tail (no reserve left), plus unmeasured
+   *  candidates parked there so a blocked speed pass never drains the pool. */
   demoted: number
-  /** Refusals seen (each one either promoted away or demoted). */
-  refused: number
   /** Reserves still waiting after the round. */
   reserve: number
 }
@@ -125,7 +139,6 @@ export class Onboarder {
       admitted: 0,
       promoted: 0,
       demoted: 0,
-      refused: 0,
       reserve: 0,
     }
     if (exits.length === 0) {
@@ -177,13 +190,13 @@ export class Onboarder {
      * documented dedicated-line case) or a transient outage, not 44 dead nodes.
      * Draining a paid subscription to zero over a MEASUREMENT failure is the
      * failure class this pool has been bitten by before, so fall back to
-     * unranked candidates in subscription order: the connectivity test still
-     * gets its say, and anything it refuses is parked at the tail rather than
-     * dropped (docs §4.5).
+     * unranked candidates in subscription order: they are parked unverified at
+     * the tail (docs §4.5), never dropped, and real traffic is what will ever
+     * prove them — this flow probes nothing.
      */
     let ranked = measured
     if (ranked.length === 0 && exits.length > 0) {
-      logger?.warn('oc2dsh: onboarding speed pass measured nothing; keeping candidates unranked in subscription order (they stay at the tail unless the connectivity test verifies them)')
+      logger?.warn('oc2dsh: onboarding speed pass measured nothing; keeping candidates unranked in subscription order (parked at the tail, unverified — no probe runs for subscriptions)')
       ranked = [...this.#candidates.values()].sort((left, right) => left.slot - right.slot)
     }
 
@@ -211,8 +224,24 @@ export class Onboarder {
       }
     }
 
-    // 4+5. Connectivity test in speed order, replacing refusals.
-    for (const candidate of selected) await this.#admitOrReplace(candidate, result)
+    // 4. Admit the selection straight from its speed facts — no probe of any
+    //    kind: the subscription flow never asks OpenCode anything (operator
+    //    decision 2026-10-24). An unmeasured candidate (the blocked-echo
+    //    fallback above) is parked unverified at the tail instead.
+    for (const candidate of selected) {
+      if (candidate.facts === null) {
+        // Unmeasured (blocked echo endpoint): parked unverified at the tail —
+        // with the same capacity guard as a real admission, so a pool already
+        // filled by other sources cannot be pushed past `poolSize` by blind
+        // rows.
+        if (!pool.has(candidate.address) && pool.isFull()) pool.evictWorst()
+        this.#keepDemoted(candidate)
+        result.demoted += 1
+        continue
+      }
+      this.#admit(candidate)
+      result.admitted += 1
+    }
     result.reserve = this.#reserve.length
     this.#pruneVanished(previous, current)
     return result
@@ -293,9 +322,10 @@ export class Onboarder {
   }
 
   /**
-   * A pool exit was refused after onboarding (a periodic probe verdict, or a
-   * passive 401/403 the runtime observed): swap in the next reserve, or demote
-   * it to the tail when there is none. Returns true when a replacement landed.
+   * A pool exit must give up its slot (a passive 401/403 or transport death
+   * the runtime observed, a dead rotation, or the operator's 轮换 button): swap
+   * in the next reserve from its cached speed facts — no probe — or demote it
+   * to the tail when there is none. Returns true when a replacement landed.
    */
   async replace(address: string): Promise<boolean> {
     const candidate = this.#candidates.get(address)
@@ -308,14 +338,13 @@ export class Onboarder {
     /**
      * Nothing to give up: the exit already left BOTH the table and the current
      * selection, so this call is a late duplicate (a rotation removed it while
-     * the probe that asks for this replacement was still in flight). Promoting
-     * here would ADD a slot rather than swap one — `selected − (slot that is no
-     * longer there) + next` is one bigger than the selection, i.e. one extra
-     * local listener, the same capacity lie from the other direction.
+     * the swap request was still in flight). Promoting here would ADD a slot
+     * rather than swap one — `selected − (slot that is no longer there) + next`
+     * is one bigger than the selection, i.e. one extra local listener, the same
+     * capacity lie from the other direction.
      *
-     * A candidate that has not been admitted yet (onboarding step 4, which runs
-     * the smokes before anything reaches the table) is not in the pool either,
-     * but its slot IS in the selection — that case must still be replaced.
+     * A row that left the table mid-round but whose slot is still selected is
+     * not a duplicate: that case must still be swapped.
      */
     if (!this.#deps.pool.has(address) && !this.#selected.has(candidate.slot)) return false
     const result: OnboardResult = {
@@ -325,85 +354,76 @@ export class Onboarder {
       admitted: 0,
       promoted: 0,
       demoted: 0,
-      refused: 0,
       reserve: this.#reserve.length,
     }
     await this.#promoteAfterRefusal(candidate, result)
     return result.admitted > 0
   }
 
-  /** Smoke one selected candidate; a refusal goes to the replacement path. */
-  async #admitOrReplace(candidate: Candidate, result: OnboardResult): Promise<void> {
-    const verdict = await this.#smoke(candidate)
-    if (verdict.unverified !== true) {
-      this.#admit(candidate, verdict)
-      result.admitted += 1
+  /**
+   * Swap a refused exit for the next reserve — from the reserve's CACHED speed
+   * facts, never with a probe (operator decision 2026-10-24: the subscription
+   * flow asks OpenCode nothing; a reserve was already speed-tested at
+   * onboarding, and OpenCode's opinion of an exit IP comes from real traffic).
+   *
+   * A promotion therefore always lands on the first candidate — only the
+   * sing-box rebuild can fail it. When the reserve is exhausted the refused
+   * exit is kept and moved to the tail (the pool holds its size, it just stops
+   * spending traffic on that exit first).
+   */
+  async #promoteAfterRefusal(refused: Candidate, result: OnboardResult): Promise<void> {
+    const next = this.#reserve.shift()
+    if (next === undefined) {
+      this.#keepDemoted(refused)
+      result.demoted += 1
+      this.#deps.logger?.warn(`oc2dsh: exit ${refused.address} refused upstream and no reserve is left; kept at the pool tail`)
       return
     }
-    result.refused += 1
-    await this.#promoteAfterRefusal(candidate, result)
+    // Build the NEXT selection and hand exactly that to the rebuild. Passing
+    // `selected + next` before the swap (the pre-2026-10-14 shape) left the
+    // refused slot in the config: the pool dropped the exit while sing-box
+    // kept listening on its port — measured live as 21 local listeners for 16
+    // pool exits, i.e. five orphaned ports.
+    const nextSelection = new Set(this.#selected)
+    nextSelection.delete(refused.slot)
+    nextSelection.add(next.slot)
+    try {
+      await this.#deps.select([...nextSelection])
+    } catch (err) {
+      // The rebuild failed: keep the refused exit rather than losing a slot.
+      this.#reserve.unshift(next)
+      this.#keepDemoted(refused)
+      result.demoted += 1
+      this.#deps.logger?.warn(`oc2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${refused.address} stays at the tail`)
+      return
+    }
+    this.#selected = nextSelection
+    this.#deps.pool.remove(refused.address)
+    result.promoted += 1
+    if (next.facts === null) {
+      // Never speed-measured (the blocked-echo round it was reserved from):
+      // it takes the slot but claims nothing and sits at the tail. Same
+      // capacity guard as every other add — the removed row may not itself
+      // have been in the table to free a slot.
+      if (!this.#deps.pool.has(next.address) && this.#deps.pool.isFull()) this.#deps.pool.evictWorst()
+      this.#keepDemoted(next)
+      return
+    }
+    this.#admit(next)
+    result.admitted += 1
   }
 
   /**
-   * Walk the reserve until one passes the connectivity test. Every refused
-   * candidate on the way is dropped from the pool; when the reserve runs out,
-   * the last refused one is kept and moved to the tail (the pool holds its
-   * size, it just stops spending traffic on that exit first).
+   * Admit one speed-measured candidate: the row carries the speed test's
+   * latency/grade (the ONLY measurement the subscription flow takes — operator
+   * decision 2026-10-24), and `markOk` claims exactly what the speed pass
+   * proved: this tunnel carries HTTP with a known exit IP. What OpenCode
+   * thinks of that IP is left entirely to passive verdicts from real traffic
+   * (recordPassive / recordPassiveTransport), which is the standing liveness
+   * model since 2026-10-23. Called only for rows NOT yet in the table (the
+   * `fresh` slice), so it never clears an existing row's bench or bans.
    */
-  async #promoteAfterRefusal(refused: Candidate, result: OnboardResult): Promise<void> {
-    let current = refused
-    for (;;) {
-      const next = this.#reserve.shift()
-      if (next === undefined) {
-        this.#keepDemoted(current)
-        result.demoted += 1
-        this.#deps.logger?.warn(`oc2dsh: exit ${current.address} refused by the upstream lane and no reserve is left; kept at the pool tail`)
-        return
-      }
-      // Build the NEXT selection and hand exactly that to the rebuild. Passing
-      // `selected + next` before the swap (the pre-2026-10-14 shape) left the
-      // refused slot in the config: the pool dropped the exit while sing-box
-      // kept listening on its port — measured live as 21 local listeners for 16
-      // pool exits, i.e. five orphaned ports.
-      const nextSelection = new Set(this.#selected)
-      nextSelection.delete(current.slot)
-      nextSelection.add(next.slot)
-      try {
-        await this.#deps.select([...nextSelection])
-      } catch (err) {
-        // The rebuild failed: keep the refused exit rather than losing a slot.
-        this.#reserve.unshift(next)
-        this.#keepDemoted(current)
-        result.demoted += 1
-        this.#deps.logger?.warn(`oc2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${current.address} stays at the tail`)
-        return
-      }
-      this.#selected = nextSelection
-      this.#deps.pool.remove(current.address)
-      result.promoted += 1
-      const verdict = await this.#smoke(next)
-      if (verdict.unverified !== true) {
-        this.#admit(next, verdict)
-        result.admitted += 1
-        return
-      }
-      result.refused += 1
-      current = next
-    }
-  }
-
-  /** The OpenCode connectivity test: models list + 1-token smoke, reusing the
-   *  speed pass's facts so steps 1-2 are not paid for twice. */
-  #smoke(candidate: Candidate): Promise<AdmissionResult> {
-    return admitTrusted(
-      this.#deps.admission,
-      { address: candidate.address, protocol: candidate.protocol, source: 'subscription' },
-      { echoFacts: candidate.facts ?? undefined },
-    )
-  }
-
-  /** Admit (or refresh) one candidate with its verdict. */
-  #admit(candidate: Candidate, verdict: AdmissionResult): void {
+  #admit(candidate: Candidate): void {
     const { pool } = this.#deps
     if (!pool.has(candidate.address) && pool.isFull()) {
       // The pool is at capacity (free/manual rows landed first): make room by
@@ -411,12 +431,19 @@ export class Onboarder {
       // user config and are never evicted here.
       pool.evictWorst()
     }
-    if (verdict.node !== undefined) {
-      pool.add({ ...verdict.node, source: 'subscription', pinned: false })
-    }
-    if (verdict.limited === true) pool.markLimited(candidate.address)
-    else if (verdict.unverified === true) pool.markUnverified(candidate.address)
-    else pool.markOk(candidate.address)
+    const facts = candidate.facts
+    pool.add({
+      id: candidate.address,
+      protocol: candidate.protocol,
+      source: 'subscription',
+      pinned: false,
+      exitIP: facts?.exitIP ?? '',
+      exitLocation: facts?.exitLocation ?? '',
+      latencyMs: facts?.latencyMs ?? 0,
+      quality: facts === null ? UNVERIFIED_QUALITY : gradeOf(facts.latencyMs),
+      addedAt: Date.now(),
+    })
+    pool.markOk(candidate.address)
   }
 
   /** Keep a refused exit as the last resort: in the pool, but at the tail. */
