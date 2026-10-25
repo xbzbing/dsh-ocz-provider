@@ -13,7 +13,9 @@ import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
 import { routingContext, type RoutingContext } from '../pool/dispatcher.ts'
 import { classifyStreamFailure, isIpReputationRefusal, isRegionBlocked, shouldRotate } from '../pool/rotate.ts'
-import { attributeUsage } from '../pool/usage.ts'
+import { attributeUsage, LOCAL_EXIT_ID } from '../pool/usage.ts'
+import { EGRESS_HEADER, hasRelayEgress, pickRelayEgress, settleRelayEgress, statusOfFailure, type RelayEgressPick } from '../relay/egress.ts'
+import type { RelaySupervisor } from '../relay/supervisor.ts'
 
 /**
  * The TS adapter: registers as a DSH LlmAdapter for the `oc2dsh` route
@@ -235,6 +237,26 @@ function terminalErrorEvent(errorMessage: string, model: Model<Api>): PiEvent {
   }
 }
 
+/** A stream that carries one terminal error and nothing else (dispatch refusal). */
+function failedStream(message: string, model: Model<Api>): AsyncIterable<PiEvent> {
+  return (async function* (): AsyncGenerator<PiEvent> {
+    yield terminalErrorEvent(message, model)
+  })()
+}
+
+/**
+ * What one attempt was sent through — the pieces the rotate loop needs to
+ * grade the connection it used, on top of the events pi-ai emits.
+ */
+interface AttemptMeta {
+  /** The pool exit that carried the request (relay traffic only). */
+  egress: RelayEgressPick | null
+  /** True when the request was addressed to the Bun relay. */
+  viaRelay: boolean
+  /** Non-null = the pool refused to carry it and local egress is off. */
+  fail: string | null
+}
+
 /**
  * Responses-only models (issue #7): `muse-spark-*` return a bare 500 on
  * `POST /inference/v1/chat/completions` but 200 on
@@ -353,6 +375,12 @@ export class ZenAdapter {
   readonly #responsesBodyIdleMs: number
   /** The lane's origin ladder, primary first (adapter/lane.ts). */
   readonly #origins: string[]
+  /**
+   * The Bun relay (relay/supervisor.ts), when one is running or expected.
+   * Read PER REQUEST (`baseUrlFor`), because the relay can restart onto a
+   * different port mid-session; null = no relay configured, requests go direct.
+   */
+  readonly #relay: Pick<RelaySupervisor, 'baseUrlFor' | 'warm'> | null
 
   constructor(catalog: CatalogLike, options: {
     zenBaseUrl?: string
@@ -364,8 +392,15 @@ export class ZenAdapter {
     bodyIdleMs?: number
     /** Overrides RESPONSES_BODY_IDLE_MS (watchdog tests inject short ones). */
     responsesBodyIdleMs?: number
+    /**
+     * The upstream relay. Its presence is what makes a request pass the free
+     * lane's connection-stack gate: a Node-side fetch is answered 429 no
+     * matter what the payload says (relay/supervisor.ts has the measurements).
+     */
+    relay?: Pick<RelaySupervisor, 'baseUrlFor' | 'warm'> | null
   } = {}) {
     this.#catalog = catalog
+    this.#relay = options.relay ?? null
     this.#firstEventMs = options.firstEventMs ?? DEFAULT_FIRST_EVENT_MS
     this.#bodyIdleMs = options.bodyIdleMs ?? DEFAULT_BODY_IDLE_MS
     this.#responsesBodyIdleMs = options.responsesBodyIdleMs ?? RESPONSES_BODY_IDLE_MS
@@ -439,6 +474,10 @@ export class ZenAdapter {
    * the host the staticFreeModels bootstrap list it would then keep showing.
    */
   async listModels(provider: string): Promise<Array<{ provider: string; id: string; name: string; inputModalities: string[] }>> {
+    // The host calls this at registration, so it is the earliest honest moment
+    // to bring the relay up: by the first turn it is listening and no request
+    // has to take the direct (429) path (relay/supervisor.ts warm()).
+    this.#relay?.warm()
     await this.#catalog.warm?.()
     const seen = new Set<string>()
     const models: Array<{ provider: string; id: string; name: string; inputModalities: string[] }> = []
@@ -479,6 +518,9 @@ export class ZenAdapter {
     model: ReturnType<ZenAdapter['resolveModel']>
     stream: (options: HarnessGenerateOptions) => AsyncGenerator<HarnessChunk>
   }> {
+    // Second warm-up seam: hosts that never list models before a turn still
+    // get the relay brought up one call ahead of the request.
+    this.#relay?.warm()
     return {
       model: this.resolveModel(provider, model),
       stream: (options) => this.stream(options),
@@ -637,9 +679,16 @@ export class ZenAdapter {
     let rotations = 0
     for (;;) {
       const origin = origins[originIndex] ?? origins[0] ?? ZEN_BASE_URL
-      const events = routingContext.run(contextStore, () =>
+      const attemptStart = routingContext.run(contextStore, () =>
         this.#eventsFor(options, context, ids, model, origin),
-      ) as AsyncIterable<PiEvent>
+      ) as { stream: unknown; meta: AttemptMeta }
+      // A relayed request carries its own exit: stamp it so the usage ledger
+      // attributes the response to that exit (the dispatcher is out of the
+      // loop for relay traffic, so nobody else sets this). Refused dispatches
+      // stamp nothing — 本机 did not carry them.
+      if (attemptStart.meta.egress !== null) contextStore.exitId = attemptStart.meta.egress.exitId
+      else if (attemptStart.meta.viaRelay && attemptStart.meta.fail === null) contextStore.exitId = LOCAL_EXIT_ID
+      const events = attemptStart.stream as AsyncIterable<PiEvent>
       let deliveredContent = false
       let preContentFailure: { message: string } | null = null
       const buffered: PiEvent[] = []
@@ -748,6 +797,9 @@ export class ZenAdapter {
       // deadline timer is spent (pumpLive re-arms its own per pull)
       clearTimeout(deadlineTimer)
       if (preContentFailure === null && deliveredContent) {
+        // The stream proved itself: the exit the relay used is a good exit
+        // (the dispatcher's passive verdict, relay edition).
+        settleRelayEgress(attemptStart.meta.egress, { status: 200 })
         // attributeUsage: this attempt's usage rides the exit the dispatcher
         // stamped into contextStore (exit-stats accounting, pool/usage.ts).
         yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), GATE_TOOL_ALIASES, argumentBridge))
@@ -756,6 +808,7 @@ export class ZenAdapter {
       if (preContentFailure === null && !deliveredContent) {
         // stream ended cleanly with no content and no error: pass through
         // (pi-ai's empty-response classification owns this case)
+        settleRelayEgress(attemptStart.meta.egress, { status: 200 })
         yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), GATE_TOOL_ALIASES, argumentBridge))
         return
       }
@@ -764,6 +817,15 @@ export class ZenAdapter {
       const failureMessage = (preContentFailure as { message: string }).message
       const failure = classifyStreamFailure(failureMessage)
       const deterministic = isRegionBlocked(failureMessage)
+      // Grade the exit the relay used with the same verdict table the
+      // dispatcher applies to a real status code: a named status rides
+      // through (429 -> limited, 403 -> ok-but-refused, 5xx -> degraded), and a
+      // failure that named no status was a transport cut.
+      const failureStatus = statusOfFailure(failureMessage)
+      settleRelayEgress(
+        attemptStart.meta.egress,
+        failureStatus !== undefined ? { status: failureStatus } : { transport: failure === 'transport' },
+      )
       // The gate's IP-reputation answer (…abusive traffic from this IP
       // address…) is a property of the EXIT, so the pool benches that exit for
       // hours instead of rotating back onto it in a moment.
@@ -818,7 +880,7 @@ export class ZenAdapter {
     ids: ReturnType<typeof deriveRequestIDs>,
     model: ReturnType<typeof toPiModel>,
     origin?: string,
-  ): unknown {
+  ): { stream: unknown; meta: AttemptMeta } {
     // Structural boundary: PiContext (own types, unit-tested) -> pi-ai Context.
     const isResponses = model.api === 'openai-responses'
     const requestedReasoning = typeof options.reasoningEffort === 'string'
@@ -852,22 +914,50 @@ export class ZenAdapter {
     const provider = isResponsesModel(model.id) && this.#responsesProvider
       ? this.#responsesProvider
       : this.#provider
-    // The origin is the ONE thing a failover moves: baseUrl is read off the
-    // model by pi-ai's api layer, and both origins live on opencode.ai, so the
-    // compat auto-detection (which branches on the host) cannot tell them
-    // apart. Everything else — headers, ids, body shaping — stays identical.
-    const target = origin === undefined ? model : { ...model, baseUrl: `${origin.replace(/\/+$/, '')}/v1` }
-    return provider.streamSimple(target, context as unknown as Context, {
-      apiKey: ANONYMOUS_KEY,
-      sessionId: ids.session,
-      headers: disguiseHeaders(ids),
-      onPayload,
-      signal: options.signal,
-      maxRetries: 0,
-      temperature: options.temperature,
-      maxTokens: options.maxTokens,
-      ...(responseReasoning ? { reasoning: responseReasoning } : {}),
-    })
+    // WHICH CONNECTION STACK SENDS THIS REQUEST (relay/supervisor.ts).
+    //
+    // The free lane gates on the client's TLS/HTTP fingerprint: a Node fetch is
+    // answered 429 whatever its payload says, while the same bytes leaving the
+    // Bun relay are served. So while a relay is up, the request is addressed to
+    // it — same path (the relay forwards the pathname verbatim, preserving the
+    // lane origin the ladder picked), same headers, same body — and the relay's
+    // own bun-native fetch opens the upstream connection.
+    const relayBase = this.#relay?.baseUrlFor(origin ?? this.#origins[0] ?? ZEN_BASE_URL) ?? null
+    const viaRelay = relayBase !== null
+    // The exit is picked HERE for relay traffic (the pool's dispatcher never
+    // sees a loopback URL): same pick(session, model) the dispatcher calls, so
+    // pinning, stickiness and two-tier health still decide, and the answer
+    // travels to the relay in a header it strips before forwarding.
+    const decision = viaRelay && hasRelayEgress() ? pickRelayEgress({ model: options.model, session: ids.session }) : null
+    const egress: RelayEgressPick | null = decision !== null && !('fail' in decision) ? decision : null
+    const refusal: string | null = decision !== null && 'fail' in decision ? decision.fail : null
+    const meta: AttemptMeta = { egress, viaRelay, fail: refusal }
+    if (refusal !== null) {
+      // 本地出口兜底 is off and the pool has nothing: refuse to egress (the
+      // dispatcher's #failClosed does the same for non-relay traffic) instead
+      // of quietly putting this machine's address on the wire.
+      return { stream: failedStream(refusal, model), meta }
+    }
+    const targetBase = relayBase !== null
+      ? `${relayBase}/v1`
+      : `${(origin ?? this.#origins[0] ?? ZEN_BASE_URL).replace(/\/+$/, '')}/v1`
+    const target = { ...model, baseUrl: targetBase }
+    const headers = disguiseHeaders(ids)
+    if (meta.egress !== null) headers[EGRESS_HEADER] = meta.egress.url
+    return {
+      meta,
+      stream: provider.streamSimple(target, context as unknown as Context, {
+        apiKey: ANONYMOUS_KEY,
+        sessionId: ids.session,
+        headers,
+        onPayload,
+        signal: options.signal,
+        maxRetries: 0,
+        temperature: options.temperature,
+        maxTokens: options.maxTokens,
+        ...(responseReasoning ? { reasoning: responseReasoning } : {}),
+      }),
+    }
   }
 
   /** Expose the live catalog snapshot for diagnostics. */

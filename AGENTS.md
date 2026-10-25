@@ -26,6 +26,9 @@ src/pool/       exit pool: admission (free-lane probing), dispatcher (routing),
                 installer, onboarding, sing-box conversion, subscription fetch,
                 usage-store (the ~/.dsh/oc2dsh/usage.json ledger)
 src/ip-pool-settings/  namespace (schema), bridge (loopback HTTP), apply (wiring)
+src/relay/      the Bun upstream relay: supervisor (spawn/health/restart) and
+                the egress seam between the adapter and the exit pool
+relay/          oc2dsh-relay.mjs — the shipped bun script the supervisor runs
 src/client/     browser half: IP pool settings card, exit-stats modal (+ its
                 流量 tab), Zen request-headers editor, locales
 src/config.ts   the whole settings schema (Config, exported for dsh-settings)
@@ -89,6 +92,7 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 | Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.1.4/<client>`, whose last segment mirrors the effective `x-opencode-client` (so Desktop mode sends `/desktop`); it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep Node's happy-eyeballs fallback. Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts |
 | Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
+| Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
 | Config schema nodes must stay plain | NEVER put `.transform()` (or any callback-bearing node) in `Config`. dsh-settings rebuilds the served form from `Config.toJSON()` (`plainSchema`) and serializes it a SECOND time for the browser; a transform's `callback` survives the first `toJSON()` but is dropped on that rebuild, so the browser rehydrates a callback-less node, `ConfigFormController.decode()` throws `callback is not a function`, and the whole configuration card stays loading forever — invisible (live 2026-10-15, introduced with the Zen 请求头 field). Validate at the editor and request boundaries instead | src/config.ts, test/request-headers.test.ts, test/model-context.test.ts, scripts/smoke-dsh-compat.mjs |
 
@@ -127,10 +131,12 @@ in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
   Re-probed 2026-10-24: content validation is OFF again (`read` alone passes,
   `shell` alone 403s, the old `bash`+`read` pair still passes) — the genuine
   pair stays as insurance, the gate has flipped five times;
-- session id: canonical `ses_*` whose inverted 48-bit word carries a counter
-  inside 0-63 (the ONLY accepted window; the timestamp half is unchecked) —
-  the prefix is derived from the digest with counter 1, never clock-minted
-  (a process-global counter 403s everything minted after the 64th);
+- session id: canonical `ses_*` whose inverted 48-bit word DECODES to a fresh
+  `unix_ms` plus a counter. RE-MEASURED 2026-10-25: the counter window that
+  PR #69/#70 chased is gone (1/32/63/64/128/4095 all pass, only 0 fails) and
+  the TIMESTAMP is checked instead — a digest-derived prefix is a random
+  timestamp and 429s every request (see the third half below). The mint is
+  clock-based with a 1-based per-process counter;
 - all FOUR session spellings ride the same id (`x-opencode-session`,
   `x-opencode-session-id`, `x-session-affinity`, `x-session-id`) and
   `x-opencode-request` is ABSENT — both facts byte-captured 2026-10-24; the
@@ -155,6 +161,48 @@ in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
   `docs/local/capture-214/` (gitignored); this machine's own ledger agrees —
   every plugin request since 10-24 books 0 tokens while the official client
   books 200s.
+- the gate has THREE halves, ALL now shipped (resolved 2026-10-25):
+  1. **payload** — the system prompt must carry a non-empty `<env>` block.
+     Bun stack held constant, one variable per request: empty `<env>` -> 429,
+     the same lines without the tags -> 429, the official prefix truncated at
+     6000/7200/8000 chars (before the block) -> 429, `<env>` plus ONE real line
+     -> 200, block-only system prompt -> 200. `src/adapter/env-block.ts` appends
+     the official-shaped block (real cwd/workspace/platform, never the captured
+     text), wired through `ensureFreeLaneShape` /
+     `ensureResponsesFreeLaneShape` in `src/adapter/messages.ts`;
+  2. **connection stack** — the request must leave through Bun. The official
+     client is a Bun binary; `src/relay/supervisor.ts` spawns
+     `relay/oc2dsh-relay.mjs` (a bun process, shipped in the package `files`)
+     and the adapter addresses its requests at that loopback base URL, so the
+     relay's `fetch` opens the upstream connection. Pool exits ride the same
+     hop: the adapter picks with the pool's own `pick(session, model)` and sends
+     the exit in `x-oc2dsh-egress` (`http://` = Bun proxy, `socks5://` = the
+     relay's own CONNECT->SOCKS5 bridge), which the relay strips before
+     forwarding. Verdicts come back through `src/relay/egress.ts` so exit
+     health and usage attribution survive the move.
+  3. **session-id freshness** — the canonical `ses_*` prefix must DECODE to a
+     recent timestamp. The lane reads `~(unix_ms*0x1000+counter)` out of the
+     12-hex field and refuses one it cannot believe: with Bun egress and an
+     otherwise accepted body, prefixes decoding to now / -1h / -1d / -7d / -30d
+     answer 200, a future one (+30d) and every effectively-random one answer
+     429, and counters 1/32/63/64/128/4095 all pass while counter 0 fails. The
+     digest-derived prefix the PR #69/#70 port introduced is exactly a random
+     timestamp, so it 429'd EVERY request — this is the half that survived both
+     the `<env>` fix and the relay and made the whole thing look like a quota
+     problem again (found 2026-10-25 by bisecting session ids last).
+     `src/adapter/ids.ts` therefore mints a CLOCK-based prefix again (counter
+     1-based, per-process monotonic) and caches one id per conversation, so
+     freshness and per-conversation affinity both hold; a stale inbound id is
+     re-minted with its tail kept.
+  Missing any one still reads as `429 FreeUsageLimitError`, all three measured
+  one variable at a time on the same body: Bun + fresh id -> 200; Node + fresh
+  id -> 429 (stack); Bun + stale id -> 429 (freshness); Bun + fresh id without
+  the `<env>` block -> 429 (payload). Probe scripts and raw results live under
+  `docs/local/capture-214/` (gitignored); the relay ships in `relay/`.
+
+A machine without `bun` still works: the supervisor resolves null, the adapter
+sends directly, and the lane answers 429 — the exact pre-fix behaviour, not a
+new failure mode. `relay.enabled: false` reproduces it deliberately.
 
 Changing any single header/tool/ID shape in isolation is how this lane has
 broken three times; re-probe the live endpoint one variable at a time before

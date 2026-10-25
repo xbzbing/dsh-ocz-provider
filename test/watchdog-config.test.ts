@@ -49,6 +49,23 @@ async function hiRequests(): Promise<number> {
 
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
+/**
+ * Let the adapter reach its peek loop before the clock is advanced.
+ *
+ * One `flush()` is not enough and never was: the timer is armed at the first
+ * PULL of the stream, several async hops after the fetch mock resolves
+ * (pi-ai's SDK handshake, then the attempt's own setup), so the number of
+ * immediate turns it needs depends on how much else the process is doing. The
+ * relay's supervision added exactly one hop and this fixed-1 flush lost the
+ * race: the deadline was re-armed at the already-advanced clock, never fired,
+ * and the scenario read `finish === undefined`. A fixed handful of turns is
+ * deterministic and asserts nothing extra — the window assertions below are
+ * unchanged.
+ */
+const settle = async (): Promise<void> => {
+  for (let turn = 0; turn < 10; turn += 1) await flush()
+}
+
 for (const scenario of [
   { name: 'first event', model: 'big-pickle', headers: false, window: 300 },
   { name: 'chat body idle', model: 'big-pickle', headers: true, window: 900 },
@@ -102,14 +119,14 @@ for (const scenario of [
       }
     })()
     await requestStarted
-    await flush()
+    await settle()
     // Advance the real registered adapter's clock, with transport kept silent.
     t.mock.timers.tick(scenario.window - 1)
-    await flush()
+    await settle()
     const earlyFinish = result.finish
     assert.equal(earlyFinish, undefined, 'the configured deadline must not fire early')
     t.mock.timers.tick(1)
-    await flush()
+    await settle()
     const finish = result.finish
     assert.equal(finish?.kind, 'error')
     if (finish?.kind === 'error') {

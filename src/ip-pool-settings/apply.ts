@@ -41,9 +41,12 @@ export type AssembleIpPool = (
   logger: PluginContext['logger'],
 ) => Promise<IpPoolRuntime | null>
 
-const defaultAssemble: AssembleIpPool = async (config, logger) => {
+/** Live relay base URL for the admission smoke (null while the relay is down). */
+export type RelayBaseUrlReader = () => string | null
+
+const defaultAssemble = (relayBaseUrl?: RelayBaseUrlReader): AssembleIpPool => async (config, logger) => {
   const { startIpPool } = await import('../ip-pool.ts')
-  return startIpPool(config, logger)
+  return startIpPool(config, logger, relayBaseUrl === undefined ? {} : { relayBaseUrl })
 }
 
 /**
@@ -60,9 +63,15 @@ export function applyIpPoolSettings(
     listLiveModels?: () => string[]
     /** The persistent usage ledger (index.ts owns the singleton). */
     usage?: UsageStore
+    /**
+     * The relay's base URL, read at probe time. Without it the admission smoke
+     * runs directly and always 429s (the stack gate), which the pool then reads
+     * as "this exit's quota is spent" and cools a healthy exit.
+     */
+    relayBaseUrl?: RelayBaseUrlReader
   } = {},
 ): IpPoolController {
-  const assemble = deps.assemble ?? defaultAssemble
+  const assemble = deps.assemble ?? defaultAssemble(deps.relayBaseUrl)
   let disposed = false
   let starting: Promise<void> | undefined
   const controller: IpPoolController = {

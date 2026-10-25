@@ -75,7 +75,9 @@ function deps(transport: ReturnType<typeof fakeTransport>, overrides: Partial<Ad
 /** The smoke request's user turn, read back out of the captured body. */
 function smokeContentOf(transport: ReturnType<typeof fakeTransport>): string {
   const body = JSON.parse(transport.bodies.get(CHAT_URL)!) as { messages: Array<{ content: string }> }
-  return body.messages[0]!.content
+  // messages[0] is the system slot that carries the `<env>` block the free lane
+  // requires (adapter/env-block.ts); the probe sentence is the user turn after it.
+  return body.messages[1]!.content
 }
 
 test('admission: the four-step happy path admits with exit facts and grade', async () => {
@@ -145,7 +147,13 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   }
   assert.equal(smokeBody.stream, true)
   assert.equal(smokeBody.tool_choice, undefined, 'none is a 403 of its own since 2026-10-14')
-  assert.deepEqual(smokeBody.messages, [{ role: 'user', content: 'hello' }], 'the unconfigured probe content is hello (live request 2026-10-14)')
+  // The system slot carries the `<env>` block the quota layer demands
+  // (2026-10-25), so the probe sentence is the turn AFTER it.
+  const smokeMessages = smokeBody.messages ?? []
+  assert.equal(smokeMessages.length, 2)
+  assert.equal(smokeMessages[0]!.role, 'system')
+  assert.match(smokeMessages[0]!.content, /^<env>\n/)
+  assert.deepEqual(smokeMessages[1], { role: 'user', content: 'hello' }, 'the unconfigured probe content is hello (live request 2026-10-14)')
   const smokeToolNames = smokeBody.tools?.map((t) => t.function.name) ?? []
   assert.deepEqual([...smokeToolNames].sort(), ['read', 'shell'])
   for (const tool of smokeBody.tools ?? []) {

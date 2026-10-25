@@ -6,6 +6,7 @@ import { isResponsesModel, PROVIDER_ID, PROVIDER_NAME, reasoningEfforts, reasoni
 import { Config, resolveConfig } from '../src/config.ts'
 import { resetRetryDelays } from '../src/adapter/retry-delay.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
+import { withEnvBlock } from '../src/adapter/env-block.ts'
 
 /**
  * The exact method surface dsh-llm touches on a registered adapter. A missing
@@ -267,9 +268,16 @@ function capturingProvider() {
 /** A body that already satisfies the free-lane gate recipe: since 2026-10-14
  *  that means the GENUINE bash/read definitions (adapter/gate-tools.ts), not
  *  placeholder stubs. */
+// A body already satisfying BOTH halves of the free-lane payload gate: the
+// genuine tools and a system slot carrying the `<env>` block (env-block.ts).
+// Shaped this way, onPayload leaves it untouched unless a test asks for more —
+// which is what keeps these cases about the reasoning effort alone.
 const gateBody = {
   model: 'big-pickle',
-  messages: [{ role: 'user', content: 'hi' }],
+  messages: [
+    { role: 'system', content: withEnvBlock('You are OpenCode, an AI coding agent.') },
+    { role: 'user', content: 'hi' },
+  ],
   stream: true,
   tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
 }

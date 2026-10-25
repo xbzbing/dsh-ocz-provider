@@ -70,6 +70,36 @@
  * matrix above still tells you which SHAPES pass (it was read as 403-vs-429),
  * but a run of 429s no longer tells you the request would have been SERVED.
  *
+ * RESOLVED the same day: the gate has THREE halves, and all are now shipped.
+ * Ablating the stack axis alone left two more discriminators hidden inside a
+ * byte-identical body, and each one reads as the same 429 FreeUsageLimitError:
+ *
+ *   (a) PAYLOAD — the system prompt must carry a non-empty `<env>` block (the
+ *       official prompt ends with one, index 7731 of 8368 chars). With Bun's
+ *       stack held constant: empty `<env>` -> 429, the same lines without the
+ *       tags -> 429, the official prefix truncated at 6000/7200/8000 chars
+ *       (before the block) -> 429, `<env>` + ONE real line -> 200, block-only
+ *       system prompt -> 200. adapter/env-block.ts, appended by
+ *       `ensureFreeLaneShape`;
+ *   (b) STACK — the request must leave through Bun. src/relay/ spawns a bun
+ *       relay the adapter addresses, so bun's own fetch opens the upstream
+ *       connection; a Node fetch is refused with the same 429 on the same body;
+ *   (c) SESSION-ID FRESHNESS — the `ses_*` 12-hex prefix is decoded as
+ *       `~(unix_ms*0x1000+counter)` and must describe a RECENT moment.
+ *       Measured on an accepted body with Bun egress: now/-1h/-1d/-7d/-30d ->
+ *       200, a future timestamp -> 429, a random one -> 429 (counters
+ *       1/32/63/64/128/4095 pass; only 0 fails). The digest-derived prefix the
+ *       PR #69/#70 port shipped is exactly a random timestamp, so it 429'd
+ *       every request even after (a) and (b) were fixed; adapter/ids.ts mints
+ *       a clock-based prefix again.
+ *
+ * Missing any ONE of the three still reads as 429 FreeUsageLimitError:
+ * Bun + fresh id -> 200, Node + fresh id -> 429, Bun + stale id -> 429,
+ * Bun + fresh id without the block -> 429. relay/oc2dsh-relay.mjs and
+ * src/relay/supervisor.ts carry the stack matrix, adapter/ids.ts the session
+ * one, adapter/env-block.ts the payload one; `docs/local/capture-214/` holds
+ * the raw probes.
+ *
  * RE-CAPTURE when the gate moves again: rerun `probe.cjs` (loopback only,
  * nothing leaves 127.0.0.1), take `shell` and `read` from the logged
  * `body.tools`, and replace the two entries below.

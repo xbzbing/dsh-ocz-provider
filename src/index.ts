@@ -16,6 +16,7 @@ import { usageStore } from './pool/usage-store.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
 import { stateDir } from './paths.ts'
 import { fetchHealth, fetchModels, registerProvider, removeProviderRoute } from './provider.ts'
+import { RelaySupervisor, type RelayStatus } from './relay/supervisor.ts'
 
 /**
  * oc2dsh DSH cordis plugin entry.
@@ -152,13 +153,38 @@ function applyAdapter(
   // by applyIpPoolSettings through the plugin fiber.
   const dataDir = stateDir()
   const statusPath = join(dataDir, 'adapter-status.json')
+  /** The last relay snapshot, written into the status file (diagnostics). */
+  let relayStatus: RelayStatus | null = null
   const writeStatus = (status: CatalogSnapshot, lastError: string): void => {
     void writeFile(
       statusPath,
-      JSON.stringify({ ...status, zenUserAgent: opencodeUserAgent(), lastError, writtenAt: new Date().toISOString() }, null, 2),
+      JSON.stringify(
+        {
+          ...status,
+          zenUserAgent: opencodeUserAgent(),
+          ...(relayStatus !== null ? { relay: relayStatus } : {}),
+          lastError,
+          writtenAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
       'utf8',
     ).catch(() => {})
   }
+
+  /**
+   * The Bun upstream relay. Started FIRST and awaited: every chat request that
+   * leaves before it is up would be answered 429 by the free lane (the stack
+   * gate is not something a payload can satisfy), so the adapter only gets a
+   * relay handle once the process is listening. A machine without bun keeps
+   * working — the supervisor resolves null, the adapter sends direct, and the
+   * warning says exactly what is missing.
+   */
+  const relay = new RelaySupervisor({
+    ...(cfg.relay !== undefined ? { config: cfg.relay } : {}),
+    logger,
+  })
 
   const catalog = new ModelCatalog({
     refreshSeconds: cfg.refreshSeconds,
@@ -168,6 +194,12 @@ function applyAdapter(
     // like requestHeaders does for the wire.
     contextWindows: () => readVolatile<ModelContextWindows>(config.modelContextWindows),
     onRefresh: (status, lastError) => {
+      // The catalog refresh is the plugin's first background work in every
+      // host, so it is also the honest place to bring the relay up: a host that
+      // never lists models before a turn still finds it listening by then
+      // (relay/supervisor.ts warm(); refused in a process with no bun).
+      relay.warm()
+      relayStatus = relay.status()
       writeStatus(status, lastError)
       if (lastError) logger.warn(`oc2dsh: catalog refresh issue: ${lastError}`)
     },
@@ -176,6 +208,7 @@ function applyAdapter(
     firstEventMs: cfg.firstEventMs,
     bodyIdleMs: cfg.bodyIdleMs,
     responsesBodyIdleMs: cfg.responsesBodyIdleMs,
+    relay,
   })
 
   // Persistent usage ledger (live request 2026-10-14: 流量重启后不再丢失，保留
@@ -201,6 +234,23 @@ function applyAdapter(
   ctx.llm.registerAdapter([PROVIDER_ID], adapter)
   logger.info(`oc2dsh: adapter registered for "${PROVIDER_ID}" (catalog warms up in background)`)
 
+  // The relay is started on the first production call (listModels at
+  // registration, then prepareCall) rather than here: loading the plugin must
+  // not fork a process, and a host that only inspects the catalog should never
+  // pay for one. The adapter reads `baseUrl` per request, so a relay that is
+  // still coming up simply means that attempt goes direct (the pre-fix 429
+  // surface) instead of failing.
+  if (typeof ctx.effect === 'function') {
+    ctx.effect.call(ctx, () => () => {
+      relayStatus = relay.status()
+      void relay.stop()
+    })
+  } else {
+    process.once('exit', () => {
+      void relay.stop()
+    })
+  }
+
   // IP-pool exit routing (docs/ip-pool.md IP-1..IP-5): manual proxies,
   // pinned, free sources, subscriptions, and (IP-5) the volatile `ipPool`
   // settings field with live apply + the /status /models /probe bridge. Opt-in
@@ -214,6 +264,8 @@ function applyAdapter(
     applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
       listLiveModels: () => catalog.list(),
       usage: usageStore,
+      // Read per probe, not captured: the relay can restart onto another port.
+      relayBaseUrl: () => relay.baseUrl,
     })
   } catch (err) {
     logger.error(`oc2dsh: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`)
@@ -431,5 +483,6 @@ function __dirnameSafe(): string {
 }
 
 export { AgentProcess } from './agent-process.ts'
+export { RelaySupervisor, defaultRelayScript, findBun, type RelayStatus } from './relay/supervisor.ts'
 export { configPaths, ensureToken, resolveConfig, writeAgentConfig, type Opencode2dshConfig } from './config.ts'
 export { fetchHealth, fetchModels, registerProvider, providerBaseURL, toPiAiModels, type DshSeams } from './provider.ts'

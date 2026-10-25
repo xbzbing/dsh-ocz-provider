@@ -152,12 +152,21 @@ export function deriveRequestIDs(messages: Array<{ role: string; content: unknow
 const CANONICAL_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/
 
 /**
- * The acceptance window for the inverted counter: after the bitwise NOT the
- * low 12 bits read 0xFFF-counter, so a genuine descending id always has `f`
- * followed by `[c-f]` in the 10th/11th hex character (counter 0-63). A
- * canonical-shaped id outside it is re-encoded rather than passed through.
+ * How far the decoded timestamp of an inbound session id may sit from now and
+ * still be treated as the client's own. Measured 2026-10-25 (Bun egress, one
+ * variable per request): a minted prefix decoding to now / now-1h / now-1d /
+ * now-7d / now-30d -> 200; a prefix decoding to a FUTURE time (+30d) -> 429;
+ * and every prefix whose timestamp is effectively random (raw random bytes, or
+ * this adapter's own digest-derived prefix) -> 429. So the window is
+ * "recent past", and the future side is the one that must stay tight.
  */
-const DESCENDING_TIME_PART_PATTERN = /^[0-9a-f]{9}f[c-f][0-9a-f]$/
+const SESSION_TS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+/** Allowed clock skew into the future (a client a few seconds ahead still passes). */
+const SESSION_TS_MAX_SKEW_MS = 60 * 60 * 1000
+/** The 36-bit timestamp field the inverted word carries (2^36 ms ≈ 2.2 years). */
+const SESSION_TS_MASK = (1n << 36n) - 1n
+/** The 12-bit counter the mint appends (1-based: counter 0 was rejected, 2026-10-25). */
+const SESSION_COUNTER_MAX = 0xfff
 
 const BASE62_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
 
@@ -182,17 +191,55 @@ function hex48(value: bigint): string {
 }
 
 /**
- * The 12 hex characters of a descending session id: the digest's leading 36
- * bits as the "timestamp", counter 1 in the low 12 bits, then the client's
- * bitwise NOT, so newer ids sort first. The inversion is arithmetic on a
- * BigInt (sign-extended), and taking the low 6 bytes yields exactly the
- * official client's prefix — with the counter inside the 0-63 window the
- * gate accepts, whatever the digest says.
+ * The 12 hex characters of a descending session id for one timestamp+counter:
+ * `~(unix_ms * 0x1000 + counter)` in the low 48 bits, so newer ids sort first.
+ *
+ * The value is CLOCK-BASED on purpose (see {@link canonicalSessionID}): the
+ * lane decodes this field and refuses a timestamp it cannot believe, so a
+ * digest-derived "timestamp" — which is what this adapter used to mint — is a
+ * rejection signal even though its counter sits in the old accepted window.
  */
-function descendingTimePrefix(sum: Buffer): string {
-  // the digest's leading 36 bits = first 32 bits + the top nibble of byte 4
-  const timestamp = (BigInt(sum.readUInt32BE(0)) << 4n) | BigInt((sum[4] ?? 0) >> 4)
-  return hex48(~((timestamp << 12n) | 1n) & ((1n << 48n) - 1n))
+function descendingTimePrefix(ms: number, counter: number): string {
+  const word = (BigInt(ms) << 12n) | BigInt(counter & SESSION_COUNTER_MAX)
+  return hex48(~word & ((1n << 48n) - 1n))
+}
+
+/** The 36-bit timestamp an inverted prefix decodes to, or null when it is not inverted. */
+function decodedSessionTime(field: string): number | null {
+  if (!/^[0-9a-f]{12}$/.test(field)) return null
+  const word = ~BigInt('0x' + field) & ((1n << 48n) - 1n)
+  return Number((word >> 12n) & SESSION_TS_MASK)
+}
+
+/**
+ * Is this a session id the client itself could have minted just now — the right
+ * shape, an inverted (descending) word, and a timestamp inside the window the
+ * lane enforces? Such an id is passed through so its upstream affinity (and the
+ * prompt cache keyed on it) survives; anything else is re-minted.
+ */
+function isFreshSessionID(id: string): boolean {
+  if (!CANONICAL_SESSION_PATTERN.test(id)) return false
+  const ms = decodedSessionTime(id.slice(4, 16))
+  if (ms === null) return false
+  // BOTH sides live in the 36-bit field the id carries (~2.2 years of ms), so
+  // comparing against a raw Date.now() would call every id stale. The signed
+  // delta is unwrapped to the shorter arc, which is what makes this correct
+  // across the field's own wrap-around.
+  const delta = signedDelta(Number(BigInt(Date.now()) & SESSION_TS_MASK), ms)
+  return delta >= -SESSION_TS_MAX_AGE_MS && delta <= SESSION_TS_MAX_SKEW_MS
+}
+
+/** `to - from` on a 2^36 clock, normalized to the shorter arc. */
+function signedDelta(from: number, to: number): number {
+  // `2 ** 36`, NOT `1 << 36`: JavaScript's shift operators are 32-bit, so
+  // `1 << 36` silently evaluates to 16 and every delta collapses to ~0 (which
+  // made every id look fresh — caught by the stale/future tests).
+  const span = 2 ** 36
+  const half = span / 2
+  let delta = (to - from) % span
+  if (delta > half) delta -= span
+  if (delta < -half) delta += span
+  return delta
 }
 
 /** Clock state for the ascending message-id prefix (kept apart from sessions). */
@@ -217,21 +264,73 @@ export function mintedMessageID(): string {
 }
 
 /**
- * The session id sent upstream. A signal that already carries an official
- * OpenCode session whose counter is inside the acceptance window passes
- * through unchanged (preserving upstream prompt-cache affinity); a canonical
- * but out-of-window id — or any foreign identity (the conversation seed in
- * adapter mode, admission probes) — is re-encoded from its digest: the
- * 14-char Base62 tail stays digest-derived so per-conversation affinity does
- * not change, and the prefix is the digest's own descending timestamp with
- * counter 1. Pure function of the signal: one signal always returns one id,
- * in this process and the next one (2026-10-15, upstream PR #70).
+ * The session id sent upstream.
+ *
+ * RE-MEASURED 2026-10-25 — the prefix rule changed a third time, and this one
+ * is not a window on the counter. With the request otherwise byte-identical
+ * (Bun egress, the `<env>`-shaped body, the official 16 headers), only the
+ * session id varied:
+ *
+ *   `ses_e9345d865ffe…` (the 2.1.4 capture, minted 10-24)  -> 200
+ *   minted now / now-1h / -1d / -7d / -30d                  -> 200
+ *   minted now+30d, or now-90d (which wraps into the future) -> 429
+ *   this adapter's digest-derived prefix                     -> 429
+ *   raw random 12-hex prefixes                               -> 429
+ *   all-zero prefix (decodes to 2^36-1)                      -> 200 (sentinel)
+ *   counters 1, 32, 63, 64, 128, 4095 on a fresh timestamp    -> 200; counter 0 -> 429
+ *
+ * So the lane DECODES the timestamp and refuses one it cannot believe, while
+ * the counter window that PR #69/#70 chased (0-63, counters 64+ 403) is gone.
+ * The digest-derived prefix those releases introduced — this adapter shipped
+ * it — therefore rejects every request with 429 FreeUsageLimitError, which is
+ * indistinguishable from a spent quota: that is why the fix looked like a
+ * connection-stack problem long after the relay was passing 200s.
+ *
+ * The mint is consequently CLOCK-BASED again: `~(unix_ms * 0x1000 + counter)`,
+ * counter 1-based and per-process monotonic (0 was rejected, wide values
+ * passed, so the counter is only a sort tiebreak now). The 14-char Base62 tail
+ * stays DIGEST-DERIVED, so one conversation still keeps one id and its
+ * prompt-cache affinity — the prefix carries no identity, only freshness.
+ *
+ * Stability: an id is cached per signal for the life of the process (the lane
+ * only accepts a fresh timestamp, so a conversation restarted days later must
+ * mint a new id — the same thing the official client does per session). An
+ * inbound id that is already canonical AND fresh passes through untouched.
  */
+const sessionCache = new Map<string, string>()
+/** Cap on the per-process cache: conversation ids are small, but unbounded is unbounded. */
+const SESSION_CACHE_LIMIT = 512
+let sessionCounter = 0
+
 export function canonicalSessionID(signal: string): string {
-  if (CANONICAL_SESSION_PATTERN.test(signal) && DESCENDING_TIME_PART_PATTERN.test(signal.slice(4, 16))) return signal
-  const sum = createHash('sha256').update('ses\x00' + signal).digest()
-  const randomPart = base62Fixed(BigInt('0x' + sum.subarray(6, 16).toString('hex')), 14)
-  return `ses_${descendingTimePrefix(sum)}${randomPart}`
+  const cached = sessionCache.get(signal)
+  if (cached !== undefined) return cached
+  const id = isFreshSessionID(signal) ? signal : mintSessionID(signal)
+  if (sessionCache.size >= SESSION_CACHE_LIMIT) {
+    const oldest = sessionCache.keys().next()
+    if (oldest.done !== true) sessionCache.delete(oldest.value)
+  }
+  sessionCache.set(signal, id)
+  return id
+}
+
+/** The digest tail plus a freshly minted prefix (never a random "timestamp"). */
+function mintSessionID(signal: string): string {
+  // A canonical id whose timestamp went stale keeps its own tail: only the
+  // prefix carries freshness, so re-minting preserves every bit of upstream
+  // affinity the id had. Anything else gets the digest tail of the signal.
+  const randomPart = CANONICAL_SESSION_PATTERN.test(signal)
+    ? signal.slice(16)
+    : base62Fixed(BigInt('0x' + createHash('sha256').update('ses\x00' + signal).digest().subarray(6, 16).toString('hex')), 14)
+  // 1..0xFFF, wrapping: 0 is the one counter value the lane refused.
+  sessionCounter = (sessionCounter % SESSION_COUNTER_MAX) + 1
+  return `ses_${descendingTimePrefix(Date.now(), sessionCounter)}${randomPart}`
+}
+
+/** Drop the process' cached session ids (tests only: the cache is a lifetime cache). */
+export function resetSessionIDCache(): void {
+  sessionCache.clear()
+  sessionCounter = 0
 }
 
 /**
@@ -418,7 +517,13 @@ export function opencodeUserAgent(): string {
  *     QUOTA SPENT: a CONNECTION-STACK gate (the client's TLS/HTTP
  *     fingerprint) now sits in front of the quota layer, and no payload edit
  *     reaches it (matrix in adapter/gate-tools.ts; probes under
- *     `docs/local/capture-214/`).
+ *     `docs/local/capture-214/`). RESOLVED the same day — the gate has a
+ *     second payload half nobody had seen: the system prompt must carry a
+ *     non-empty `<env>` block (adapter/env-block.ts), and the request must
+ *     leave through Bun's stack (src/relay/). Either half missing still reads
+ *     as a 429, which is why "quota spent" was the wrong diagnosis for a week.
+ *     These headers are unchanged by that fix: the relay re-originates the
+ *     CONNECTION, not the request.
  *
  * The OTel pair (`b3`/`traceparent`) is deliberately NOT fabricated: the
  * client mints it per request from its tracer, the gate ignores it (this set

@@ -228,7 +228,12 @@ function fakeProbeTransport() {
 function smokeTurns(transport: ReturnType<typeof fakeProbeTransport>): string[] {
   return transport.requests
     .filter((request) => request.url.includes('/chat/completions'))
-    .map((request) => (JSON.parse(request.body) as { messages: Array<{ content: string }> }).messages[0]!.content)
+    .map((request) => {
+      // messages[0] is the system slot carrying the `<env>` block the free lane
+      // requires (adapter/env-block.ts); the probe sentence is the user turn.
+      const messages = (JSON.parse(request.body) as { messages: Array<{ content: string }> }).messages
+      return messages[messages.length - 1]!.content
+    })
 }
 
 test('one probe content is drawn per exit pass, and a commit swaps the pool', async (t) => {

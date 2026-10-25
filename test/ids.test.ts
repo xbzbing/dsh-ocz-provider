@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, setUserAgentOverride, ZEN_UA_CHANNEL, ZEN_UA_VERSION, zenRequestHeaders, zenUserAgent } from '../src/adapter/ids.ts'
+import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, resetSessionIDCache, setUserAgentOverride, ZEN_UA_CHANNEL, ZEN_UA_VERSION, zenRequestHeaders, zenUserAgent } from '../src/adapter/ids.ts'
 
 test('randomID differs per call with the requested size', () => {
   const a = randomID('req', 16)
@@ -11,23 +11,47 @@ test('randomID differs per call with the requested size', () => {
   assert.equal(a.slice('req_'.length).length, 32, '16 bytes hex')
 })
 
-test('canonicalSessionID passes in-window official sessions through unchanged', () => {
-  // the client's own descending layout with counter 1 (upstream PR #70 fixture)
-  const official = 'ses_ecc5beb7cffe2U0aluUnb5nnpZ'
+test('canonicalSessionID passes a FRESH official session through unchanged', () => {
+  resetSessionIDCache()
+  // The client's own layout — inverted word, unix_ms in the 36-bit field — but
+  // with a timestamp of "now": that is what the lane accepts (2026-10-25).
+  const word = (BigInt(Date.now()) << 12n) | 1n
+  const official = `ses_${(~word & ((1n << 48n) - 1n)).toString(16).padStart(12, '0')}2U0aluUnb5nnpZ`
   assert.match(official, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
-  assert.equal(canonicalSessionID(official), official)
+  assert.equal(canonicalSessionID(official), official, 'a fresh client id keeps its identity')
+  // The PR #70 fixture decodes to about two weeks ago, so it is still inside
+  // the window and keeps its identity — freshness, not age in days, is the rule.
+  const fixture = 'ses_ecc5beb7cffe2U0aluUnb5nnpZ'
+  assert.equal(canonicalSessionID(fixture), fixture)
+  // An id whose timestamp is outside the window is re-minted instead (the full
+  // matrix lives in the stale/future test below).
+  const staleWord = (BigInt(Date.now() - 90 * 24 * 60 * 60 * 1000) << 12n) | 1n
+  const stale = `ses_${(~staleWord & ((1n << 48n) - 1n)).toString(16).padStart(12, '0')}2U0aluUnb5nnpZ`
+  assert.notEqual(canonicalSessionID(stale), stale)
   // foreign shapes do NOT match the canonical gate: 24-hex is the wrong length
   assert.doesNotMatch('ses_0123456789abcdef01234567', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
 })
 
 /**
  * The free tier decodes the 12-hex prefix as ~(unix_ms*0x1000+counter) in its
- * low 48 bits, requires the inversion, and accepts only counters 0-63
- * (2026-10-13 upstream jasonxu114514/opencode2api PR #69 + #70,
- * decolua/9router#4780). Re-probed live 2026-10-15 against /inference/v1 with
- * the full gate body, one variable at a time: counters 0, 1, 32, 63 -> 200;
- * 64, 128 -> 403; ts36=1 -> 200 (the timestamp half is not checked); a
- * digest-shaped or ascending prefix -> 403.
+ * low 48 bits and requires the inversion.
+ *
+ * BRIEF HISTORY of this field, because it has now changed three times:
+ *   2026-10-13 (upstream PR #69/#70, decolua/9router#4780): the inverted
+ *     counter had to land in 0-63; 64+ answered 403.
+ *   2026-10-15 (live re-probe): counters 0/1/32/63 -> 200, 64/128 -> 403,
+ *     ts36=1 -> 200 — i.e. the timestamp was NOT checked, which is why the
+ *     adapter switched to a digest-derived prefix (stateless, inside the
+ *     counter window forever).
+ *   2026-10-25 (live re-probe, Bun egress, `<env>`-shaped body, one variable
+ *     per request): the COUNTER window is gone (1, 32, 63, 64, 128, 4095 all
+ *     -> 200; 0 -> 429) and the TIMESTAMP is now checked — now / -1h / -1d /
+ *     -7d / -30d -> 200, a future timestamp (+30d) -> 429, and any prefix whose
+ *     timestamp is effectively random -> 429. That is exactly what a
+ *     digest-derived prefix is, so the PR #70 scheme now rejects every request
+ *     with 429 FreeUsageLimitError (the same status the quota uses: the reason
+ *     this went unnoticed while the connection-stack gate was being chased).
+ * The tests below pin the CURRENT rule: a fresh, inverted, clock-based prefix.
  */
 function decodedWord(id: string): bigint {
   const field = BigInt('0x' + id.slice(4, 16))
@@ -36,6 +60,20 @@ function decodedWord(id: string): bigint {
 
 function decodedCounter(id: string): number {
   return Number(decodedWord(id) & 0xfffn)
+}
+
+/**
+ * The unix-ms timestamp the inverted prefix decodes to, as the lane reads it:
+ * a 36-bit field, so `unix_ms mod 2^36` (≈ 2.2 years of range). Compare it with
+ * {@link timeFieldOf} rather than with a raw `Date.now()`.
+ */
+function decodedTime(id: string): number {
+  return Number((decodedWord(id) >> 12n) & ((1n << 36n) - 1n))
+}
+
+/** The 36-bit field a given wall-clock instant lands in. */
+function timeFieldOf(ms: number): number {
+  return Number(BigInt(ms) & ((1n << 36n) - 1n))
 }
 
 function digestTailOf(signal: string): string {
@@ -50,55 +88,60 @@ function digestTailOf(signal: string): string {
   return out.join('')
 }
 
-test('canonicalSessionID mints the descending layout with counter 1 (free-tier regression)', () => {
+test('canonicalSessionID mints a FRESH clock-based prefix (the 2026-10-25 rule)', () => {
+  resetSessionIDCache()
+  const before = Date.now()
   const id = canonicalSessionID('regression-probe')
   assert.match(id, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
-  // the acceptance window: the low 12 bits read 0xFFF-counter = 0xFFE
-  assert.match(id.slice(4, 16), /^[0-9a-f]{9}f[c-f][0-9a-f]$/)
-  assert.equal(decodedCounter(id), 1, 'counter 1 is always inside the accepted 0-63 window')
 
-  // digest-derived, not clock-derived: no shared counter to walk out of the
-  // window, and the same signal keeps the same id across process restarts
-  // (the removed in-memory cache could only promise that per process).
+  // The gate decodes this field as ~(unix_ms*0x1000+counter): the timestamp it
+  // reads back must be the moment of minting, not a digest. That single
+  // property is what the digest-derived prefix (now rejected with 429) lost.
+  const ms = decodedTime(id)
+  assert.ok(Math.abs(ms - timeFieldOf(before)) < 5_000, `prefix decodes to ${ms}, expected ~${timeFieldOf(before)}`)
+  assert.ok(decodedCounter(id) >= 1, 'counter 0 is the one refused value (probed 2026-10-25)')
+
+  // stable per signal for the life of the process (the lane only accepts a
+  // fresh timestamp, so this is a process cache, not a pure function)
   assert.equal(canonicalSessionID('regression-probe'), id)
 
-  // the exact id shape the gate rejects: raw sha256 bytes labelled as a
-  // timestamp (~word would not decode to counter 1)
+  // the digest tail is what keeps affinity: sha256-derived, not random
+  assert.ok(id.endsWith(digestTailOf('regression-probe')), 'tail stays digest-derived (affinity unchanged)')
+  // and the rejected scheme really is rejected: the digest is not a timestamp
   const digestPrefix = createHash('sha256').update('ses\x00regression-probe').digest().subarray(0, 6).toString('hex')
   assert.notEqual(id.slice(4, 16), digestPrefix)
-
-  // The digest tail is what keeps affinity: still sha256-derived, not random.
-  assert.ok(id.endsWith(digestTailOf('regression-probe')), 'tail stays digest-derived (affinity unchanged)')
 })
 
-test('canonicalSessionID re-encodes canonical ids whose counter is outside the window', () => {
-  // right shape, rejected encoding: ascending word, counter 64 (0xFBF) and the
-  // raw-hash layout this adapter used before the PR #69 port
-  const rejected = [
-    'ses_133a414840012U0aluUnb5nnpZ',
-    'ses_ecc1f76c9fbf3zWGdD1GSCEwPf',
-    'ses_088a704c30424N5kWDK0snKFbd',
-  ]
-  for (const id of rejected) {
-    const got = canonicalSessionID(id)
-    assert.notEqual(got, id, `${id} kept a rejected encoding`)
-    assert.match(got, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
-    assert.match(got.slice(4, 16), /^[0-9a-f]{9}f[c-f][0-9a-f]$/)
-    assert.equal(decodedCounter(got), 1)
+test('canonicalSessionID re-mints ids whose decoded timestamp is stale or in the future', () => {
+  resetSessionIDCache()
+  const encode = (ms: number, counter = 1): string => {
+    const word = (BigInt(ms) << 12n) | BigInt(counter)
+    return (~word & ((1n << 48n) - 1n)).toString(16).padStart(12, '0')
   }
-  // boundary: counter 63 (field low 12 bits 0xFC0) is the last accepted value,
-  // counter 64 (0xFBF) the first rejected one
-  const at63 = 'ses_000000000fc02U0aluUnb5nnpZ'
-  const at64 = 'ses_000000000fbf2U0aluUnb5nnpZ'
-  assert.equal(decodedCounter(at63), 63)
-  assert.equal(decodedCounter(at64), 64)
-  assert.equal(canonicalSessionID(at63), at63)
-  assert.notEqual(canonicalSessionID(at64), at64)
+  const fresh = `ses_${encode(Date.now())}2U0aluUnb5nnpZ`
+  // A fresh client id passes through untouched (affinity preserved).
+  assert.equal(canonicalSessionID(fresh), fresh)
+
+  // Stale (older than the window) and future (beyond clock skew) ids are
+  // re-minted with a fresh prefix — the lane answers 429 to both, measured
+  // 2026-10-25 with Bun egress and an otherwise accepted body.
+  for (const [label, ms] of [
+    ['90 days old', Date.now() - 90 * 24 * 60 * 60 * 1000],
+    ['30 days ahead', Date.now() + 30 * 24 * 60 * 60 * 1000],
+  ] as const) {
+    const stale = `ses_${encode(ms)}2U0aluUnb5nnpZ`
+    const got = canonicalSessionID(stale)
+    assert.notEqual(got, stale, `${label} kept a rejected timestamp`)
+    assert.match(got, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+    assert.ok(Math.abs(decodedTime(got) - timeFieldOf(Date.now())) < 5_000, `${label} was re-minted fresh`)
+    assert.ok(got.endsWith('2U0aluUnb5nnpZ'), 'the tail (and its affinity) is kept')
+  }
 })
 
 test('canonicalSessionID is stable per signal and distinct across signals', () => {
-  // same conversation keeps a stable session (deterministic mint, PR #70 —
-  // no cache and no counter, so this also survives a process restart)
+  resetSessionIDCache()
+  // same conversation keeps one id for the life of the process (the prefix
+  // must stay fresh, so this is a cache, not a pure function — 2026-10-25)
   assert.equal(canonicalSessionID('anything'), canonicalSessionID('anything'))
   // distinct identities stay distinct — different tails at minimum
   assert.notEqual(canonicalSessionID('a'), canonicalSessionID('b'))

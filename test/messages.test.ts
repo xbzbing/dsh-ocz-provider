@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ensureFreeLaneShape, toPiContext, type HarnessGenerateOptions, type HarnessMessage, type PiMessage } from '../src/adapter/messages.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool, GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
+import { withEnvBlock } from '../src/adapter/env-block.ts'
 
 function expectAssistant(message: PiMessage | undefined): Extract<PiMessage, { role: 'assistant' }> {
   assert.equal(message?.role, 'assistant')
@@ -451,7 +452,14 @@ test('ensureFreeLaneShape injects the genuine gate tools into toolless chat bodi
   const payload = { model: 'm', stream: true, messages: [{ role: 'user', content: 'ping' }] }
   const next = ensureFreeLaneShape(payload) as Record<string, unknown>
   assert.notEqual(next, undefined)
-  assert.deepEqual(next.messages, payload.messages, 'messages untouched')
+  // The system slot is the ONE message this shaper adds/edits: the body carried
+  // no system prompt, so the `<env>` block arrives as its own system message and
+  // the user turn is untouched (env-block.test.ts owns the block's own rules).
+  const messages = next.messages as Array<{ role: string; content: string }>
+  assert.equal(messages.length, 2)
+  assert.equal(messages[0]!.role, 'system')
+  assert.match(messages[0]!.content, /^<env>\n/)
+  assert.deepEqual(messages[1], payload.messages[0])
   const tools = next.tools as Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
   // What gets injected is the genuine 2.1.4 OpenCode definition
   // (adapter/gate-tools.ts, byte-captured 2026-10-24), not a paraphrase: the
@@ -516,8 +524,14 @@ test('ensureFreeLaneShape replaces host-shaped gate tools and leaves genuine one
   assert.deepEqual(tools.find((t) => t.function.name === 'read')!.function.parameters, GENUINE_GATE_TOOLS.read.function.parameters)
   assert.deepEqual(tools.find((t) => t.function.name === 'webfetch')!.function.parameters, {}, 'unrelated tools untouched')
 
-  // an already-genuine payload needs no rewrite at all (pi-ai keeps the original)
-  const genuine = { model: 'm', messages: [], tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)) }
+  // an already-genuine payload needs no rewrite at all (pi-ai keeps the
+  // original). The system slot carries the `<env>` block, which is now part of
+  // "already shaped": without it this body would be rewritten (and 429'd live).
+  const genuine = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be helpful') }],
+    tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
+  }
   assert.equal(ensureFreeLaneShape(genuine), undefined)
 
   assert.equal(ensureFreeLaneShape({ tools: [] }), undefined, 'no messages = not a chat body')
@@ -543,7 +557,16 @@ test('assistant history preserves the Responses API for muse-spark models', asyn
 
 
 test('Responses free-lane bodies carry flat gate tools and supported tool choice', () => {
-  const body = { input: [{ role: 'user', content: 'ping' }], tools: [{ type: 'function', name: 'bash', parameters: {} }], tool_choice: 'none' }
+  // A shaped system slot (the `<env>` block, env-block.ts) is part of "already
+  // shaped" now: with it the input array is passed through by reference.
+  const body = {
+    input: [
+      { role: 'system', content: [{ type: 'input_text', text: withEnvBlock('be brief') }] },
+      { role: 'user', content: 'ping' },
+    ],
+    tools: [{ type: 'function', name: 'bash', parameters: {} }],
+    tool_choice: 'none',
+  }
   const rewritten = ensureResponsesFreeLaneShape(body) as typeof body
   assert.equal(rewritten.input, body.input)
   // the host's `bash` entry is a superseded 1.x name: dropped, replaced by

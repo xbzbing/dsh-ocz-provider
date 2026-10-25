@@ -32,6 +32,8 @@
 import type { Dispatcher } from 'undici'
 
 import { ZEN_BASE_URL } from '../adapter/catalog.ts'
+import { renderEnvBlock } from '../adapter/env-block.ts'
+import { EGRESS_HEADER } from '../relay/egress.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/gate-tools.ts'
 import { canonicalSessionID, DEFAULT_PROJECT_ID, disguiseHeaders, mintedMessageID, opencodeUserAgent } from '../adapter/ids.ts'
 import { laneOrigins } from '../adapter/lane.ts'
@@ -72,6 +74,18 @@ export interface AdmissionDeps {
   random?: () => number
   timeoutMs?: number
   blockedCountries?: string[]
+  /**
+   * The Bun relay's base URL, read at probe time (null while it is down).
+   *
+   * A smoke request is a real chat call, so it faces the SAME connection-stack
+   * gate the adapter does: sent from undici it is answered 429 whatever its
+   * payload, which the verdict table then reads as "exit quota consumed" and
+   * cools a perfectly good exit (2026-10-25). With a relay up, the smoke goes
+   * through it with the candidate's own egress, and the verdict means what it
+   * says. The models-list step stays direct — it is not gated, and probing it
+   * through the relay would hide a broken exit behind a working relay.
+   */
+  relayBaseUrl?: () => string | null
   logger?: { warn(message: string): void }
 }
 
@@ -338,22 +352,46 @@ export async function admitCandidate(
     // `ses_*` session header and the request/project id shapes the adapter
     // sends (adapter/ids.ts). `tool_choice` is left to the model: the gate
     // rejects `'none'` outright (403), and a 200 is all this step reads.
-    const smokeStatus = await probeLane('/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer public',
-        'content-type': 'application/json',
-        ...probeHeaders(),
-      },
-      body: JSON.stringify({
-        model: smokeModel,
-        messages: [{ role: 'user', content: smokeContent }],
-        max_tokens: 1,
-        stream: true,
-        stream_options: { include_usage: true },
-        tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
-      }),
+    //
+    // Two things the smoke shares with the adapter since 2026-10-25: the
+    // system prompt carries the `<env>` block the quota layer demands
+    // (adapter/env-block.ts), and the request is sent through the Bun relay
+    // when one is up, because the stack gate refuses every Node-side chat —
+    // a smoke that always 429s would read as "exit quota consumed" and cool
+    // healthy exits. Without a relay the probe keeps its old direct shape.
+    const relayBase = deps.relayBaseUrl?.() ?? null
+    const smokeBody = JSON.stringify({
+      model: smokeModel,
+      messages: [
+        { role: 'system', content: renderEnvBlock() },
+        { role: 'user', content: smokeContent },
+      ],
+      max_tokens: 1,
+      stream: true,
+      stream_options: { include_usage: true },
+      tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
     })
+    const smokeEgress = exitProxyUri(candidate.address, candidate.protocol)
+    const smokeStatus = relayBase !== null
+      ? await request(`${relayBase}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer public',
+          'content-type': 'application/json',
+          [EGRESS_HEADER]: smokeEgress,
+          ...probeHeaders(),
+        },
+        body: smokeBody,
+      }).then((response) => response.statusCode)
+      : await probeLane('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer public',
+          'content-type': 'application/json',
+          ...probeHeaders(),
+        },
+        body: smokeBody,
+      })
     if (smokeStatus !== 200) {
       // 429 = the exit is good (alive + tunnel verified) but its anonymous
       // quota is currently consumed. Admit with limited: the caller cools it

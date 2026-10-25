@@ -7,6 +7,7 @@ import {
   isGenuineGateTool,
   SUPERSEDED_GATE_TOOL_NAMES,
 } from './gate-tools.ts'
+import { hasEnvBlock, renderEnvBlock, withEnvBlock, type EnvFacts } from './env-block.ts'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -369,11 +370,13 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  *      all four carrying the same id (byte-capture of the 2.1.4 CLI,
  *      2026-10-24; the 2.x client sends the affinity pair for its own
  *      `opencode` provider too — the 2026-10-14 reading that it marked a
- *      foreign client was the 1.x generation's behaviour). The id's 12-hex
- *      prefix must be the client's DESCENDING word with its 12-bit counter in
- *      0-63: live-probed 2026-10-15, counters 0/1/32/63 -> 200, 64/128 -> 403,
- *      the timestamp half unchecked, so a clock-minted counter 403s everything
- *      minted after the 64th (the prefix is now digest-derived, counter 1);
+ *      foreign client was the 1.x generation's behaviour). The 12-hex prefix
+ *      is the client's DESCENDING word, and RE-MEASURED 2026-10-25 its
+ *      TIMESTAMP is the checked half: now/-1h/-1d/-7d/-30d -> 200, a future
+ *      timestamp -> 429, any effectively-random prefix (including the
+ *      digest-derived one this adapter used to mint) -> 429; counters
+ *      1/32/63/64/128/4095 pass, only 0 fails. adapter/ids.ts therefore
+ *      mints a clock-based prefix and caches one id per conversation;
  *   3. `x-opencode-project` is the prefix-less project id (`global`, or a
  *      40-hex worktree hash) — `prj_*` 403s on its own (adapter/ids.ts);
  *      `x-opencode-request` is ABSENT on the 2.x wire (byte-capture
@@ -398,6 +401,18 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  *      fingerprint) now sits in front of the quota layer; the ablation above
  *      still ranks SHAPES, but a 429 no longer means the request would have
  *      been served (adapter/gate-tools.ts).
+ *   8. `<env>` RE-READ AND SOLVED 2026-10-25 (env-block.ts): a 429 also means
+ *      the system prompt carries no non-empty `<env>` block. Byte-identical
+ *      official bodies, sent through a Bun egress, flip on this ONE variable —
+ *      empty `<env>` / tags stripped / official prefix without the block -> 429;
+ *      `<env>` plus a single real line -> 200, and a block-only system prompt
+ *      -> 200. The official 2.1.4 prompt ends with that block (index 7731 of
+ *      8368). Both halves must hold at once: block WITH OLD STACK -> 429,
+ *      stack WITHOUT block -> 429, and only block + Bun -> 200 (2026-10-25,
+ *      `docs/local/capture-214/relay/`). `ensureFreeLaneShape` therefore
+ *      appends the block (see shapeEnvMessages) and the adapter sends through
+ *      the bundled Bun relay (src/relay/) — a Node request cannot pass the
+ *      stack half, whatever its payload says.
  *
  * NOT gates, measured live: `Bearer public`, `max_tokens`, `temperature`, and
  * the system prompt's content (the client's title prompt must not ride WITH
@@ -444,6 +459,81 @@ function dropSupersededTools(tools: unknown[], flat: boolean): unknown[] {
   return next.length === tools.length ? tools : next
 }
 
+/** Text of one message's content: a plain string, or the text parts of an array. */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  let text = ''
+  for (const part of content) {
+    if (typeof part === 'string') {
+      text += part
+      continue
+    }
+    if (typeof part !== 'object' || part === null) continue
+    const value = (part as { text?: unknown }).text
+    if (typeof value === 'string') text += value
+  }
+  return text
+}
+
+/** Both roles that hold the system prompt: chat sends `system`, newer APIs `developer`. */
+function isSystemRole(role: unknown): boolean {
+  return role === 'system' || role === 'developer'
+}
+
+/** What the two shapers changed, if anything. */
+interface EnvShape {
+  changed: boolean
+  /** The rewritten message list (absent when only `instructions` was shaped). */
+  list?: unknown[]
+  /** The rewritten `instructions` string (Responses; absent for chat). */
+  instructions?: string
+}
+
+/**
+ * Ensure a message list's system slot carries a non-empty `<env>` block
+ * (env-block.ts has the probe matrix that makes this a requirement).
+ *
+ * The block is APPENDED, never substituted: the harness' own system prompt
+ * (identity, skills, tool policy) must reach the model unchanged, and the gate
+ * only reads the block's presence. A list with no system entry gets one
+ * inserted at index 0 — a body whose whole system prompt is the block is one
+ * of the shapes measured 200, so a toolless/plain call is still legal.
+ *
+ * `partType` is the text part spelling of the surface being shaped: chat uses
+ * `text`, the Responses input array uses `input_text`.
+ */
+function shapeEnvMessages(list: unknown[], partType: 'text' | 'input_text' = 'text', facts?: EnvFacts): EnvShape {
+  let index = -1
+  for (let i = 0; i < list.length; i += 1) {
+    const entry = list[i]
+    if (typeof entry !== 'object' || entry === null) continue
+    if (!isSystemRole((entry as { role?: unknown }).role)) continue
+    index = i
+    break
+  }
+  if (index === -1) {
+    return { changed: true, list: [{ role: 'system', content: renderEnvBlock(facts) }, ...list] }
+  }
+  const entry = list[index] as Record<string, unknown>
+  const content = entry.content
+  if (hasEnvBlock(contentText(content))) return { changed: false, list }
+  const next = [...list]
+  const block = renderEnvBlock(facts)
+  if (Array.isArray(content)) {
+    next[index] = { ...entry, content: [...content, { type: partType, text: block }] }
+  } else {
+    next[index] = { ...entry, content: withEnvBlock(typeof content === 'string' ? content : '', facts) }
+  }
+  return { changed: true, list: next }
+}
+
+/** The same rule for a Responses `instructions` string. */
+function shapeEnvInstructions(instructions: string, facts?: EnvFacts): EnvShape {
+  if (hasEnvBlock(instructions)) return { changed: false, instructions }
+  return { changed: true, instructions: withEnvBlock(instructions, facts) }
+}
+
 /** Responses uses flat function tools and its Zen gateway accepts auto only. */
 export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefined {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
@@ -463,10 +553,19 @@ export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefi
       changed = true
     }
   }
+  // The `<env>` half of the gate (env-block.ts): the quota layer rejects a body
+  // whose system prompt has no environment block, and Responses carries that
+  // prompt either in `instructions` or as a system-role entry of `input`.
+  const instructions = typeof body.instructions === 'string' ? body.instructions : undefined
+  const env = instructions !== undefined && instructions !== ''
+    ? shapeEnvInstructions(instructions)
+    : shapeEnvMessages(body.input as unknown[], 'input_text')
   const invalidChoice = body.tool_choice !== undefined && body.tool_choice !== 'auto'
-  if (!changed && !invalidChoice) return undefined
+  if (!changed && !invalidChoice && !env.changed) return undefined
   return {
     ...body,
+    ...(env.list !== undefined ? { input: env.list } : {}),
+    ...(env.changed && typeof env.instructions === 'string' ? { instructions: env.instructions } : {}),
     tools,
     tool_choice: 'auto',
   }
@@ -507,8 +606,14 @@ export function ensureFreeLaneShape(payload: unknown): unknown | undefined {
     }
   }
   const dropsNone = body.tool_choice === 'none'
-  if (!changed && !dropsNone) return undefined
+  // The `<env>` half of the gate (env-block.ts): a body whose system prompt has
+  // no environment block is answered 429 FreeUsageLimitError, indistinguishable
+  // from "quota spent" — the reason this plugin failed for a week while the
+  // official client worked (2026-10-25).
+  const env = shapeEnvMessages(body.messages as unknown[], 'text')
+  if (!changed && !dropsNone && !env.changed) return undefined
   const next: Record<string, unknown> = { ...body, tools }
+  if (env.list !== undefined) next.messages = env.list
   if (dropsNone) delete next.tool_choice
   return next
 }

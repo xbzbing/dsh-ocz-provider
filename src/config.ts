@@ -8,7 +8,10 @@ import Schema from '@deepseek-ai/schemastery'
 import { IpPoolConfigSchema, type IpPoolSettings, type VolatileRef } from './ip-pool-settings/namespace.ts'
 import { MIN_CONTEXT_WINDOW, type ModelContextWindows } from './model-context.ts'
 import type { LocalIpFamily } from './pool/local-family.ts'
+import type { RelayConfig } from './relay/supervisor.ts'
 import { type RequestHeaders } from './request-headers.ts'
+
+export type { RelayConfig } from './relay/supervisor.ts'
 
 /**
  * Plugin configuration (cordis config object, injected via cordis.patch.yml).
@@ -74,6 +77,20 @@ export interface Opencode2dshConfig {
    * settings save applies to the next request without a restart.
    */
   modelContextWindows?: ModelContextWindows
+  /**
+   * The Bun upstream relay (src/relay/): the process that makes this plugin's
+   * requests leave on the official client's connection stack.
+   *
+   * WHY IT IS NOT OPTIONAL IN PRACTICE (live 2026-10-25): the free lane gates on
+   * the client's TLS/HTTP fingerprint. A byte-identical official request is
+   * answered 429 by Node h1/h2, curl, Python and Go from every egress, and 200
+   * when the same bytes leave through Bun (relay/supervisor.ts records the
+   * matrix). Payload fixes cannot reach that layer, so the adapter addresses
+   * its requests at a loopback relay that re-originates them with bun's own
+   * fetch. `enabled: false` restores the pre-fix behaviour exactly (direct
+   * Node requests, 429 on the free lane) — useful for probing, not for use.
+   */
+  relay?: RelayConfig
   /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
@@ -214,6 +231,24 @@ const RequestHeadersConfigSchema: Schema<RequestHeaders, RequestHeaders, 'volati
 const ModelContextWindowsConfigSchema: Schema<ModelContextWindows, ModelContextWindows, 'volatile-defined'> =
   Schema.dict(Schema.number().step(1).min(MIN_CONTEXT_WINDOW)).default({}).volatile()
 
+/**
+ * The Bun relay node, as a plain schemastery object. Ordinary config (not
+ * volatile): it is a profile/yml knob, it changes when the operator installs
+ * or moves bun, and it must not depend on the settings form round-tripping —
+ * see the `requestHeaders` note above for what a callback-bearing node does to
+ * the whole configuration page.
+ */
+const RelayConfigSchema: Schema<RelayConfig, RelayConfig, never> = Schema.object({
+  /** Master switch; false = pre-fix behaviour (direct Node requests, 429s). */
+  enabled: Schema.boolean().default(true),
+  /** Explicit bun binary; empty = search PATH and the usual install dirs. */
+  bunPath: Schema.string().default(''),
+  /** Fixed relay port; 0 = the OS picks one (recommended — no collisions). */
+  port: Schema.number().step(1).min(0).max(65535).default(0),
+  /** Upstream origin (default https://opencode.ai; override for staging). */
+  upstream: Schema.string().default(''),
+})
+
 export const Config = Schema.object({
   /** Integration mode; `adapter` (default) is the shipped shape. */
   mode: Schema.union(['adapter', 'sidecar']).default('adapter'),
@@ -259,6 +294,12 @@ export const Config = Schema.object({
    * `limit.context` (with the built-in mimo override still in force).
    */
   modelContextWindows: ModelContextWindowsConfigSchema,
+  /**
+   * The Bun upstream relay (src/relay/): without it the free lane answers 429
+   * no matter what this plugin sends. Ordinary config, not part of the
+   * settings form — see the interface note.
+   */
+  relay: RelayConfigSchema,
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: IpPoolConfigSchema.volatile(),
 })

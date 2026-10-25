@@ -1,3 +1,4 @@
+import { ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import Schema from "@deepseek-ai/schemastery";
 
@@ -80,6 +81,107 @@ type UsageScopeSetting = 'total' | 'run';
 /** Model id -> context window in tokens. */
 type ModelContextWindows = Record<string, number>;
 //#endregion
+//#region src/relay/supervisor.d.ts
+
+/** Config the supervisor reads (subset of the plugin's `relay` node). */
+interface RelayConfig {
+  enabled?: boolean;
+  /** Explicit bun binary. Empty/unset = search PATH and the usual install dirs. */
+  bunPath?: string;
+  /** Fixed port; 0/undefined = let the OS pick one. */
+  port?: number;
+  /** Upstream origin override (tests, or a lane that moves). */
+  upstream?: string;
+}
+interface RelayLogSink {
+  info(message: string): void;
+  warn(message: string): void;
+}
+/** Structural spawn seam so tests can drive the lifecycle without bun. */
+type RelaySpawn = (command: string, args: string[], options: {
+  env: NodeJS.ProcessEnv;
+  cwd?: string;
+}) => ChildProcessWithoutNullStreams;
+interface RelaySupervisorOptions {
+  config?: RelayConfig;
+  logger?: RelayLogSink;
+  spawnImpl?: RelaySpawn;
+  /** Script to run (defaults to the shipped relay next to the package root). */
+  scriptPath?: string;
+  /** Health probe target builder (tests point it at a fake). */
+  healthFetch?: (url: string, signal: AbortSignal) => Promise<unknown>;
+  /** Readiness window for `OC2DSH_RELAY_READY` + the health probe. */
+  readyTimeoutMs?: number;
+  /** Restart backoff ceiling (attempts beyond this give up for this process). */
+  maxRestarts?: number;
+}
+interface RelayStatus {
+  /** True while a relay process is up and answering health probes. */
+  active: boolean;
+  /** `http://127.0.0.1:<port>` while active, null otherwise. */
+  baseUrl: string | null;
+  /** The bun binary in use (null when none was found). */
+  bunPath: string | null;
+  /** Upstream origin the relay forwards to. */
+  upstream: string;
+  /** Why the relay is not active (last failure), for diagnostics. */
+  lastError: string;
+  /** Restarts spent so far. */
+  restarts: number;
+}
+/** Resolve the shipped relay script; empty string when the package is broken. */
+declare function defaultRelayScript(): string;
+/**
+ * Find a bun binary: explicit config, then `OC2DSH_BUN`, then PATH, then the
+ * usual install locations (bun's own installer, Homebrew on both prefixes, and
+ * nvm's node bin dirs where this machine's bun lives).
+ */
+declare function findBun(configured?: string): string | null;
+/**
+ * Owns one relay child process. Idempotent start/stop; safe to call start()
+ * repeatedly (a second call joins the running one).
+ */
+declare class RelaySupervisor {
+  #private;
+  constructor(options?: RelaySupervisorOptions);
+  get upstream(): string;
+  /**
+   * The base URL of a live relay (`http://127.0.0.1:<port>`), or null when it
+   * is not running. The adapter reads this PER REQUEST: a relay that died and
+   * came back (new port) is picked up without rebuilding anything.
+   */
+  get baseUrl(): string | null;
+  /** Diagnostics for the status file / bridge. */
+  status(): RelayStatus;
+  /**
+   * Fire-and-forget warm-up for the paths that precede traffic (the host's
+   * registration-time model list, and every prepareCall).
+   *
+   * `apply()` deliberately does NOT do this at load time: a plugin that forks a
+   * process merely by being loaded is rude to hosts that never use this
+   * provider, and it broke a real harness — a test process with mocked clocks
+   * that only wants to exercise the adapter had a live bun child inside it and
+   * misread the result (live 2026-10-25, test/watchdog-config.test.ts). Warming
+   * on the two calls the host makes right before a turn costs nothing and keeps
+   * the first request off the direct (429) path in practice.
+   */
+  warm(): void;
+  /**
+   * Start (or join) the relay. Resolves with the base URL, or null when the
+   * relay cannot run here (no bun, missing script, disabled) — the caller then
+   * keeps sending directly and logs `lastError` once.
+   */
+  start(): Promise<string | null>;
+  /**
+   * The relay's own base for one upstream ORIGIN (the lane ladder moves between
+   * `/inference` and `/zen`): the relay forwards pathnames verbatim, so the
+   * origin's path is preserved and only the scheme/host change.
+   */
+  baseUrlFor(origin: string): string | null;
+  /** Stop the relay (plugin dispose). Idempotent. */
+  stop(): Promise<void>;
+}
+//#endregion
 //#region src/request-headers.d.ts
 /** Shared validation for the settings editor and the Zen request path. */
 type RequestHeaders = Record<string, string>;
@@ -149,6 +251,20 @@ interface Opencode2dshConfig {
    * settings save applies to the next request without a restart.
    */
   modelContextWindows?: ModelContextWindows;
+  /**
+   * The Bun upstream relay (src/relay/): the process that makes this plugin's
+   * requests leave on the official client's connection stack.
+   *
+   * WHY IT IS NOT OPTIONAL IN PRACTICE (live 2026-10-25): the free lane gates on
+   * the client's TLS/HTTP fingerprint. A byte-identical official request is
+   * answered 429 by Node h1/h2, curl, Python and Go from every egress, and 200
+   * when the same bytes leave through Bun (relay/supervisor.ts records the
+   * matrix). Payload fixes cannot reach that layer, so the adapter addresses
+   * its requests at a loopback relay that re-originates them with bun's own
+   * fetch. `enabled: false` restores the pre-fix behaviour exactly (direct
+   * Node requests, 429 on the free lane) — useful for probing, not for use.
+   */
+  relay?: RelayConfig;
   /**
    * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
    * config; the settings page (IP-6) will own these live, this object is
@@ -269,6 +385,12 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
    * `limit.context` (with the built-in mimo override still in force).
    */
   modelContextWindows: Schema<ModelContextWindows, ModelContextWindows, "volatile-defined">;
+  /**
+   * The Bun upstream relay (src/relay/): without it the free lane answers 429
+   * no matter what this plugin sends. Ordinary config, not part of the
+   * settings form — see the interface note.
+   */
+  relay: Schema<RelayConfig, RelayConfig, never>;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -394,6 +516,12 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
    * `limit.context` (with the built-in mimo override still in force).
    */
   modelContextWindows: Schema<ModelContextWindows, ModelContextWindows, "volatile-defined">;
+  /**
+   * The Bun upstream relay (src/relay/): without it the free lane answers 429
+   * no matter what this plugin sends. Ordinary config, not part of the
+   * settings form — see the interface note.
+   */
+  relay: Schema<RelayConfig, RelayConfig, never>;
   /** The ip-pool settings form (docs/ip-pool.md §5.1); served as this entry. */
   ipPool: Schema<NoInfer<Schemastery.ObjectS<NoInfer<{
     enabled: Schema<boolean, boolean, "defined">;
@@ -733,4 +861,4 @@ declare function apply(ctx: PluginContext, config?: ResolvedPluginConfig | Openc
  */
 declare function defaultAgentPath(): string;
 //#endregion
-export { AgentProcess, Config, type DshSeams, type Opencode2dshConfig, PluginContext, apply, configPaths, defaultAgentPath, ensureToken, fetchHealth, fetchModels, inject, name, providerBaseURL, registerProvider, resolveConfig, toPiAiModels, writeAgentConfig };
+export { AgentProcess, Config, type DshSeams, type Opencode2dshConfig, PluginContext, type RelayStatus, RelaySupervisor, apply, configPaths, defaultAgentPath, defaultRelayScript, ensureToken, fetchHealth, fetchModels, findBun, inject, name, providerBaseURL, registerProvider, resolveConfig, toPiAiModels, writeAgentConfig };

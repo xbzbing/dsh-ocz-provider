@@ -18,7 +18,8 @@ import { join } from 'node:path'
 
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
 import { LOCAL_EXIT_ID } from './pool/usage.ts'
-import type { UndiciSeam } from './pool/dispatcher.ts'
+import { NO_EXIT_MESSAGE, exitProxyUri, type UndiciSeam } from './pool/dispatcher.ts'
+import { setRelayEgressSeams } from './relay/egress.ts'
 import { resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts'
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
@@ -237,6 +238,13 @@ export interface IpPoolAssemblyDeps {
    * the smoke — can be captured without a network.
    */
   undici?: UndiciSeam
+  /**
+   * The Bun relay's base URL, read at probe time. The admission smoke is a real
+   * chat call, so it faces the connection-stack gate: through the relay it can
+   * answer 200 and grade an exit honestly, while a direct probe always 429s and
+   * cools healthy exits (admission.ts).
+   */
+  relayBaseUrl?: () => string | null
 }
 
 /**
@@ -292,6 +300,7 @@ export async function startIpPool(
     blockedCountries: ipPool.free?.blockedCountries,
     smokeModel: (ipPool.probeModels ?? [])[0],
     smokeContents: ipPool.probeContents ?? [],
+    ...(deps.relayBaseUrl !== undefined ? { relayBaseUrl: deps.relayBaseUrl } : {}),
   }
   const probeModels = ipPool.probeModels ?? []
   /** The probe-model list in force: the configured set, or the S3 default. */
@@ -542,6 +551,57 @@ export async function startIpPool(
   // intermediate error to the host's retry budget.
   setRotateDelegate(createRotateDelegate(pool, { maxAttempts: config.ipPool?.maxRotateAttempts ?? 3 }))
 
+  /**
+   * Relay-traffic egress seams (src/relay/egress.ts).
+   *
+   * While the Bun relay carries chat requests, no dispatch ever reaches
+   * {@link PoolRoutingDispatcher}: the request is addressed at loopback and the
+   * relay opens the upstream connection. These two callbacks are how the pool
+   * keeps its two jobs — deciding WHICH exit carries a request, and grading the
+   * outcomes — instead of silently degrading to "everything egresses locally":
+   *
+   *   pick  -> the same pool.pick(session, model) the dispatcher calls, so
+   *            pinning, stickiness and two-tier health still decide; the
+   *            answer travels to the relay in a header it strips before the
+   *            upstream sees anything.
+   *   settle-> the verdict table the dispatcher's observer applies to a real
+   *            status code: a bad status degrades the exit and breaks the
+   *            session binding, a transport cut strikes it.
+   *
+   * An empty pool keeps its documented meaning: 本地出口兜底 decides between a
+   * direct egress and a refusal, and a refusal is returned as `fail` so the
+   * adapter can surface it (the dispatcher's #failClosed parity) rather than
+   * quietly putting this machine's address on the wire.
+   */
+  setRelayEgressSeams({
+    pick: ({ model, session }) => {
+      if (config.ipPool?.enabled === false) return null
+      const exitId = pool.pick(session, model)
+      if (exitId === null) {
+        return config.ipPool?.localFallback === true || pool.pinnedLocal ? null : { fail: NO_EXIT_MESSAGE }
+      }
+      const exit = pool.get(exitId)
+      if (exit === undefined) {
+        return config.ipPool?.localFallback === true || pool.pinnedLocal ? null : { fail: NO_EXIT_MESSAGE }
+      }
+      pool.beginRequest(exitId)
+      return { exitId, model, session, url: exitProxyUri(exit.id, exit.protocol) }
+    },
+    settle: (pick, outcome) => {
+      try {
+        if (outcome.transport === true) {
+          pool.recordPassiveTransport(pick.exitId)
+          pool.rerouteSession(pick.session)
+        } else if (outcome.status !== undefined) {
+          const verdict = pool.recordPassive(pick.exitId, outcome.status, pick.model)
+          if (verdict !== 'ok') pool.rerouteSession(pick.session)
+        }
+      } finally {
+        pool.endRequest(pick.exitId)
+      }
+    },
+  })
+
   return {
     pool,
     installer,
@@ -592,6 +652,10 @@ export async function startIpPool(
     },
     async dispose() {
       setRotateDelegate(null)
+      // Relay traffic must stop being routed through a pool that is going away
+      // (the adapter then sends direct, which the lane answers 429 — the same
+      // surface as a profile with no pool at all).
+      setRelayEgressSeams(null)
       subscriptions?.stop()
       refill?.stop()
       installer.dispose()

@@ -27,7 +27,8 @@
     "cordis.patch.yml",
     "lib",
     "locale",
-    "assets"
+    "assets",
+    "relay"
   ],
   "dsh": {
     "bundle": {
