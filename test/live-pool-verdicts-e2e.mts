@@ -1,22 +1,22 @@
 /**
- * Live acceptance for the three exit-verdict fixes (2026-10-19).
- *
- * Drives the REAL path — ZenAdapter through a REAL PoolRoutingDispatcher over a
- * REAL ExitPool — against two exits of the operator's own subscription, so the
- * verdicts are the ones the plugin will meet in the field:
+ * Acceptance for the exit-verdict behaviours: drives the REAL path —
+ * ZenAdapter through a REAL PoolRoutingDispatcher over a REAL ExitPool —
+ * against two exits of the operator's own subscription, so the verdicts are
+ * the ones the plugin will meet in the field:
  *
  *  1. a LIVE exit whose IP OpenCode flags    -> the abuse 403 must bench that
- *     row for the long window and record the reason (fix: markAbusive);
+ *     row for the long window and record the reason (`note: 'abusive'`);
  *  2. a RETIRED local port (no listener)     -> the connect failure must strike
  *     it dead, and the trusted-admission fallback (markUnverified) must NOT
- *     re-arm it (fix: markUnverified is not a promotion).
+ *     re-arm it (markUnverified is not a promotion).
  *
  * The pool and dispatcher are the probe's own; the running host is untouched.
  *
  * Run: node test/live-pool-verdicts-e2e.mts
- * Env: PROBE_FLAGGED (default socks5://127.0.0.1:30001 — HK, refused by BOTH
- *      origins; an exit refused by only one door is a SUCCESS for the ladder
- *      and must not be benched, so pick a both-doors one for this test),
+ * Env: PROBE_FLAGGED (comma-separated candidates, default the three local
+ *      ports in FLAGGED below — only an exit refused by BOTH origins qualifies:
+ *      one refused by a single door is a SUCCESS for the ladder and must not be
+ *      benched),
  *      PROBE_CORPSE  (default socks5://127.0.0.1:30032 — retired port)
  */
 import * as undici from 'undici'

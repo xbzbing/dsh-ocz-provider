@@ -1,16 +1,15 @@
 /**
- * The stats modal's 地区 column (live request 2026-10-14): one short region
- * code per exit row instead of the full "HK Central" the IP tooltip already
- * carries.
+ * The stats modal's 地区 column: one short region code per exit row instead of
+ * the full "HK Central" the IP tooltip already carries.
  *
  * Input is the exit's `exitLocation`, which admission.ts builds as
  * `${countryCode} ${city}` from the ip-api echo (`HK Central`, `SG Singapore`,
  * `DE Frankfurt am Main`), so the first whitespace-separated token IS the
- * ISO-3166-1 alpha-2 country code. The table below widens the codes the
- * operator reads at a glance into the region labels they asked for — the two
- * anchors are their own examples (香港 → HK, 新加坡 → SGP) — and anything
- * unmapped falls back to the raw alpha-2 code rather than a blank, so a new
- * airport location is still readable the day it appears.
+ * ISO-3166-1 alpha-2 country code. The table below widens those codes into the
+ * region labels — the two anchors are the mapping's own examples (香港 → HK,
+ * 新加坡 → SGP) — and anything unmapped falls back to the raw alpha-2 code
+ * rather than a blank, so a new airport location is still readable the day it
+ * appears.
  *
  * Deliberately a browser-side module with no host imports (the bundle must
  * not drag the YAML parser in), hence the plain object.
@@ -18,7 +17,7 @@
 
 /** Country code → the region label shown in the 地区 column. */
 const REGION_CODES: Record<string, string> = {
-  // Greater China — the operator's own examples, both kept two-letter.
+  // Greater China: HK/TW/MO stay two-letter; CN reads as CHN.
   HK: 'HK',
   TW: 'TW',
   MO: 'MO',

@@ -6,11 +6,11 @@ import { ensureFreeLaneShape, ensureResponsesFreeLaneShape } from '../src/adapte
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
 
 /**
- * The `<env>` half of the free-lane gate (live 2026-10-25): the quota layer
- * answers 429 to any request whose system prompt carries no non-empty `<env>`
- * block, with the same status it uses for a spent quota. These tests pin the
- * two properties that decision rests on — an empty block is NOT a block, and
- * the block is only ever appended, never substituted for the harness prompt.
+ * The `<env>` half of the free-lane gate: the lane answers 429 to any request
+ * whose system prompt carries no non-empty `<env>` block, with the same status
+ * it uses for a spent quota. These tests pin the two properties that rests on —
+ * an empty block is NOT a block, and the block is only ever appended, never
+ * substituted for the harness prompt.
  */
 
 const FACTS = {
@@ -51,7 +51,7 @@ test('hostEnvFacts reports this process honestly', () => {
   assert.deepEqual(facts.isGitRepo, true, 'the suite runs inside this git worktree')
 })
 
-/** The empty block is one of the measured 429 shapes: tags alone are not enough. */
+/** Tags alone are not a block: an empty block is one of the refused 429 shapes. */
 test('hasEnvBlock rejects the shapes the lane refuses', () => {
   assert.equal(hasEnvBlock(''), false)
   assert.equal(hasEnvBlock('no block here'), false)

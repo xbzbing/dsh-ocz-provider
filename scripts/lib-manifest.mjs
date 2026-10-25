@@ -1,17 +1,12 @@
 #!/usr/bin/env node
 /**
- * Freshness manifest for the committed `lib/`.
- *
- * `lib/` is committed so `file:` / `github:` installs ship working code
- * without running any lifecycle script. The failure mode that commitment
- * buys is a contributor editing `src/` and forgetting to rebuild, which
- * would silently install stale code for everyone — so every build stamps the
- * exact input state it produced, and `--check` re-derives it and fails when
- * they no longer agree.
- *
- * Inputs are the source tree plus the browser bundle config (both halves'
- * inputs); the manifest itself and build outputs are deliberately excluded so
- * touching `lib/` is not itself a change that invalidates it.
+ * Freshness manifest for the committed `lib/`: every build stamps the exact
+ * input state it produced, and `--check` re-derives it and fails when the two
+ * no longer agree — the guard against editing `src/` and forgetting to rebuild,
+ * which would install stale code for everyone. Inputs are the source tree plus
+ * the browser bundle config (both halves' inputs); the manifest itself and
+ * build outputs are deliberately excluded so touching `lib/` is not itself a
+ * change that invalidates it.
  *
  * Usage:
  *   node scripts/lib-manifest.mjs          # stamp lib/.build-manifest.json

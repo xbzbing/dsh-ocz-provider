@@ -1,21 +1,14 @@
 /**
- * Per-model context-window overrides for the Zen lane (settings → 模型上下文).
- *
- * The Zen catalog and models.dev do not always agree with what the endpoint
- * actually serves: models.dev declares `limit.context: 200000` for ids whose
- * card (and live behaviour) is 1M — `mimo-v2.6-flash-free` is the original
- * case, covered by a built-in override in adapter/catalog.ts. This module is
- * the operator-facing knob for every other id: `model-id = <tokens>`.
- *
- * Like request-headers.ts this file is SHARED by the Host and the browser
- * halves, so it must stay dependency-free (no node imports). Validation lives
- * at both boundaries instead of the schema (AGENTS.md: a callback-bearing
- * `Config` node breaks the settings form round trip):
- *   - the editor calls {@link normalizeModelContextWindows} (strict: a bad
- *     draft is refused with a message);
- *   - every catalog read calls {@link sanitizeModelContextWindows} (lenient: a
- *     hand-edited profile patch cannot inject an invalid window, and a bad
- *     entry never breaks a request or a model lookup).
+ * Per-model context-window overrides for the Zen lane (settings → 模型上下文),
+ * one `model-id = <tokens>` entry per id whose models.dev `limit.context`
+ * understates what the endpoint serves (the mimo case is covered by a built-in
+ * override in adapter/catalog.ts). Like request-headers.ts this file is SHARED
+ * by the Host and the browser halves, so it must stay dependency-free (no node
+ * imports); validation lives at both boundaries instead of the schema (a
+ * callback-bearing `Config` node breaks the settings round trip): the editor
+ * calls {@link normalizeModelContextWindows} (strict), and every catalog read
+ * calls {@link sanitizeModelContextWindows} (lenient — a hand-edited profile
+ * patch can neither arm an invalid window nor fail a model lookup).
  */
 
 /** Model id -> context window in tokens. */
@@ -95,9 +88,8 @@ export function sanitizeModelContextWindows(input: unknown): ModelContextWindows
  * Editor text -> dictionary. One `model-id = tokens` per line; `:` is accepted
  * as the separator too, matching the header editor's muscle memory. Blank
  * lines are ignored; a line without a separator, a duplicate id or an invalid
- * window throws. Values are plain decimal token counts on purpose: `1m` is
- * ambiguous (1,000,000 vs 1,048,576) and guessing here would be worse than a
- * refused draft.
+ * window throws. Values are plain decimal token counts: `1m` is ambiguous
+ * (1,000,000 vs 1,048,576), so a suffix is refused rather than guessed.
  */
 export function parseModelContextWindows(text: string): ModelContextWindows {
   const entries: Array<[string, number]> = []

@@ -1,5 +1,5 @@
 /**
- * PRODUCTION-SHAPE live e2e: the free-source pool, end to end.
+ * Production-shape live e2e: the free-source pool, end to end.
  *
  *   startIpPool (full runtime assembly, ZERO manual proxies)
  *     -> RefillScheduler pulls the 26 public free-source lists
@@ -40,12 +40,10 @@ const runtime = await startIpPool(config, logger)
 if (runtime === null) { log('FATAL: startIpPool returned null'); process.exit(1) }
 log(`runtime up; installer ${runtime.installer.enabled ? 'INSTALLED' : `deferred: ${runtime.installer.deferredReason}`}`)
 
-// startIpPool's applyConfig() starts RefillScheduler with an immediate
-// round (void tick()) — refillNow() would just bounce off the #running
-// guard. Wait for the WHOLE round to settle: a full round over the
-// (now larger) source inventory takes several minutes, and killing the
-// runtime mid-coarse reads as admitted:0 — settle means stage idle AND
-// the fine screen actually ran (admissions > 0). Timeout generous.
+// startIpPool's applyConfig() starts RefillScheduler with an immediate round
+// (void tick()) — refillNow() would bounce off the #running guard. Wait for
+// the WHOLE round to settle: a full round takes several minutes, and killing it
+// mid-coarse reads as admitted:0 — settled means stage idle AND admissions > 0.
 const started = Date.now()
 for (;;) {
   const prog = (runtime.refill as { progress?: { running: boolean; stage: string; fetched: number; coarsePassed: number; admitted: number; candidates: number; admissions: number } | null })?.progress

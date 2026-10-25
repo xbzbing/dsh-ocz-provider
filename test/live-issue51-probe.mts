@@ -1,9 +1,7 @@
 /**
- * Issue #51 live probe: hammer the Zen anonymous lane with the reporter's
- * exact combo (step-5-preview-free, reasoningEffort high) through the REAL
- * ZenAdapter path and record what failures look like: how often 429s occur,
- * the raw error text, and how long a failure streak lasts.
- *
+ * Probe: hammers the Zen anonymous lane through the REAL ZenAdapter path
+ * (`step-5-preview-free`, reasoningEffort `high`) and measures how often 429s
+ * occur, their raw error text, and how long a failure streak lasts.
  * Run: node test/live-issue51-probe.mts
  */
 import { ZenAdapter } from '../src/adapter/zen-adapter.ts'

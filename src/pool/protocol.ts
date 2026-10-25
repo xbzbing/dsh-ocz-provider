@@ -1,14 +1,11 @@
 /**
  * Which protocol does a proxy LISTENER actually speak?
  *
- * Why this exists (live 2026-10-25): the pool's rows carry a protocol that the
- * operator typed (manual rows) or that the subscription converter inferred, and
- * nothing ever checked it against the listener. A row labelled `http` whose
- * port is a sing-box SOCKS inbound takes every request through the relay's
- * HTTP CONNECT into a SOCKS server that answers nothing and drops the socket —
- * the user sees `502 relay_error ECONNRESET` (6 ms, measured) on EVERY request
- * while the same port answers 200 through `socks5://`. The pool cannot see
- * that failure kind as anything but "transport", so it kept re-picking the row.
+ * A row's protocol is typed by the operator (manual rows) or inferred by the
+ * subscription converter, and a wrong label sends HTTP CONNECT into a SOCKS
+ * listener (or the reverse): the peer drops the socket, every request dies in
+ * milliseconds with `502 relay_error ECONNRESET`, and the pool sees only
+ * "transport" — so it keeps re-picking the row (AGENTS.md, egress row hygiene).
  *
  * The two probes are protocol-level and never reach the upstream: a SOCKS5
  * greeting (`05 01 00`) and an HTTP CONNECT to a reserved-by-RFC5737 address
@@ -39,7 +36,8 @@ export function proxyEndpoint(address: string): ProxyEndpoint | null {
   return { host, port }
 }
 
-/** One connect-and-read probe: resolves with the first bytes, null on failure. */
+/** One connect-and-read probe: true when the reply satisfies `want`, false on
+ *  timeout, socket error or close-before-answer. */
 function probeBytes(endpoint: ProxyEndpoint, payload: Buffer, want: (first: Buffer) => boolean, timeoutMs: number): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false

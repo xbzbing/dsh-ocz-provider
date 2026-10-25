@@ -1,25 +1,13 @@
 /**
- * Live wire probe (2026-10-19): the two questions upstream PR #83 left open.
+ * Wire probe of two questions: (1) is the v1 `/zen` lane really closed, and
+ * (2) does the gate validate tool definitions beyond `bash` and `read`?
  *
- *   1. Is the v1 `/zen` lane really closed? Upstream main now tries `/zen`
- *      BEFORE `/inference` for the keyless lane, with the 1.19.3 AI-SDK
- *      User-Agent. We recorded `/zen/v1` chat as "403 for every shape" on
- *      2026-10-14, so either their first attempt always falls through, or our
- *      conclusion was over-general and we are leaving a lane on the table.
- *
- *   2. Does the gate validate tool definitions beyond `bash` and `read`?
- *      Upstream asserts every recognised name must carry the genuine
- *      definition (they ship 12 and rewrite any match); our 2026-10-14
- *      ablation measured "only the bash+read pair is validated, extra tools
- *      are ignored". Ours cannot both be true in general.
- *
- * Method: ONE real request through the real ZenAdapter (fetch spy, exactly the
- * capture technique the earlier probes used) gives the control body, then the
- * captured bytes are replayed with a single variable moved — the URL, the
- * User-Agent, or one tool entry. Every replay records the FINAL url as well as
- * the status, so a redirect cannot masquerade as a live lane. Egress is this
- * machine's IPv6 (the IPv4 address is refused by the lane), through the
- * plugin's own connect options.
+ * Method: ONE real request through the real ZenAdapter (fetch spy) gives the
+ * control body, then the captured bytes are replayed with a single variable
+ * moved — the URL, the User-Agent, or one tool entry. Every replay records the
+ * FINAL url as well as the status, so a redirect cannot masquerade as a live
+ * lane. Egress is this machine's IPv6 (the IPv4 address is refused by the
+ * lane), through the plugin's own connect options.
  *
  * Run: node test/live-lane-tools-probe.mts
  *      PROBE_ONLY=zen-raw,inf-read-stub node test/live-lane-tools-probe.mts

@@ -60,7 +60,7 @@ function harness(options: {
 
 test('a cut on a MEASURED row is a strike: the label was proven by real traffic', async () => {
   // A subscription row whose protocol came from a real request has nothing to
-  // ask: the cut IS the verdict (pre-2026-10-25 behaviour, kept on purpose).
+  // ask: the cut IS the verdict.
   const h = harness()
   h.pool.add(node({ id: '127.0.0.1:30033', source: 'subscription', protocol: 'socks5', exitIP: '9.9.9.9' }))
   h.pool.markOk('127.0.0.1:30033')
@@ -72,13 +72,12 @@ test('a cut on a MEASURED row is a strike: the label was proven by real traffic'
 })
 
 test('a mislabelled listener is relabelled and revived instead of buried', async () => {
-  // The live case (2026-10-25): row 127.0.0.1:30035 said `http`, sing-box
-  // served SOCKS5, every request died in 6 ms and the row was struck dead —
-  // while the same port answered 200 through socks5://.
+  // The scenario: a manual row labelled `http` in front of a SOCKS5 listener —
+  // every request dies while the same port answers 200 through socks5://.
   const h = harness({ answer: async () => 'socks5' })
   h.pool.add(node({ id: '127.0.0.1:30035', source: 'manual', protocol: 'http', pinned: true, exitIP: '' }))
   h.pool.markOk('127.0.0.1:30035')
-  // Struck dead earlier in the day: the correction has to lift the sentence.
+  // The row already carries a strike: the correction must lift it.
   h.pool.markDeadStrike('127.0.0.1:30035')
 
   assert.equal(h.verdicts.cut('127.0.0.1:30035'), 'deferred')

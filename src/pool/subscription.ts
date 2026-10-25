@@ -44,13 +44,11 @@ const SUPPORTED_TYPES = new Set([
  * v2ray-shaped one yields base64 links).
  *
  * The value ages: it is a client version, and panels raise their floor over
- * time. Measured history on the live airport — `clash-verge/1.6.0` → 502,
- * `clash-verge/v2.0` → 200 for months, then (2026-10-13) `403 PLEASE UPGRADE
- * CLIENT` while `clash-verge/v2.4.2`, `mihomo/1.19.8` and `clash.meta/1.19.8`
- * all answered 200 with the Clash-shaped body. The default stays in the
- * Clash-Verge family on purpose: the family is what selects the returned
- * format, so switching families would silently change every other airport's
- * body shape. `ipPool.subscription.userAgent` overrides it without a release.
+ * time (docs/ip-pool.md §4.6 records which versions answered what). The
+ * default stays in the Clash-Verge family on purpose: the family is what
+ * selects the returned format, so switching families would silently change
+ * every other airport's body shape. `ipPool.subscription.userAgent` overrides
+ * it without a release.
  *
  * Lives here (the subscription layer's dependency-light module) so the
  * settings schema default and the fetcher's runtime fallback share one

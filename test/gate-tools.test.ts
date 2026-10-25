@@ -49,7 +49,7 @@ test('the genuine gate tools are the 2.1.4 pair the gate names', () => {
     assert.equal(tool.type, 'function')
     assert.equal(tool.function.name, name)
     // The gate matches a SUBSTRING of the description, so shipping a short
-    // paraphrase fails (measured: truncating bash's to 120 chars -> 403).
+    // paraphrase fails (truncating bash's to 120 chars -> 403).
     assert.ok(tool.function.description.length > 250, `${name} ships the genuine description`)
     // The 2.1.4 schemas carry no `$schema`; they declare
     // `additionalProperties: false` and the client stamps `strict: false`.

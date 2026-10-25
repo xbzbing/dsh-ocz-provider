@@ -1,14 +1,14 @@
 /**
- * Pool onboarding (live request 2026-10-13; no-probe contract 2026-10-24):
- * speed-test every converted candidate, keep the fastest `poolSize`, shrink
- * the sing-box conversion to them, and admit the selection FROM ITS SPEED
- * FACTS. The subscription flow never sends a request to OpenCode — no models
- * list, no smoke, on onboarding or on a later reserve swap (operator decision
- * 2026-10-24: 添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟).
+ * Pool onboarding: speed-test every converted candidate, keep the fastest
+ * `poolSize`, shrink the sing-box conversion to them, and admit the selection
+ * FROM ITS SPEED FACTS. The subscription flow never sends a request to
+ * OpenCode — no models list, no smoke, on onboarding or on a later reserve
+ * swap: a subscription add shows only the speed-test latency.
  *
- * The seam therefore THROWS on any non-ip-api request: a single OpenCode call
- * during onboarding or replace() fails the test outright. It also controls the
- * speed-pass latency per candidate port (so the ranking is observable).
+ * The seam therefore RECORDS any non-ip-api request: a single OpenCode call
+ * during onboarding or replace() fails the test that asserts the record stays
+ * empty. It also controls the speed-pass latency per candidate port (so the
+ * ranking is observable).
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -38,9 +38,8 @@ function node(name: string): ParsedNode {
  *
  * NOTE on the `latencyMs` seams below: the speed pass ranks by MEASURED wall
  * time, and node --test runs test FILES in parallel, so the spacing has to
- * dominate scheduler jitter. 10ms per step was too tight — one full-suite run
- * ranked [4,1,2] where the speed order was [4,3,2] (a 20ms inversion under
- * load). The steps are now 50-120ms.
+ * dominate scheduler jitter — 10ms steps inverted under load (one run ranked
+ * [4,1,2] where the speed order was [4,3,2]), so the steps are 50-120ms.
  */
 function candidates(count: number): ConvertedExit[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -65,7 +64,7 @@ interface SeamOptions {
 /**
  * The seam serves ONLY the speed pass (ip-api). Anything else — a Zen models
  * list, a chat smoke, any OpenCode URL — is recorded as evidence of a probe
- * the 2026-10-24 contract forbids; tests assert the record stays empty.
+ * the no-probe contract forbids; tests assert the record stays empty.
  */
 function seam(options: SeamOptions = {}) {
   const probeAttempts: string[] = []
@@ -159,7 +158,7 @@ test('a refused exit is replaced by the next-fastest reserve', async () => {
   })
   const result = await onboarder.run(nodes)
 
-  // Onboarding itself refuses nothing now (there is no connectivity test to
+  // Onboarding itself refuses nothing (there is no connectivity test to
   // fail): the selection is admitted straight from its speed facts.
   assert.equal(result.admitted, 3)
   assert.equal(result.promoted, 0)
@@ -173,9 +172,9 @@ test('a refused exit is replaced by the next-fastest reserve', async () => {
   const replaced = await onboarder.replace(`127.0.0.1:${BASE_PORT + 5}`)
   assert.equal(replaced, true, 'the reserve was promoted')
   // The rebuild must be handed the NEXT selection, never `selected + next`:
-  // the pre-2026-10-14 shape left the refused slot in the config, so sing-box
-  // kept listening on a port no exit owned (measured live: 21 listeners for 16
-  // pool exits). Every select() call is therefore a subset of the live pool.
+  // a selection that still carries the refused slot leaves sing-box listening
+  // on a port no exit owns. Every select() call is therefore a subset of the
+  // live pool.
   assert.deepEqual(ascending(selections.at(-1)!), [1, 2, 3], 'the refused slot leaves the config with it')
   assert.ok(selections.every((slots) => slots.length <= 3))
   assert.ok(!pool.has(`127.0.0.1:${BASE_PORT + 5}`), 'the refused exit left the pool')
@@ -213,7 +212,7 @@ test('with no reserve left a refused exit is kept, demoted to the tail', async (
 })
 
 test('onboarding marks rows ok from the speed pass alone — no OpenCode verdict involved', async () => {
-  // The 2026-10-24 contract: the ONLY health signal the subscription flow
+  // The no-probe contract: the ONLY health signal the subscription flow
   // takes is the speed test's. A row admitted from measured facts claims `ok`
   // (its tunnel demonstrably carries HTTP) with the measured latency/grade;
   // whether OpenCode accepts that IP is learned passively from real traffic.
@@ -233,8 +232,8 @@ test('onboarding marks rows ok from the speed pass alone — no OpenCode verdict
 })
 
 test('replace() promotes a reserve for an exit the upstream refuses later', async () => {
-  // Deterministic speed order (equal latencies fall back to the address tie-break
-  // and timer jitter decides which two of three get selected).
+  // Latency grows with the port, so the two fastest candidates (slots 1, 2)
+  // are selected deterministically and slot 3 stays reserve.
   const { pool, nodes, onboarder } = harness({
     count: 3,
     poolSize: 2,
@@ -307,7 +306,7 @@ test('trim() converges a live pool to a lowered capacity and closes the dropped 
 })
 
 test('replace() is a no-op for an exit that already left both the table and the selection', async () => {
-  // The late-duplicate shape (live 2026-10-14): two callers ask for the same
+  // The late-duplicate shape: two callers ask for the same
   // exit's replacement — the dead rotation and the probe that was already in
   // flight both fire replaceExit(). The first one promotes a reserve and drops
   // the row AND its slot; the second must do nothing, because promoting there
@@ -352,11 +351,11 @@ test('replace() still swaps a reserve for an exit that is in the table', async (
 })
 
 /**
- * Live 2026-10-19: sing-box assigns one port per node INDEX, so a subscription
- * refresh that reorders or shrinks the node list retires ports. The pool kept
- * dialling one of them for hours — every request through it failed at CONNECT,
- * the row was struck dead, the trusted-admission fallback re-admitted it as
- * unverified (usable again), and a pin on it made the failure total.
+ * sing-box assigns one port per node INDEX, so a subscription refresh that
+ * reorders or shrinks the node list retires ports. A row left dialling a
+ * retired port fails at CONNECT, is struck dead, is re-admitted as
+ * unverified (usable again) by the trusted fallback — and a pin on it makes
+ * the failure total. A refresh must therefore drop the orphaned row.
  */
 test('a refresh that retires a port drops the orphaned row, and unpins it', async () => {
   const pool = new ExitPool({ poolSize: 20 })

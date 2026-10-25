@@ -14,13 +14,14 @@ test('randomID differs per call with the requested size', () => {
 test('canonicalSessionID passes a FRESH official session through unchanged', () => {
   resetSessionIDCache()
   // The client's own layout — inverted word, unix_ms in the 36-bit field — but
-  // with a timestamp of "now": that is what the lane accepts (2026-10-25).
+  // with a timestamp of "now": that is what the lane accepts.
   const word = (BigInt(Date.now()) << 12n) | 1n
   const official = `ses_${(~word & ((1n << 48n) - 1n)).toString(16).padStart(12, '0')}2U0aluUnb5nnpZ`
   assert.match(official, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
   assert.equal(canonicalSessionID(official), official, 'a fresh client id keeps its identity')
-  // The PR #70 fixture decodes to about two weeks ago, so it is still inside
-  // the window and keeps its identity — freshness, not age in days, is the rule.
+  // The fixture's prefix decodes to about two weeks ago, so it is still inside
+  // the freshness window and keeps its identity — freshness, not age in days,
+  // is the rule.
   const fixture = 'ses_ecc5beb7cffe2U0aluUnb5nnpZ'
   assert.equal(canonicalSessionID(fixture), fixture)
   // An id whose timestamp is outside the window is re-minted instead (the full
@@ -34,24 +35,9 @@ test('canonicalSessionID passes a FRESH official session through unchanged', () 
 
 /**
  * The free tier decodes the 12-hex prefix as ~(unix_ms*0x1000+counter) in its
- * low 48 bits and requires the inversion.
- *
- * BRIEF HISTORY of this field, because it has now changed three times:
- *   2026-10-13 (upstream PR #69/#70, decolua/9router#4780): the inverted
- *     counter had to land in 0-63; 64+ answered 403.
- *   2026-10-15 (live re-probe): counters 0/1/32/63 -> 200, 64/128 -> 403,
- *     ts36=1 -> 200 — i.e. the timestamp was NOT checked, which is why the
- *     adapter switched to a digest-derived prefix (stateless, inside the
- *     counter window forever).
- *   2026-10-25 (live re-probe, Bun egress, `<env>`-shaped body, one variable
- *     per request): the COUNTER window is gone (1, 32, 63, 64, 128, 4095 all
- *     -> 200; 0 -> 429) and the TIMESTAMP is now checked — now / -1h / -1d /
- *     -7d / -30d -> 200, a future timestamp (+30d) -> 429, and any prefix whose
- *     timestamp is effectively random -> 429. That is exactly what a
- *     digest-derived prefix is, so the PR #70 scheme now rejects every request
- *     with 429 FreeUsageLimitError (the same status the quota uses: the reason
- *     this went unnoticed while the connection-stack gate was being chased).
- * The tests below pin the CURRENT rule: a fresh, inverted, clock-based prefix.
+ * low 48 bits and requires the inversion; it refuses a timestamp it cannot
+ * believe (future or effectively random) and counter 0. The tests below pin
+ * that rule: a fresh, inverted, clock-based prefix.
  */
 function decodedWord(id: string): bigint {
   const field = BigInt('0x' + id.slice(4, 16))
@@ -95,8 +81,8 @@ test('canonicalSessionID mints a FRESH clock-based prefix (the 2026-10-25 rule)'
   assert.match(id, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
 
   // The gate decodes this field as ~(unix_ms*0x1000+counter): the timestamp it
-  // reads back must be the moment of minting, not a digest. That single
-  // property is what the digest-derived prefix (now rejected with 429) lost.
+  // reads back must be the moment of minting, not a digest — a digest-derived
+  // prefix decodes to a random timestamp, which the lane refuses with 429.
   const ms = decodedTime(id)
   assert.ok(Math.abs(ms - timeFieldOf(before)) < 5_000, `prefix decodes to ${ms}, expected ~${timeFieldOf(before)}`)
   assert.ok(decodedCounter(id) >= 1, 'counter 0 is the one refused value (probed 2026-10-25)')
@@ -123,8 +109,7 @@ test('canonicalSessionID re-mints ids whose decoded timestamp is stale or in the
   assert.equal(canonicalSessionID(fresh), fresh)
 
   // Stale (older than the window) and future (beyond clock skew) ids are
-  // re-minted with a fresh prefix — the lane answers 429 to both, measured
-  // 2026-10-25 with Bun egress and an otherwise accepted body.
+  // re-minted with a fresh prefix — the lane answers 429 to both.
   for (const [label, ms] of [
     ['90 days old', Date.now() - 90 * 24 * 60 * 60 * 1000],
     ['30 days ahead', Date.now() + 30 * 24 * 60 * 60 * 1000],
@@ -141,7 +126,7 @@ test('canonicalSessionID re-mints ids whose decoded timestamp is stale or in the
 test('canonicalSessionID is stable per signal and distinct across signals', () => {
   resetSessionIDCache()
   // same conversation keeps one id for the life of the process (the prefix
-  // must stay fresh, so this is a cache, not a pure function — 2026-10-25)
+  // must stay fresh, so this is a cache, not a pure function)
   assert.equal(canonicalSessionID('anything'), canonicalSessionID('anything'))
   // distinct identities stay distinct — different tails at minimum
   assert.notEqual(canonicalSessionID('a'), canonicalSessionID('b'))
@@ -179,9 +164,9 @@ test('deriveRequestIDs keeps the session stable across turns and randomizes requ
   assert.equal(first.session, second.session)
   assert.notEqual(first.request, second.request)
   assert.equal(first.project, second.project)
-  // 2026-10-14: the request id must be a msg_* MESSAGE id and the project id
-  // must be the client's prefix-less `ProjectID` — `req_*` and `prj_*` each
-  // answer 403 FreeTierError on their own (live-probed against /inference/v1).
+  // The request id must be a msg_* MESSAGE id and the project id must be the
+  // client's prefix-less `ProjectID` — `req_*` and `prj_*` each answer 403
+  // FreeTierError on their own against /inference/v1.
   assert.match(first.request, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
   assert.equal(first.project, DEFAULT_PROJECT_ID)
   assert.equal(first.project, 'global')
@@ -199,12 +184,11 @@ test('disguiseHeaders carries the CLI-identical correlation set', () => {
   assert.equal(headers['x-opencode-client'], 'cli')
   assert.equal(headers['x-opencode-session'], ids.session)
   assert.equal(headers['x-opencode-session-id'], ids.session)
-  // The 2.1.4 client sends ALL FOUR session spellings carrying the same id
-  // (byte-capture 2026-10-24): the affinity pair stopped being a
-  // foreign-client signal when the generation moved to 2.x.
+  // The 2.1.4 client sends ALL FOUR session spellings carrying the same id;
+  // the affinity pair is a foreign-client signal only under the 1.x header set.
   assert.equal(headers['x-session-affinity'], ids.session)
   assert.equal(headers['x-session-id'], ids.session)
-  // The 2.x wire carries no x-opencode-request (byte-capture 2026-10-24).
+  // The 2.x wire carries no x-opencode-request.
   assert.equal(headers['x-opencode-request'], undefined)
   assert.equal(headers['x-opencode-project'], ids.project)
   assert.ok(headers['user-agent'].startsWith('opencode/'))

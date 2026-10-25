@@ -3,18 +3,14 @@
  * (docs/ip-pool.md §5.1) to the runtime assembly (ip-pool.ts) with live apply,
  * and mounts the status/probe bridge (§5.3) on the host webServer.
  *
- * Lifecycle (all no-restart, docs §7 IP-5 acceptance), on the DSH 0.1.7 model
- * where there is no `ctx.settings.register()` and the namespace is the Loader
- * entry id:
- *  - the Loader resolves the entry config into the `ipPool` volatile
- *    reference, so a composition that already sets `enabled` assembles the
- *    pool at boot;
- *  - every settings save commits into that same reference and arrives as
- *    `loader/volatile-update`, which hot-applies through runtime.reconfigure()
- *    — including the `enabled` flip (dispatcher install/uninstall) and address
- *    list edits (manual rows rebuilt, pinned re-pinned);
- *  - bridge routes mount once the webServer service shows up (ctx.inject),
- *    reading the live runtime and the current settings value.
+ * Lifecycle (all no-restart, docs §7 IP-5): the Loader resolves the entry
+ * config into the `ipPool` volatile reference, so a composition that already
+ * sets `enabled` assembles the pool at boot; every settings save commits into
+ * that same reference and arrives as `loader/volatile-update`, which
+ * hot-applies through runtime.reconfigure() — including the `enabled` flip
+ * (dispatcher install/uninstall) and address list edits (manual rows rebuilt,
+ * pinned re-pinned); bridge routes mount once the webServer service shows up
+ * (ctx.inject), reading the live runtime and the current settings value.
  */
 
 import type { PluginContext } from '../index.ts'
@@ -65,8 +61,8 @@ export function applyIpPoolSettings(
     usage?: UsageStore
     /**
      * The relay's base URL, read at probe time. Without it the admission smoke
-     * runs directly and always 429s (the stack gate), which the pool then reads
-     * as "this exit's quota is spent" and cools a healthy exit.
+     * runs direct and always 429s (the connection-stack gate), which the pool
+     * then reads as spent quota and cools a healthy exit.
      */
     relayBaseUrl?: RelayBaseUrlReader
   } = {},
@@ -116,12 +112,11 @@ export function applyIpPoolSettings(
   }
 
   // Boot: apply the resolved value. Then every commit the Loader announces
-  // takes the same path — one code path for boot and live, as before.
+  // takes the same path — one code path for boot and live.
   applyCommitted(controller.settings())
 
   // Every settings save the Host accepts for this entry lands in the volatile
-  // reference and arrives here. This replaces the 0.1.1 `scope.watch()` seam
-  // that DSH 0.1.7 deleted along with `ctx.settings.register()`.
+  // reference and arrives as this event — the commit signal for live apply.
   const maybeOn = (ctx as { on?: PluginContext['on'] }).on
   if (typeof maybeOn === 'function') {
     maybeOn.call(ctx, 'loader/volatile-update', () => {
@@ -133,14 +128,13 @@ export function applyIpPoolSettings(
   // the settings domain not to auto-generate one for this entry. Requested
   // lazily: `settings` must stay out of `inject` or a headless composition
   // that does not compose it would never activate the provider route.
-  // Same shape as dsh-llm-deepseek's host.ts — `configure` returns the undo, so
-  // the claim is scoped to our fiber and released on unload.
+  // Same shape as dsh-llm-deepseek's host.ts.
   //
   // The same handle is the write face for the stats modal's 固定 button: that
   // entry is mounted outside any settings form (the sidebar footer), so it has
-  // no ConfigForm to mutate through and rides the bridge instead. Captured at
-  // request time, never at mount time — a host that composes settings after
-  // the bridge is still served.
+  // no ConfigForm to mutate through and rides the bridge instead. The pin
+  // write reads this handle at request time, so a host that composes settings
+  // after the bridge is still served.
   let settingsHandle: PluginContext['settings']
   if (typeof ctx.inject === 'function') {
     void Promise.resolve(ctx.inject(['settings'], (sctx: PluginContext) => {
@@ -163,12 +157,11 @@ export function applyIpPoolSettings(
   /**
    * Session id → project, resolved through the host's workspace registry.
    *
-   * The ledger records SESSION ids (the LLM request carries no workspace —
-   * DSH's own prompt says the cwd is not inferable), and the registry is the
-   * authority on which project each session belongs to: `list()` returns every
-   * workspace with its `sessionIds`, so this is a read-time join rather than a
-   * fact the adapter would have to guess at record time. Optional service: a
-   * composition without the registry simply reports no project.
+   * The ledger records SESSION ids only (a request carries no workspace), and
+   * the registry is the authority on which project each session belongs to
+   * (`list()` returns every workspace with its `sessionIds`), so this is a
+   * read-time join (docs §5.6). Optional service: a composition without the
+   * registry simply reports no project.
    */
   let projectOf: ProjectResolver | undefined
   if (typeof ctx.inject === 'function') {
@@ -189,12 +182,11 @@ export function applyIpPoolSettings(
   /**
    * Session id → the HOST's session title, for the 流量 tab's Top 会话 names.
    *
-   * The ledger records the first user turn at request time, so the list used
-   * to read like "part of the prompt" (live request 2026-10-14). The real
-   * title lives in the host's session log (`session/title` events), owned by
-   * `ctx.sessionQuery`, so it is joined READ-TIME — the same optional-service
-   * pattern as projectOf above: a composition without the service, or one
-   * whose title corpus is empty, simply keeps the recorded labels.
+   * The ledger records the first user turn at request time, so rows fall back
+   * to that fragment; the real title lives in the host's session log
+   * (`session/title` events) under `ctx.sessionQuery`, joined READ-TIME — the
+   * same optional-service pattern as projectOf: no service, or an empty title
+   * corpus, keeps the recorded labels (docs §5.5).
    */
   let sessionTitles: SessionTitleResolver | undefined
   if (typeof ctx.inject === 'function') {
@@ -235,29 +227,27 @@ export function applyIpPoolSettings(
         () => controller.runtime,
         () => ({
           pinnedStrict: controller.settings().pinnedStrict,
-          // Report what the router is ACTUALLY using, not what the settings
-          // say plus a display default: the two diverged silently while the
-          // proxy-host list was empty and the card kept showing opencode.ai
-          // (live 2026-10-13), which is exactly how a fully-direct pool
-          // looked healthy.
+          // Report the router's OWN host list (the resolved value), not the
+          // settings snapshot: an untouched settings list reads [] while the
+          // router resolves it to `opencode.ai`, so the raw value would
+          // understate what the pool actually carries. The no-router fallback
+          // mirrors that same default.
           proxyHosts: controller.runtime?.installer?.proxyHosts !== undefined
             ? [...controller.runtime.installer.proxyHosts]
             : (controller.settings().proxyHosts.length > 0 ? controller.settings().proxyHosts : ['opencode.ai']),
-          // The path scope, reported the same way (router's answer when one is
-          // running). Without it nothing could tell "the pool carries our
-          // lane traffic" from "the pool carries whatever else lands on
-          // opencode.ai" — the difference that made the request counters climb
-          // while every oc2dsh session was quiet (live 2026-10-13). The
-          // fallback is the router's own default rather than a copy of it: the
-          // lane moved from /zen/v1 to /inference/v1 on 2026-10-14, and two
-          // spellings of one default is how a status line starts lying.
+          // The path scope, reported the same way (the router's answer when one
+          // is running): it is what separates "the pool carries our lane
+          // traffic" from "the pool carries whatever else lands on opencode.ai".
+          // The fallback is the router's own DEFAULT_PROXY_PATH_PREFIXES, not a
+          // local copy — one default, one spelling, so the status line cannot
+          // drift from what the router enforces.
           proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== undefined
             ? [...controller.runtime.installer.proxyPathPrefixes]
             : (controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : [...DEFAULT_PROXY_PATH_PREFIXES]),
           // The card's state badge follows the free-source machine only while
-          // that source is on; with free disabled the same thresholds apply
-          // to the whole pool (a subscription-only profile used to sit on
-          // "emergency" forever, live-observed 2026-10-12).
+          // that source is on; with free disabled the same thresholds apply to
+          // the whole pool, or a profile with no free nodes reads "emergency"
+          // forever.
           freeEnabled: controller.settings().free.enabled,
           // 本地出口兜底 (docs §3.3): the router's answer wins, this stands in
           // while no dispatcher is installed (pool off in this process).
@@ -268,7 +258,7 @@ export function applyIpPoolSettings(
           localIpFamily: controller.settings().localIpFamily,
           // The usage switch the card owns: every usage surface (this bridge's
           // per-exit numbers, the modal's tabs) follows it, while the footer
-          // stays pinned to 总览 (live request 2026-10-14).
+          // stays on 总览 (docs §5.5).
           usageScope: controller.settings().usageScope,
         }),
         {

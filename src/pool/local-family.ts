@@ -1,25 +1,15 @@
 /**
- * 本机出口协议族 (live request 2026-10-18): which IP family this machine's own
- * egress uses when the pool does not carry the request — an explicit 固定本机
- * pin, or 本地出口兜底 after a pool miss.
+ * 本机出口协议族: which IP family this machine's own egress uses when the pool
+ * does not carry the request — an explicit 固定本机 pin, or 本地出口兜底 after a
+ * pool miss.
  *
- * Why the setting exists at all: the free lane refuses this host's IPv4 and
- * accepts its IPv6, on byte-identical requests. Measured in the same minute
- * with the adapter's own wire shape — IPv6 (`240e:305:18ac:3c00:…`) answered
- * 200 `text/event-stream` and a real completion (log-id e35e9c5f), while the
- * same bytes forced onto IPv4 (`106.39.151.112`) answered 403 FreeTierError
- * (log-id bfcbbe9c). The official client sits above the difference because it
- * is a Chromium/Bun client: it reaches opencode.ai's AAAA records
- * (`2606:4700:78::90:0:14x`, live sockets in the installed 2.0.32 app) while
- * Node resolves the A records first for this host and undici therefore leaves
- * over IPv4.
- *
- * `auto` is the default and reproduces the client's own behaviour: prefer IPv6
- * when this machine actually carries a routable one, and keep Node's
+ * Why the setting exists: the free lane refuses this host's IPv4 and accepts
+ * its IPv6 on byte-identical requests; the measurements live in
+ * docs/ip-pool.md §3.7. `auto` (the default) reproduces the official client:
+ * prefer IPv6 when this machine carries a routable one, and keep Node's
  * happy-eyeballs fallback (`autoSelectFamily`, on by default) so an absent or
- * broken IPv6 path still reaches IPv4. The explicit positions are for
- * operators who know their line — `ipv4` mirrors the pre-2026-10-18 behaviour
- * exactly, `ipv6` refuses to fall back.
+ * broken IPv6 path still reaches IPv4. `ipv4` and `ipv6` pin the family
+ * outright, for operators who know their line.
  *
  * Scope: only the LOCAL egress agent. Exit traffic is unaffected (a ProxyAgent
  * dials 127.0.0.1 and the family decision belongs to the far side), and so is
@@ -64,8 +54,8 @@ export type InterfaceReader = () => Record<string, InterfaceAddress[] | undefine
  * never routable off-link, so counting it would send the lane to a family the
  * host may not have at all — the exact mistake this check exists to avoid.
  * Unique-local (`fd00::/8`, `fc00::/7`) DOES count: the installed app reaches
- * opencode.ai from a ULA source on this host (live `lsof`: `fd00:6868:…` →
- * `2606:4700:78::90:0:140:443`), so it is a working path here.
+ * opencode.ai from a ULA source on this host, so it is a working path here
+ * (docs/ip-pool.md §3.7).
  */
 export function hasIpv6Address(listInterfaces: InterfaceReader = networkInterfaces as InterfaceReader): boolean {
   let table: Record<string, InterfaceAddress[] | undefined>
@@ -153,8 +143,8 @@ export interface LocalEgressConnectOptions {
 /**
  * The `connect` options for the local-egress Agent, from one dropdown position.
  *
- * An empty object means "no opinion": the Agent then resolves exactly as it
- * did before this setting existed (IPv4 first on hosts like this one).
+ * An empty object means "no opinion": the Agent then resolves with Node's own
+ * order (IPv4 first on hosts like this one).
  */
 export function localEgressConnectOptions(
   family: LocalIpFamily = DEFAULT_LOCAL_IP_FAMILY,

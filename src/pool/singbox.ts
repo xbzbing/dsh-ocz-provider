@@ -51,11 +51,10 @@ export interface ConvertedExit {
  * Can this node's server address ever be dialled from THIS machine?
  *
  * A public subscription handing out a private / loopback / link-local /
- * multicast literal is carrying a placeholder, not a node. Live 2026-10-13: a
- * trojan node with `server: 10.255.255.255` was converted anyway, got a local
- * SOCKS5 port, was admitted through the trusted fallback and sat in the exit
- * table as a `127.0.0.1:30005` row — a rotation slot that could only ever
- * fail. Dropping it at conversion is the only place the pool never sees it.
+ * multicast literal is carrying a placeholder, not a node: converting it
+ * anyway hands it a local SOCKS5 port and a trusted-admission row that can
+ * only ever fail. Dropping it at conversion is the only place the pool never
+ * sees it.
  *
  * Hostnames always pass: resolving them is sing-box's job, and a hostname may
  * legitimately point at something reachable only through another hop.
@@ -239,12 +238,11 @@ export function buildOutbound(node: ParsedNode, tag: string): Record<string, unk
     case 'hysteria2':
       out.type = 'hysteria2'
       out.password = getStr(raw, 'password')
-      // TLS-mandatory (QUIC + TLS), like anytls below. Verified against
-      // sing-box 1.14.3: a node whose Clash entry carries no sni/tls/
-      // client-fingerprint/reality-opts produced an outbound with no tls at
-      // all, and `sing-box check` then rejected the ENTIRE config with
-      // "initialize outbound[N]: TLS required" — parking all 49 nodes of a
-      // real airport subscription over 4 hysteria2 entries.
+      // TLS-mandatory (QUIC + TLS), like anytls below. A node whose Clash
+      // entry carries no sni/tls/client-fingerprint/reality-opts would emit
+      // an outbound with no tls at all, and `sing-box check` then rejects the
+      // ENTIRE config ("initialize outbound[N]: TLS required"), parking every
+      // node of the subscription over a few such entries (sing-box 1.14.3).
       applyTLS({ ...raw, tls: true }, out)
       break
     case 'tuic':
@@ -275,14 +273,12 @@ export interface GeneratedConfig {
    * Local port per INPUT node, index-aligned; `0` for a node whose type has no
    * sing-box outbound mapping (no inbound, no rule, no port burned).
    *
-   * Index alignment replaced a `type:server:port`-keyed map (live 2026-10-13).
-   * That key is NOT a node identity: a real airport fronts many distinct nodes
-   * on ONE edge `host:port` and separates them only by the anytls TLS
-   * `server_name`, so 44 parsed nodes collapsed into 13 keys. The map kept the
-   * LAST port per key, every earlier node resolved to that same port, and 31
-   * generated inbounds were orphaned — listening, never handed to the pool. The
-   * exit table showed 13 exits for a 44-node subscription. Two nodes that are
-   * genuinely one exit are still collapsed, one layer down and quota-aware:
+   * Index alignment, NOT a `type:server:port` key: that key is not a node
+   * identity — a real airport fronts many distinct nodes on ONE edge
+   * `host:port` and separates them only by the anytls TLS `server_name`, so a
+   * keyed map collapses distinct nodes onto one port and orphans the rest
+   * (listening, never handed to the pool). Two nodes that are genuinely one
+   * exit are still collapsed, one layer down and quota-aware:
    * `ExitPool.add()` refuses a second address that measured the same exit IP
    * (docs §3.1).
    */

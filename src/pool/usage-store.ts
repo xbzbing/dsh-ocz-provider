@@ -1,6 +1,6 @@
 /**
- * Persistent usage ledger (live request 2026-10-14: "目前流量是重启后丢失，
- * 增加改为持久记录，最长 90 天").
+ * Persistent usage ledger (docs/ip-pool.md §5.6): day/session/exit
+ * breakdowns kept across restarts, day buckets retained 90 days.
  *
  * The in-process {@link UsageTracker} answered "which exit served this and how
  * fast" for one host lifetime; this store answers "what did I spend" across
@@ -32,7 +32,7 @@ import { dirname, join } from 'node:path'
 import { stateDir } from '../paths.ts'
 import { UsageTracker, emptyTotals, type TokenTotals, type TokenUsage, type UsageRecordMeta } from './usage.ts'
 
-/** How long day buckets are kept (live request: 最长 90 天). */
+/** How long day buckets are kept (docs/ip-pool.md §5.6). */
 export const USAGE_RETENTION_DAYS = 90
 
 /** Bounds on the two keyed maps; the oldest activity is dropped first. */
@@ -131,7 +131,7 @@ export interface UsageStoreOptions {
 }
 
 export class UsageStore {
-  /** This process's buckets — the 本次重启 scope, unchanged from before. */
+  /** This process's buckets — the 本次重启 scope. */
   readonly run = new UsageTracker()
 
   #pathOverride: string | undefined
@@ -379,9 +379,9 @@ export class UsageStore {
   }
 
   /**
-   * Operator-facing clear (live request 2026-10-14: "总量统计保留 90 天，自然
-   * 过期，增加一个清空的功能按钮"): drop every bucket AND make the empty
-   * document the one on disk, so a restart cannot bring the numbers back.
+   * Operator-facing clear (docs/ip-pool.md §5.6): drop every bucket AND make
+   * the empty document the one on disk, so a restart cannot bring the numbers
+   * back.
    *
    * `load()` runs FIRST on purpose: a store that has not read the file yet
    * would otherwise re-read it inside `flush()` and merge the old totals back

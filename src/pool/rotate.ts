@@ -1,9 +1,9 @@
 /**
- * Adapter-layer rotate-retry delegate (docs/ip-pool.md §3.4 / §8.1, IP-7).
+ * Adapter-layer rotate-retry delegate (docs/ip-pool.md §3.4/§8.1).
  *
  * The dispatcher layer only MARKS a degraded exit; the host's own retry loop
  * then re-enters the adapter, which re-picks through the pool — correct, but
- * every attempt burns one of the host's five retries on the same visible
+ * every attempt burns one of the host's retries on the same visible
  * error string ("Connection error." streaks in the user's chat). This module
  * lets the ADAPTER itself retry inside one user-visible request: when a
  * stream fails before any content landed, the adapter asks this delegate
@@ -57,14 +57,14 @@ export function shouldRotate(failure: RotateFailure, model: string, session: str
 
 /**
  * True when the refusal blames the exit's ADDRESS rather than the request:
- * OpenCode's network-reputation answer, live-captured 2026-10-19 —
+ * OpenCode's network-reputation answer —
  * "OpenCode's free models aren't available from your current network because
  * we've detected abusive traffic from this IP address. … If you're on a VPN or
  * proxy, turn it off and try again". Distinct from the other 403 the lane
  * sends ("…can only be used from within OpenCode"), which is about the request
  * shape and is identical from every address: this one is a property of the
  * exit and outlives any rotation, so the pool benches the exit instead of
- * treating it like a moment-to-moment refusal.
+ * treating it like a moment-to-moment refusal (docs/ip-pool.md §3.2).
  */
 export function isIpReputationRefusal(errorMessage: string): boolean {
   return /abusive traffic|this ip address/i.test(errorMessage)
@@ -81,8 +81,8 @@ export function classifyStreamFailure(errorMessage: string): RotateFailure | nul
   // reset, so a truncation that lands BEFORE content rotates to a fresh exit
   // instead of burning a host retry on the exit that just cut it.
   if (/stream ended (?:before|without)\b/.test(text)) return 'transport'
-  // opencode2dsh #105: the same cut under spellings \bsocket\b misses —
-  // "WebSocket" has no inner boundary, and undici's own cuts arrive as
+  // The same cut under spellings a `\bsocket\b` test misses (opencode2dsh #105):
+  // "WebSocket" has no inner word boundary, and undici's own cuts arrive as
   // "other side closed" (SocketError, client-h1.js/client-h2.js — the
   // realistic failure through the exit pool) or "http2 request did not get
   // a response". Same taxonomy the adapter applies (events.ts classifyError).

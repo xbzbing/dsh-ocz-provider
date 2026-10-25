@@ -2,10 +2,9 @@
  * oc2dsh — browser half. Registers the IP 池 page on the Plugins page
  * (设置 → 插件) through the `plugins.bundle.config` slot, which
  * @deepseek-ai/dsh-client-ui-plugin-manager owns, while the Host serves this
- * plugin's entry settings. The bundle detail page (插件 → oc2dsh) embeds the configuration directly between the description and
- * the rows — one level up from the pre-0.2 row's own configure control, which
- * was the only mount point DSH 0.1.7 offered (that era falls back to the
- * `plugins.item` official-plugin page below).
+ * plugin's entry settings. The bundle detail page (插件 → oc2dsh) embeds the
+ * configuration directly between the description and the rows; a Host without
+ * that slot falls back to the `plugins.item` official-plugin page below.
  *
  * Unlike `plugins.item`/`plugins.row.config`, the bundle page's render site
  * hands the slot NO form — so the entry closes over the settings provider's

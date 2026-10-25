@@ -1,14 +1,11 @@
 /**
  * RoutingInstaller: the global dispatcher slot must be RESTORED on disable.
  *
- * Regression cover for the bug this file was created for: `install()` used to
- * read the replaced dispatcher off `setGlobalDispatcher()`'s return value and
- * gate it on `instanceof Object`. On Node 24 / undici 8.x that setter returns
- * `undefined`, so `#previous` stayed null, `disable()` silently skipped the
- * restore, and the PoolRoutingDispatcher captured every later fetch in the
- * process — surviving plugin dispose. The symptom users saw: after installing
- * the plugin, unrelated providers started failing, and only uninstalling it
- * (a process restart) brought them back.
+ * On Node 24 / undici 8.x `setGlobalDispatcher()` returns `undefined`, so the
+ * previous dispatcher must be read back through `getGlobalDispatcher()`.
+ * Without that read `#previous` stays null, `disable()` skips the restore,
+ * and the PoolRoutingDispatcher keeps capturing every fetch in the process —
+ * surviving plugin dispose.
  */
 
 import { test } from 'node:test'
@@ -46,11 +43,11 @@ function makeUndiciStub() {
     get setCalls(): number {
       return setCalls
     },
-    /** `getGlobalDispatcher()` — what the FIXED code reads. */
+    /** `getGlobalDispatcher()` — where the previous dispatcher is read back. */
     getGlobalDispatcher: (): unknown => slot,
     /**
-     * Faithful to undici 8.x: swaps the slot and returns **undefined**.
-     * The buggy code depended on a return value this never provides.
+     * Faithful to undici 8.x: swaps the slot and returns **undefined** —
+     * the replaced dispatcher is never handed back.
      */
     setGlobalDispatcher(next: unknown): undefined {
       setCalls += 1
@@ -102,10 +99,10 @@ test('install() swaps the global dispatcher and marks itself enabled', () => {
 })
 
 test('proxyHosts reports the list actually in force, empty config included (live regression)', () => {
-  // The settings schema defaults proxyHosts to [], and the router used to
-  // treat that as "proxy nothing" while /status displayed opencode.ai from
-  // its own display fallback. The card now reads this getter, so it can only
-  // ever show the hosts the router is really using.
+  // The settings schema defaults proxyHosts to []: an empty list must resolve
+  // to the default, not to "proxy nothing" while /status displays opencode.ai
+  // from its own fallback. The card reads this getter, so it can only show the
+  // hosts the router is really using.
   const installer = new RoutingInstaller({
     pool: makePoolStub(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,8 +125,8 @@ test('proxyHosts reports the list actually in force, empty config included (live
 test('proxyPathPrefixes reports the path scope actually in force (live regression)', () => {
   // Same contract as proxyHosts, for the second half of the routing rule: the
   // card and /status must read the scope the router is using, not a display
-  // default — the divergence that hid the empty-host-list bug also made
-  // "which opencode.ai traffic is in the pool" unanswerable (live 2026-10-13).
+  // default — otherwise "which opencode.ai traffic is in the pool" is
+  // unanswerable.
   const installer = new RoutingInstaller({
     pool: makePoolStub(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,7 +191,8 @@ test('the restored dispatcher is not our own destroyed layer', () => {
 })
 
 test('install() does not depend on setGlobalDispatcher returning the old dispatcher', () => {
-  // The regression's root cause, pinned directly: the setter returns void.
+  // Pinned directly: the setter returns void, so only a getter read can prove
+  // the slot changed.
   const undici = makeUndiciStub()
   const old = undici.peek()
   const returned = undici.setGlobalDispatcher(new undici.Agent())

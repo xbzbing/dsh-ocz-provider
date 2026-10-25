@@ -1,5 +1,5 @@
 /**
- * Per-exit usage attribution (exit-stats surface, 2026-10-13).
+ * Per-exit usage attribution (exit-stats surface).
  *
  * The routing dispatcher already knows WHICH exit carried each request — it
  * stamps the exit id into the adapter's ALS routing context at pick() — and
@@ -15,9 +15,9 @@
  * Requests to hosts outside the pool attribute to {@link LOCAL_EXIT_ID}:
  * that is the 本机 side of the ledger, and it is the number that exposes a
  * routing layer that should be steering traffic but is not. Requests that
- * never entered the dispatcher (pool off entirely) have no exit stamp and
- * are still not counted — the same boundary the passive health counters
- * already respect.
+ * never entered the dispatcher (pool off entirely) carry no exit stamp, and
+ * {@link attributeUsage} books those to {@link LOCAL_EXIT_ID} as well — the
+ * 本机 row counts every request this process sent from this machine.
  */
 import type { HarnessChunk } from '../adapter/events.ts'
 
@@ -34,10 +34,9 @@ export const DIRECT_EXIT_ID = 'direct'
 export const LOCAL_EXIT_ID = 'local'
 
 /**
- * Rolling window for the tok/s display (live request 2026-10-15:
- * "计算最近 3 分钟的平均 tok/s"). Replaces the lifetime weighted mean, which
- * had too much inertia to answer "how fast is this exit NOW" — one bad day
- * poisoned the number forever.
+ * Rolling window for the tok/s display (docs/ip-pool.md §5.5): a lifetime
+ * weighted mean has too much inertia to answer "how fast is this exit NOW" —
+ * one bad day poisons the number forever.
  */
 export const RECENT_WINDOW_MS = 180_000
 
@@ -97,7 +96,7 @@ export const emptyTotals = zeroTotals
 
 /**
  * Who a response belongs to, for the persistent ledger's per-session view
- * (live request 2026-10-14). Optional everywhere: the process-lifetime tracker
+ * (docs/ip-pool.md §5.6). Optional everywhere: the process-lifetime tracker
  * has no session dimension, and an adapter call that carries no session id
  * simply lands in the per-day/per-exit totals alone.
  */
@@ -162,7 +161,7 @@ export class UsageTracker implements UsageRecorder {
    * Recent output speed (tok/s) over the {@link RECENT_WINDOW_MS} window for
    * one bucket. Weighted mean of the windowed responses (sum tokens / sum
    * decode window); 0 when the window is empty or below
-   * {@link RECENT_MIN_TOKENS} — the UI hides the number then, same as before.
+   * {@link RECENT_MIN_TOKENS} — the UI hides the number then.
    */
   speed(exitId: string): number {
     return this.speedFor([exitId])
@@ -256,7 +255,7 @@ export function setUsageRecorder(recorder: UsageRecorder | null): void {
  * never installed. That is exactly the 本机 ledger, so the usage lands in
  * {@link LOCAL_EXIT_ID} rather than being dropped: the modal can then show
  * that model traffic is leaving from this machine even while the pool looks
- * healthy (the failure mode this bucket was added for, live 2026-10-13).
+ * healthy.
  */
 export async function* attributeUsage(
   store: { exitId?: string; usageSession?: string; usageLabel?: string },

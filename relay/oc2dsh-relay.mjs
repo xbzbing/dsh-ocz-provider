@@ -1,43 +1,23 @@
 #!/usr/bin/env bun
 /**
- * oc2dsh upstream relay — the second half of the free-lane gate.
- *
- * WHY A SEPARATE BUN PROCESS EXISTS (live-probed 2026-10-25): the anonymous
- * lane gates on the CLIENT CONNECTION STACK, not on the payload. A
- * byte-identical replay of the official 2.1.4 request (its 16 headers, its
- * captured body, its family path) answers 429 FreeUsageLimitError from Node
- * h1/h2, curl 8.7 h2, Python urllib and Go net/http on every egress — direct
- * v4/v6, the client's own ULA source address and all seven pool exits — while
- * the SAME bytes through this relay answer 200 with a real SSE stream.
- * Ablations ruled out the header set, header case, body, route,
- * `accept-encoding`, HTTP version, source IP, cookies and trace headers; what
- * is left is the TLS/HTTP fingerprint of the client library, which no payload
- * edit can move. The official client is a Bun binary, so the fix is to let
- * BUN send the request.
- *
- * Verified in this exact shape (`docs/local/capture-214/`):
- *   Bun fetch, direct ………………………………… 200
- *   Bun fetch, `proxy: http://…` …………… 200
- *   Bun fetch through a CONNECT->SOCKS5 bridge … 200 (three pool exits)
- *   Bun `node:tls` + hand-written HTTP/1.1 ……… 429   <- NOT the same stack
- * That last line is the important one: this relay must use `fetch`, never
- * `node:net`/`node:tls`, or the gate closes again.
+ * oc2dsh upstream relay — the Bun half of the free-lane gate: the lane gates on
+ * the client's TLS/HTTP fingerprint, so this process must send upstream
+ * requests with `fetch` — never `node:net`/`node:tls`, which the gate rejects.
  *
  * Contract with the plugin (src/relay/supervisor.ts):
  *   - listens on 127.0.0.1:<port>, port from OC2DSH_RELAY_PORT (0 = ephemeral);
  *   - prints `OC2DSH_RELAY_READY <port>` on stdout once listening;
  *   - forwards `<METHOD> <pathname><search>` to OC2DSH_RELAY_UPSTREAM,
  *     streaming the response back untouched;
- *   - per-request egress from the `x-oc2dsh-egress` header, which is stripped
- *     before forwarding (the upstream must never see it):
+ *   - per-request egress from the `x-oc2dsh-egress` header, stripped before
+ *     forwarding (the upstream must never see it):
  *       (absent) / `direct`   -> this machine's egress
  *       `http://h:p`          -> Bun fetch `proxy` option
  *       `socks5://h:p`        -> local CONNECT->SOCKS5 bridge, then `proxy`
- *     The SOCKS bridge exists because Bun's `proxy` accepts http(s) only
- *     (`UnsupportedProxyProtocol` for socks5://), while the exit pool is
- *     SOCKS5-shaped (sing-box inbounds). The bridge moves BYTES only — the
- *     TLS session is still Bun's, so the fingerprint that passes the gate is
- *     preserved.
+ *     The bridge exists because Bun's `proxy` accepts http(s) only
+ *     (`UnsupportedProxyProtocol` for socks5://) while the exit pool is
+ *     SOCKS5-shaped; it moves BYTES only, so the TLS session — and the
+ *     fingerprint the gate sees — stays Bun's.
  *   - `GET /__oc2dsh/health` answers `{"ok":true,…}` without touching upstream.
  *
  * Nothing secret crosses this process: the lane's credential is the literal
@@ -65,8 +45,8 @@ const HOP_BY_HOP = new Set([
 
 /**
  * Egress as the plugin asks for it. `undefined` = plain request (the plugin
- * always sets the header, but a hand-run curl against this relay must not blow
- * up), `direct` = no proxy.
+ * always sets the header, but a hand-run curl must not blow up), `direct` = no
+ * proxy.
  */
 function parseEgress(raw) {
   const value = (raw || '').trim()
@@ -78,19 +58,12 @@ function parseEgress(raw) {
 }
 
 /**
- * Protocol corrections learned at runtime, per egress URL.
- *
- * WHY (live 2026-10-25): pool rows carry a protocol the operator typed, and a
- * manual row for a sing-box SOCKS inbound was labelled `http`. Bun sent HTTP
- * CONNECT into a SOCKS server, the server dropped the socket, and the adapter
- * surfaced `502 relay_error ECONNRESET` in 6 ms on EVERY request while the same
- * port answered 200 through `socks5://`. The pool cannot tell that apart from a
- * dead exit, so the rescue has to happen where the socket dies — here.
- *
- * A rejected connect is retried once with the other scheme; a success is
- * remembered, so later requests skip the doomed first attempt. The pool is
- * corrected separately (src/ip-pool.ts `healProtocol`), because this process
- * has no way back into it.
+ * Protocol corrections learned at runtime, per egress URL: a connect that dies
+ * because a row is labelled with the wrong scheme is retried once on the other
+ * scheme, and the success is remembered so later requests skip the doomed
+ * first attempt. The row's own label is corrected on the pool side
+ * (pool/transport.ts relabel, or the pin probe) — this process has no way back
+ * into it.
  */
 const protocolFixes = new Map()
 
@@ -118,7 +91,7 @@ function swapEgress(egress) {
   return { kind, url: withScheme(egress.url, kind) }
 }
 
-/** `55248` -> `15h20m`，for error text a human has to read. */
+/** `55248` -> `15h20m`, for error text a human has to read. */
 function humanDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return ''
   const total = Math.round(seconds)
@@ -129,13 +102,11 @@ function humanDuration(seconds) {
 }
 
 /**
- * The 429 the free lane answers is a QUOTA on the egress ADDRESS, not a broken
- * request (measured 2026-10-25: `retry-after: 55248` on this machine's egress
- * while the same bytes over a pool exit answered 200). Nothing in that response
- * says so, and the whole team spent hours believing the wire recipe was at
- * fault — three times. So the relay, which is the only hop that sees both the
- * status and the egress it chose, appends that context to the message the host
- * will show. The body stays valid JSON with the original fields intact.
+ * The free lane's 429 is a QUOTA on the egress ADDRESS, not a broken request,
+ * and nothing in the response says so. The relay is the only hop that sees both
+ * the status and the egress it chose, so it appends that context (exit plus the
+ * retry-after window) to the message the host will show; the body stays valid
+ * JSON with the original fields intact.
  */
 function annotateQuotaResponse(text, headers, egress) {
   const retryAfter = Number(headers.get('retry-after') ?? '')
@@ -174,11 +145,9 @@ function socksEndpoint(url) {
 
 /**
  * SOCKS5 handshake timeout. Loopback inbounds answer in well under a
- * millisecond, so this only ever fires when the port is NOT a SOCKS server —
- * exactly the mislabelled-row case, where the peer may sit on our greeting
- * forever instead of replying (an HTTP proxy that waits for `\r\n\r\n` does).
- * Without it the request hangs until the caller gives up and the protocol
- * swap in the handler never fires (measured 2026-10-25).
+ * millisecond, so this only fires when the port is NOT a SOCKS server — where
+ * the peer may sit on our greeting forever instead of replying. Without it the
+ * request hangs and the protocol swap in the handler never fires.
  */
 const SOCKS_HANDSHAKE_TIMEOUT_MS = 3_000
 
@@ -266,8 +235,8 @@ function bridgeFor(socksUrl) {
         const [host, port] = [target[1], Number(target[2])]
         const upstream = net.connect({ host: endpoint.host, port: endpoint.port })
         /**
-         * A dead SOCKS inbound must answer, not just drop: see the 502 written
-         * by the handshake-failure handler below.
+         * A dead SOCKS inbound must answer 502, not just drop the socket: a
+         * silent close leaves Bun's CONNECT waiting for a status line.
          */
         upstream.on('error', () => {
           log(`BRIDGE socks upstream unreachable ${endpoint.host}:${endpoint.port}`)
@@ -292,9 +261,7 @@ function bridgeFor(socksUrl) {
              * Answer like a proxy instead of dropping the socket: a silent
              * close leaves Bun's CONNECT waiting for a status line, so the
              * request hangs until the caller's timeout and the protocol-swap
-             * retry in the handler never fires (measured 2026-10-25, a
-             * `socks5://` label on an HTTP listener). 502 is true AND
-             * actionable.
+             * retry in the handler never fires. 502 is true AND actionable.
              */
             try {
               client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
@@ -380,18 +347,16 @@ const server = Bun.serve({
       failure = err
     }
     /**
-     * A connect that never produced a response is exactly the shape of a
-     * protocol mismatch (see `protocolFixes`). One retry on the other scheme,
-     * and the correction is remembered for this egress URL.
+     * A connect that never produced a response is the shape of a protocol
+     * mismatch (see `protocolFixes`): one retry on the other scheme, and the
+     * correction is remembered for this egress URL.
      */
     if (upstream === undefined && (egress.kind === 'http' || egress.kind === 'socks5')) {
       /**
        * The rescue attempt is BOUNDED: the first attempt already failed, so a
-       * peer that accepts the connection and then says nothing (a proxy waiting
-       * for a full header block, a wedged inbound) would otherwise hold this
-       * request forever — measured 2026-10-25, a silent peer hung a request with
-       * no status line and no timeout. Healthy traffic never reaches here, so
-       * this bound cannot cut a slow-but-working exit.
+       * peer that accepts the connection and then says nothing would otherwise
+       * hold this request forever. Healthy traffic never reaches here, so this
+       * bound cannot cut a slow-but-working exit.
        */
       const alt = swapEgress(egress)
       try {

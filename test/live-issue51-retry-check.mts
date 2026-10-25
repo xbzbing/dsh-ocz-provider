@@ -1,10 +1,9 @@
 /**
- * Issue #51 live verification, second half: replay the SAME upstream
- * conditions through ZenAdapter, but wrap each user-visible request in the
- * host's retry algorithm (dsh-llm-retry localDelay + retryableCodes) driven
- * by the adapter's FREE_LANE_RETRY_POLICY. Compare against the unretryed
- * baseline (live-issue51-probe.mts): with the policy applied, transient 429
- * bursts should almost never reach the user.
+ * Probe: the same lane conditions as live-issue51-probe.mts, but each
+ * user-visible request is wrapped in the host's retry algorithm
+ * (dsh-llm-retry localDelay + retryableCodes) driven by the adapter's
+ * FREE_LANE_RETRY_POLICY — it measures how many transient 429 failures the
+ * policy absorbs before the user sees them.
  *
  * Run: node test/live-issue51-retry-check.mts
  */

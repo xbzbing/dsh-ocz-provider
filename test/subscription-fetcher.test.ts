@@ -8,7 +8,8 @@ import { SubscriptionFetcher } from '../src/pool/subscription-fetcher.ts'
 /**
  * A fake undici seam serving ONLY the speed test (ip-api). Any other URL — a
  * Zen models list, a chat smoke, anything OpenCode — is recorded as a probe
- * attempt the 2026-10-24 contract forbids; tests assert the record stays empty.
+ * attempt, which the subscription contract forbids; tests assert the record
+ * stays empty.
  */
 function seam() {
   const probeAttempts: string[] = []
@@ -81,8 +82,8 @@ test('subscription refresh: plaintext nodes speed-test into the pool, encrypted 
   const { pool, fetcher, probeAttempts } = makeFetcher((async () => new Response(SUB_BODY)) as unknown as typeof fetch)
   fetcher.setUrls(['https://sub.example.com/token-abcdef-123456'])
   const state = await fetcher.refresh()
-  // plaintext nodes admitted from the SPEED TEST alone (2026-10-24: no
-  // OpenCode probe runs for a subscription — the row shows the speed latency)
+  // plaintext nodes admitted from the SPEED TEST alone: a subscription row
+  // shows the speed latency and never triggers an OpenCode probe
   assert.equal(state.plaintextAdmitted, 2)
   assert.ok(pool.has('1.2.3.4:8080'))
   assert.ok(pool.has('5.6.7.8:1080'))
@@ -135,9 +136,9 @@ test('subscription pulls send the default User-Agent, not a UA the airport gates
   fetcher.setUrls(['https://sub.example.com/token-abcdef-123456'])
   await fetcher.refresh()
   // One pull per URL; the admission smoke rides deps.undici, not fetchImpl.
-  // The default is a client VERSION and panels raise their floor over time:
-  // measured on the live airport, `clash-verge/1.6.0` → 502 and, from
-  // 2026-10-13, `clash-verge/v2.0` → 403 PLEASE UPGRADE CLIENT.
+  // The default must be a client VERSION: airport panels raise their UA floor
+  // over time, so an old spelling comes back as an error page instead of the
+  // subscription body (docs/ip-pool.md).
   assert.deepEqual(seen, ['clash-verge/v2.4.2'])
   assert.equal(fetcher.userAgent, 'clash-verge/v2.4.2')
 })
@@ -172,10 +173,9 @@ test('a blank UA falls back to the default instead of sending none', async () =>
 // -- conversion core attached after construction -------------------------------
 
 test('a supervisor attached after construction converts on the next refresh', async () => {
-  // Regression (live 2026-10-12): `singbox.path` is editable while the pool
-  // runs, but the supervisor was read once at construction. Filling the field
-  // after the fetcher existed left every encrypted node parked forever, with
-  // no error to explain it.
+  // The supervisor is re-read on every round: `singbox.path` is editable while
+  // the pool runs, so a core attached after construction must convert on the
+  // next refresh instead of leaving encrypted nodes parked forever.
   const { pool, fetcher } = makeFetcher((async () => new Response(SUB_BODY)) as unknown as typeof fetch)
   fetcher.setUrls(['https://sub.example.com/x'])
   const before = await fetcher.refresh()
@@ -223,9 +223,9 @@ test('setUrls: a changed list on a running fetcher pulls right away', async () =
   await settle()
   assert.deepEqual(pulls, ['https://a.example.com/x'])
 
-  // Regression (live 2026-10-12): saving a new airport URL only re-seeded the
-  // list, so the subscription was not pulled until the next timer tick — up to
-  // 30 minutes of "the setting did not apply".
+  // A changed list pulls right away: re-seeding only would leave the new URL
+  // waiting for the next timer tick — up to 30 minutes of "the setting did
+  // not apply".
   fetcher.setUrls(['https://a.example.com/x', 'https://b.example.com/y'])
   await settle()
   assert.deepEqual(pulls, ['https://a.example.com/x', 'https://a.example.com/x', 'https://b.example.com/y'])
@@ -243,8 +243,8 @@ test('setUrls: a changed list on a running fetcher pulls right away', async () =
 
 test('setIntervalMs: only a real change re-arms the refresh timer', async (t) => {
   // Every settings commit calls setIntervalMs, so re-arming unconditionally
-  // pushed the next fetch a full interval away from the save — a save made the
-  // pool less live, not more (live-observed 2026-10-12).
+  // would push the next fetch a full interval away from the save — a save must
+  // make the pool fresher, not staler.
   t.mock.timers.enable({ apis: ['setInterval'], now: 0 })
   const pulls: string[] = []
   const { fetcher } = makeFetcher(urlRecorder(pulls))

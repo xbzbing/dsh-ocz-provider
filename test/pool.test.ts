@@ -257,7 +257,7 @@ test('unpinning/removing the pinned node clears the pointer', () => {
   assert.equal(p.pick('ses', 'm'), null)
 })
 
-// -- passive signals (docs §4.2 rule table, §4.3 被动; IP-6) --------------------
+// -- passive signals (docs §4.2 rule table, §4.3) --------------------
 
 test('recordPassive classifies by the rule table and writes two-tier health', () => {
   const p = pool()
@@ -279,8 +279,7 @@ test('recordPassive classifies by the rule table and writes two-tier health', ()
   assert.equal(p.isUsable('e:1', 'other'), true)
   assert.equal(p.passiveStats('e:1').refused, 2)
   // 5xx -> counted dead for diagnostics but the exit stays usable: the 500
-  // is often the MODEL failing behind a healthy exit (live 2026-09-09: muse
-  // without contributor access 500s through every exit); striking the exit
+  // is often the MODEL failing behind a healthy exit; striking the exit
   // dead would empty the pool and silently fall ALL traffic back to direct
   assert.equal(p.recordPassive('e:1', 503, 'big-pickle'), 'dead')
   assert.equal(p.isUsable('e:1', 'other'), true)
@@ -334,10 +333,10 @@ test('markDeadStrike stamps deadAt and markOk clears it (revival bookkeeping)', 
 })
 
 /**
- * Live 2026-10-13: subscription exits whose probe failed were kept by
- * admission.admitTrusted (docs 4.5) but then markOk()'d by the caller, so
- * five dead nodes sat in the verified tier at grade S and absorbed real
- * requests. markUnverified() is the correct mark: node kept, claim dropped.
+ * Subscription exits whose probe failed are kept by admission.admitTrusted
+ * (docs 4.5); marking them ok would park dead nodes in the verified tier at
+ * grade S where they absorb real requests. markUnverified() is the correct
+ * mark: node kept, claim dropped.
  */
 test('markUnverified: keeps the node, drops the ok claim, and yields to verified exits', () => {
   const p = pool()
@@ -365,12 +364,10 @@ test('markUnverified: keeps the node, drops the ok claim, and yields to verified
 })
 
 test('no periodic probe: a dead exit stays parked until a real-request or manual verdict (2026-10-23)', () => {
-  // The due-probe loop (periodic recheck + deadRetryMs revival) is gone by
-  // operator decision: liveness is judged by real requests only. The 2026-10-12
-  // incident the loop existed for — 14 exits struck dead by false positives and
-  // the pool silently draining — now rests on the replacement paths: the strike
-  // threshold (free), the reserve swap (subscription), and the card's 探测
-  // action. Assert what remains: a dead row serves nothing, and a passing
+  // There is no due-probe loop (no periodic recheck, no deadRetryMs revival):
+  // liveness is judged by real requests only, and the recovery paths are the
+  // strike threshold (free), the reserve swap (subscription), and the card's
+  // 探测 action. Asserted here: a dead row serves nothing, and a passing
   // manual probe revives it.
   const p = pool()
   p.add(node({ id: 'x:1', source: 'subscription', exitIP: '5.5.5.5' }))
@@ -424,7 +421,7 @@ test('pin/unpin keep the row flag in step with the pinned slot', () => {
   assert.ok(p.list().every((entry) => !entry.pinned))
 })
 
-// -- whole-pool capacity + tail demotion (live request 2026-10-13) -------------
+// -- whole-pool capacity + tail demotion -------------
 
 test('poolSize bounds the admission quota across every source, not just free', () => {
   const p = pool({ poolSize: 3 })
@@ -500,7 +497,7 @@ test('remove() forgets the demotion with the node', () => {
   assert.equal(p.demoted('a:1'), false, 'a re-admitted exit starts at the head again')
 })
 
-// -- dead exits sink to the tail and ask the runtime to rotate (2026-10-14) ----
+// -- dead exits sink to the tail and ask the runtime to rotate ----
 
 test('a dead exit moves to the end of the pool order, once per transition', () => {
   const p = pool()
@@ -555,7 +552,7 @@ test('a dead exit is not usable, whatever its position in the order', () => {
 })
 
 test('pin: 固定本机 hands out no exit at all, and unpin restores rotation', () => {
-  // Live request 2026-10-14: the stats modal's 本机 row gets the same 固定
+  // The stats modal's 本机 row gets the same 固定
   // button as an exit row. "Fixed to this machine" can only mean pick()
   // returns null (the dispatcher's documented direct path) — falling through
   // to the rotation pool would silently ignore the click.
@@ -593,9 +590,9 @@ test('pin: the 本机 sentinel survives a stale pinned-flag sweep, and remove() 
 test('refresh: facts land on a live row, and a row that left the table is never resurrected', () => {
   // A probe holds an `entry` snapshot from before it ran; the exit can leave
   // the table meanwhile (dead rotation, refusal replacement, an operator's
-  // 删除). add() is an upsert, so writing that snapshot back resurrects the
-  // removed row — measured live 2026-10-14: 11 rows against a capacity of 10,
-  // the extra one demoted, unverified and listenerless.
+  // 轮换). add() is an upsert, so writing that snapshot back would resurrect
+  // the removed row — a capacity-exceeding, listenerless extra row. refresh()
+  // must refuse it.
   const p = pool()
   p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 900, quality: 'B' }))
   p.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
@@ -628,11 +625,10 @@ test('refresh never rewrites identity, source or the pin flag', () => {
 })
 
 /**
- * Live 2026-10-19: a retired sing-box port (the subscription had been
- * regenerated with a different node order) took 48 connect failures in a row.
- * Each round the pool struck it dead, the trusted-admission fallback re-admitted
- * the paid line as unverified, and 'unknown' is still USABLE — so it was picked
- * (and pinnable) again. Un-verifying must never be a promotion.
+ * A retired sing-box port that keeps failing connects is struck dead, then
+ * re-admitted as unverified by the trusted-admission fallback — and 'unknown'
+ * is still USABLE, so it would be picked (and pinnable) again. Un-verifying
+ * must never be a promotion.
  */
 test('markUnverified never revives a dead exit', () => {
   const p = pool()
@@ -653,9 +649,8 @@ test('markUnverified never revives a dead exit', () => {
 
 /**
  * OpenCode's IP-reputation refusal (…abusive traffic from this IP address…)
- * outlives any rotation, so the exit is benched for hours and the reason is
- * recorded for the card. Live 2026-10-19: 6 of 10 subscription exits answered
- * exactly this, from four different countries.
+ * outlives any rotation, so the exit is benched for the long window and the
+ * reason is recorded for the card.
  */
 test('markAbusive benches the exit for the long window and records why', () => {
   const p = pool()
@@ -686,9 +681,9 @@ test('markAbusive benches the exit for the long window and records why', () => {
 
 /**
  * The adapter blames the exit that answered through exitOfSession(session),
- * which is fed by the sticky binding pick() records. A pinned pick used to
- * return BEFORE recording it, so a refusal landing on a pinned exit had no
- * exit to blame and the row was never benched.
+ * which is fed by the sticky binding pick() records. A pinned pick must record
+ * that binding before returning: otherwise a refusal landing on a pinned exit
+ * has no exit to blame and the row is never benched.
  */
 test('pick records the sticky binding on the pin path too', () => {
   const p = pool()
@@ -700,7 +695,7 @@ test('pick records the sticky binding on the pin path too', () => {
   assert.equal(p.exitOfSession('ses-A'), null)
 })
 
-// -- revive / transport signal / pin skip (2026-10-25) -------------------------
+// -- revive / transport signal / pin skip -------------------------
 
 /**
  * A dead mark is permanent until something proves the row alive, and the two
@@ -748,10 +743,10 @@ test('recordTransportSignal counts a cut without judging the row', () => {
 })
 
 /**
- * Live 2026-10-25: a pinned row sat dead while the session kept working — the
- * rotation had silently moved to other exits, and nothing said so. The pin
- * itself stays a preference (that is what 主力+备胎 promises), so the fix is to
- * SAY it, from the one place every routing seam passes through.
+ * A pin that is set but unusable falls through to the rotation (that is what
+ * 主力+备胎 promises), and the fall-through must be loud: a session quietly
+ * riding other exits reads as "the pin works". onPinnedSkip reports it from
+ * the one place every routing seam passes through.
  */
 test('pick reports a pin it had to skip, and never when the pin serves', () => {
   const p = pool()

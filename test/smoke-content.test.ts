@@ -1,8 +1,5 @@
 /**
- * The probe-content pool (live request 2026-10-14: "增加探测文案的配置，默认
- * content 修改为「hello」，允许用户自定义多个 content，探索时随机选择").
- *
- * Pure functions, so the edges are cheap to pin: the default, the cleanup a
+ * The probe-content pool (pure functions): the default content, the cleanup a
  * hand-typed list needs (trim / drop empties / dedupe), and the pick — which
  * must never index outside the pool whatever a `random` seam returns.
  */

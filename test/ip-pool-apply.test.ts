@@ -151,9 +151,8 @@ test('boot-enabled: runtime assembles once from the resolved volatile value', as
 })
 
 test('a persisted enabled:true assembles at boot even with a disabled entry config', async () => {
-  // The old namespace model got this for free (register() took the persisted
-  // document as its base). The volatile reference carries the same fact, and
-  // reading only the entry config would strand the pool until the next save.
+  // The volatile reference carries the persisted enabled fact; reading only
+  // the entry config would strand the pool until the next save.
   resetCalls()
   const host = makeVolatileHost({ enabled: true })
   applyIpPoolSettings(host.ctx, ordinary(), () => host.ref.get(), host.ctx.logger, { assemble })
@@ -232,8 +231,9 @@ test('an absent volatile reference degrades to defaults instead of throwing', as
 
 test('the settings page is claimed lazily and never gates the fiber', async () => {
   // `settings` stays out of `inject`: SettingsForms needs a profileContext and
-  // ships disabled headless, so demanding it up front kept the provider route
-  // from ever activating. configure({ auto: false }) is requested on demand.
+  // ships disabled headless, so demanding it up front would keep the provider
+  // route from ever activating. configure({ auto: false }) is requested on
+  // demand.
   resetCalls()
   const configureCalls: Array<unknown> = []
   const injections: string[][] = []
@@ -361,9 +361,10 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
 })
 
 test('the bridge wires the 清空 button to the same ledger the adapter writes', async () => {
-  // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空的功能按钮.
-  // The route has to reach the SAME store (index.ts owns the singleton) and it
-  // must work with the pool OFF — the ledger records every request regardless.
+  // Totals age out after 90 days (USAGE_RETENTION_DAYS), so the 流量 tab ships
+  // a 清空 button. The route has to reach the SAME store (index.ts owns the
+  // singleton) and it must work with the pool OFF — the ledger records every
+  // request regardless.
   resetCalls()
   const dir = mkdtempSync(join(tmpdir(), 'apply-usage-clear-'))
   const usagePath = join(dir, 'usage.json')

@@ -1,15 +1,9 @@
 /**
- * Guards the committed build output.
- *
- * `lib/` ships in git so `dsh plugin add file:<repo>` and
- * `dsh plugin add github:<owner>/<repo>` install working code — neither path
- * runs a lifecycle script, so nothing else would ever build it. The price of
- * that is that a source edit committed without a rebuild silently installs
- * stale code for every later user; this test is what makes that impossible to
- * merge.
- *
- * The comparison itself lives in scripts/lib-manifest.mjs (shared with the
- * build), so the stamp and the check can never drift apart.
+ * `lib/` ships in git (neither install path runs a lifecycle script), so a
+ * source edit committed without a rebuild would install stale code for every
+ * later user — this test makes that impossible to merge. The comparison lives
+ * in scripts/lib-manifest.mjs, shared with the build, so stamp and check
+ * cannot drift apart.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

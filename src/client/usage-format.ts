@@ -2,10 +2,9 @@ import type { TokenTotalsView } from './IpPoolCard.tsx'
 
 /**
  * Shared token-display formatting for the IP-pool client surfaces (the footer
- * entry, the exit-stats modal, the usage panel). These three helpers were
- * duplicated verbatim across ExitStatsEntry.tsx and UsagePanel.tsx; they read
- * the same bridge-shaped `TokenTotalsView` and must stay in lockstep so the
- * footer, modal and panel never disagree about the same number.
+ * entry, the exit-stats modal, the usage panel). The helpers read the same
+ * bridge-shaped `TokenTotalsView` and must stay in lockstep so the footer,
+ * modal and panel never disagree about the same number.
  */
 
 /** The all-in token figure the UI shows (input + output + cache read/write). */
@@ -20,7 +19,6 @@ export function compact(value: number): string {
   return String(value)
 }
 
-// The tok/s helper that used to live here (outputSpeed: lifetime output
-// tokens / lifetime decode window) is gone: as of 2026-10-15 the display
-// number is the host-side recent 3-min window (pool/usage.ts speed fields),
-// and the client only renders what /status computed.
+// tok/s is deliberately NOT computed here: the display number is the host-side
+// recent 3-min window (pool/usage.ts speed fields), and the client only renders
+// what /status computed.

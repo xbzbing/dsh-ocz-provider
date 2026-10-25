@@ -58,14 +58,14 @@ export interface Opencode2dshConfig {
   /**
    * The User-Agent sent on every Zen request (adapter mode): chat, the model
    * catalog refresh and the pool's admission probes. Empty = the built-in
-   * current-client shape (`opencode/latest/2.1.3/<client>`, where `<client>`
+   * current-client shape (`opencode/latest/2.1.4/<client>`, where `<client>`
    * mirrors the effective `x-opencode-client`).
    *
    * The anonymous lane accepts a FINGERPRINT, not one string: this header
    * travels with the session/project/request id shapes and the tool
    * definitions, and mixing two generations answers 403. Change it only to a
    * UA whose generation you can keep coherent (adapter/ids.ts
-   * `disguiseHeaders` holds the live-probed recipes).
+   * `disguiseHeaders` holds the probe recipes).
    */
   userAgent?: string
   /** Live Zen-only header overrides. Override userAgent when User-Agent is present. */
@@ -79,22 +79,16 @@ export interface Opencode2dshConfig {
   modelContextWindows?: ModelContextWindows
   /**
    * The Bun upstream relay (src/relay/): the process that makes this plugin's
-   * requests leave on the official client's connection stack.
-   *
-   * WHY IT IS NOT OPTIONAL IN PRACTICE (live 2026-10-25): the free lane gates on
-   * the client's TLS/HTTP fingerprint. A byte-identical official request is
-   * answered 429 by Node h1/h2, curl, Python and Go from every egress, and 200
-   * when the same bytes leave through Bun (relay/supervisor.ts records the
-   * matrix). Payload fixes cannot reach that layer, so the adapter addresses
-   * its requests at a loopback relay that re-originates them with bun's own
-   * fetch. `enabled: false` restores the pre-fix behaviour exactly (direct
-   * Node requests, 429 on the free lane) — useful for probing, not for use.
+   * requests leave on the official client's connection stack, which the free
+   * lane gates on — a payload edit cannot reach that layer. Started lazily by
+   * `listModels`/`prepareCall`/the catalog refresh; `enabled: false` sends
+   * direct (the lane answers 429), which is what a probe wants.
    */
   relay?: RelayConfig
   /**
-   * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
-   * config; the settings page (IP-6) will own these live, this object is
-   * the cordis.patch.yml seam.
+   * IP-pool exit routing (docs/ip-pool.md). Everything below is plain plugin
+   * config; the settings page owns these live through the volatile `ipPool`
+   * node, and this object is the cordis.patch.yml seam.
    */
   ipPool?: IpPoolConfig
 }
@@ -144,9 +138,9 @@ export interface IpPoolConfig {
   maxConcurrentProbes?: number
   /**
    * Whole-pool capacity: how many exits stay online at once, any source
-   * (default 20). The onboarding speed-tests candidates, keeps the fastest
-   * `poolSize` and shrinks the sing-box config to them, so it also bounds the
-   * number of local SOCKS listeners.
+   * (settings schema default 10). The onboarding speed-tests candidates, keeps
+   * the fastest `poolSize` and shrinks the sing-box config to them, so it also
+   * bounds the number of local SOCKS listeners.
    */
   poolSize?: number
   /** sing-box conversion core for encrypted nodes (docs 1.2.2, IP-4). */
@@ -182,41 +176,33 @@ export function resolveConfig(config: Opencode2dshConfig = {}): ResolvedConfig {
 
 /**
  * The plugin's `Config` — the whole DSH settings contract in one schema.
- *
- * DSH 0.1.7 has no imperative `ctx.settings.register(ns, schema)`. A plugin
+ * DSH 0.1.7 has no imperative `ctx.settings.register(ns, schema)`: a plugin
  * declares editable settings by exporting this schema, and dsh-settings derives
- * the served namespace from the Loader entry id. Two consequences drive this
- * shape:
+ * the served namespace from the Loader entry id. Three consequences shape it:
  *
- *  - `ipPool` is ONE `.volatile()` node, so the entire ip-pool subtree is the
- *    settings form (dsh-settings' `volatileForm()` selects a node's whole plain
- *    schema once that node is volatile). Nesting `.volatile()` deeper is a hard
- *    schemastery error, and per-field marks would also fragment the card's
- *    form value into siblings instead of one `ipPool` object.
- *  - `requestHeaders` is a separate volatile dictionary, edited by the Zen
- *    section and read at request time by all three senders.
- *  - the remaining fields are ORDINARY configuration. `volatileForm()` drops
- *    them from the form; legacy `userAgent` remains a profile-only fallback.
+ *  - `ipPool` is ONE `.volatile()` node, so the whole subtree is the settings
+ *    form (nesting `.volatile()` deeper is a hard schemastery error, and
+ *    per-field marks would fragment the card's form value into siblings).
+ *  - `requestHeaders` and `modelContextWindows` are separate volatile
+ *    dictionaries, read at request / model-resolution time.
+ *  - the remaining fields are ORDINARY configuration, which `volatileForm()`
+ *    drops from the form; `userAgent` remains a profile-only field.
  *
  * The reference is `dsh-llm-deepseek`'s `deepSeekConfigFields`.
  */
 /**
  * `requestHeaders` must stay a PLAIN dict — never a `.transform()`.
  *
- * dsh-settings builds the served form by REBUILDING the schema from
- * `Config.toJSON()` (`plainSchema`: `new z(schema.toJSON())`) and then
- * serializing that form a second time for the browser, which rehydrates it
- * (`new Schema(view.schema)`) and validates the draft. A transform node keeps
- * its `callback` through the first `toJSON()` but loses it on the rebuild, so
- * the rehydrated node throws `callback is not a function`,
- * `ConfigFormController.decode()` returns undefined, and the card never leaves
- * its loading state — the whole 配置 page goes blank (live 2026-10-15, when the
- * Zen 请求头 field was added with a transform).
- *
- * Validation therefore lives at the editor (`parseRequestHeaders`, strict) and
- * at the request boundary (`sanitizeRequestHeaders`, lenient), not in the
- * schema. `test/request-headers.test.ts` and `scripts/smoke-dsh-compat.mjs`
- * guard the round trip.
+ * dsh-settings rebuilds the served form from `Config.toJSON()` (`plainSchema`)
+ * and serializes it a second time for the browser; a transform's `callback`
+ * survives the first `toJSON()` but is dropped on that rebuild, so the
+ * rehydrated node throws `callback is not a function`, the
+ * `ConfigFormController.decode()` result is undefined, and the 配置 card never
+ * leaves its loading state. Validation therefore lives at the editor
+ * (`parseRequestHeaders`, strict) and at the request boundary
+ * (`sanitizeRequestHeaders`, lenient), not in the schema;
+ * `test/request-headers.test.ts` and `scripts/smoke-dsh-compat.mjs` guard the
+ * round trip.
  */
 const RequestHeadersConfigSchema: Schema<RequestHeaders, RequestHeaders, 'volatile-defined'> =
   Schema.dict(Schema.string()).default({}).volatile()
@@ -239,7 +225,7 @@ const ModelContextWindowsConfigSchema: Schema<ModelContextWindows, ModelContextW
  * the whole configuration page.
  */
 const RelayConfigSchema: Schema<RelayConfig, RelayConfig, never> = Schema.object({
-  /** Master switch; false = pre-fix behaviour (direct Node requests, 429s). */
+  /** Master switch; false = direct Node requests, which the free lane answers 429. */
   enabled: Schema.boolean().default(true),
   /** Explicit bun binary; empty = search PATH and the usual install dirs. */
   bunPath: Schema.string().default(''),

@@ -19,19 +19,16 @@ import { fetchHealth, fetchModels, registerProvider, removeProviderRoute } from 
 import { RelaySupervisor, type RelayStatus } from './relay/supervisor.ts'
 
 /**
- * oc2dsh DSH cordis plugin entry.
- *
- * Two modes (config.mode, default `adapter`):
+ * oc2dsh DSH cordis plugin entry. Two modes (config.mode, default `adapter`):
  *  - adapter: register a DSH LlmAdapter streaming directly from the Zen
  *    anonymous lane (marketplace shape: no child process, no binary).
- *  - sidecar (legacy/dev): prepare data dir + token + agent-config.json,
+ *  - sidecar (not bundled): prepare data dir + token + agent-config.json,
  *    spawn the Go agent, wait for READY, register the llm-pi-ai provider
  *    route, schedule model refresh.
  *
- * Settings: the editable surface is the `ipPool` field of {@link Config},
- * marked volatile. DSH 0.1.7 serves it under this entry's Loader id and
- * commits saves into the same reference, announcing them with
- * `loader/volatile-update`; there is no `ctx.settings.register()`.
+ * Settings: the editable surface is exported as `Config` (`ipPool` volatile,
+ * plus the `requestHeaders` / `modelContextWindows` dictionaries), served
+ * under this entry's Loader id; there is no `ctx.settings.register()`.
  *
  * dispose(): stop timers/catalog, terminate the agent tree (sidecar mode).
  * The cordis fiber disposal guarantees this runs on plugin reload/unload and
@@ -44,12 +41,6 @@ export interface PluginContext {
   logger: { info(...args: unknown[]): void; warn(...args: unknown[]): void; error(...args: unknown[]): void }
   llm?: { registerAdapter(providers: string[], adapter: unknown): unknown }
   credentials?: { set(ref: string, value: string): Promise<void> }
-  /**
-   * DSH 0.1.7 `SettingsForms` (dsh-settings). Read face for the sidecar's
-   * namespace writes; `configure` is how a plugin claims its own settings
-   * page instead of letting the domain auto-generate one. The 0.1.1
-   * `register()/watch()` scope seam is gone and deliberately not re-declared.
-   */
   /**
    * The host's workspace registry (`@deepseek-ai/dsh-workspace`), requested on
    * demand: it is the authority on which project a session belongs to, and the
@@ -70,6 +61,12 @@ export interface PluginContext {
       signal?: AbortSignal,
     ): Promise<ReadonlyArray<{ sessionId?: unknown; status?: unknown; value?: { title?: { title?: unknown } } | undefined }>>
   }
+  /**
+   * DSH 0.1.7 `SettingsForms` (dsh-settings). Read face for the sidecar's
+   * namespace writes; `configure` is how a plugin claims its own settings
+   * page instead of letting the domain auto-generate one. The 0.1.1
+   * `register()/watch()` scope seam is gone and deliberately not re-declared.
+   */
   settings?: {
     describe?(options?: { redactSecrets?: boolean }): unknown
     get?(ns: string): unknown
@@ -97,11 +94,11 @@ export { Config } from './config.ts'
  * Only `llm` gates this fiber, because adapter mode (the shipped default) uses
  * nothing else: the Zen lane's credential is the literal `'public'`, and the
  * ip-pool settings ride the `Config` volatile reference. DSH 0.1.7 composes
- * `ctx.settings` as `SettingsForms`, which itself injects
+ * `ctx.settings` as `SettingsForms`, which injects
  * `['configEditor', 'profileContext']` and ships disabled wherever no
- * `profileContext` exists (headless/CLI) — demanding it here kept the whole
- * fiber from ever activating, and with it the provider route. Sidecar mode and
- * the `configure({ auto: false })` page claim ask for the extra seams through
+ * `profileContext` exists (headless/CLI) — demanding it here would keep the
+ * fiber (and the provider route) from activating. Sidecar mode and the
+ * `configure({ auto: false })` page claim ask for the extra seams through
  * `ctx.inject` instead.
  */
 export const inject = ['llm'] as const
@@ -145,12 +142,6 @@ function applyAdapter(
     return { ready }
   }
 
-  // IP-pool exit routing (docs/ip-pool.md IP-1..IP-5): manual proxies,
-  // pinned, free sources, subscriptions, and (IP-5) the settings namespace
-  // with live apply + the /status /probe bridge. Opt-in via settings page or
-  // cordis.patch.yml; disabled keeps the process byte-for-byte on direct.
-  // Lifecycle (assembly on first enable, live reconfigure, dispose) is owned
-  // by applyIpPoolSettings through the plugin fiber.
   const dataDir = stateDir()
   const statusPath = join(dataDir, 'adapter-status.json')
   /** The last relay snapshot, written into the status file (diagnostics). */
@@ -174,12 +165,10 @@ function applyAdapter(
   }
 
   /**
-   * The Bun upstream relay. Started FIRST and awaited: every chat request that
-   * leaves before it is up would be answered 429 by the free lane (the stack
-   * gate is not something a payload can satisfy), so the adapter only gets a
-   * relay handle once the process is listening. A machine without bun keeps
-   * working — the supervisor resolves null, the adapter sends direct, and the
-   * warning says exactly what is missing.
+   * The Bun upstream relay, constructed here but started lazily (catalog
+   * refresh, then `listModels`/`prepareCall`): loading the plugin must not fork
+   * a process. A machine without bun keeps working — the supervisor resolves
+   * null, the adapter sends direct, and the warning says what is missing.
    */
   const relay = new RelaySupervisor({
     ...(cfg.relay !== undefined ? { config: cfg.relay } : {}),
@@ -211,12 +200,11 @@ function applyAdapter(
     relay,
   })
 
-  // Persistent usage ledger (live request 2026-10-14: 流量重启后不再丢失，保留
-  // 90 天). Installed HERE, not inside the ip-pool runtime: the ledger answers
-  // "what did this machine spend", which stays true with the pool switched off
-  // (every request then lands in the 本机 bucket), and a host that never
-  // enables the pool still gets its numbers. The recorder seam keeps usage.ts
-  // from importing the ledger (that would be an import cycle).
+  // Persistent usage ledger, installed HERE, not inside the ip-pool runtime:
+  // the ledger answers "what did this machine spend", which stays true with the
+  // pool switched off (every request then lands in the 本机 bucket), and a host
+  // that never enables the pool still gets its numbers. The recorder seam keeps
+  // usage.ts from importing the ledger (that would be an import cycle).
   setUsageRecorder(usageStore)
   if (typeof ctx.effect === 'function') {
     ctx.effect.call(ctx, () => () => { void usageStore.dispose() })
@@ -227,10 +215,9 @@ function applyAdapter(
   // Register FIRST: the provider must appear in the selector right away. The
   // host awaits listModels and caches its answer per host generation, so the
   // registration-time read warms the catalog (bounded, issue #45) instead of
-  // handing the picker the staticFreeModels bootstrap list. Registration
-  // deliberately precedes every optional layer below — a throw anywhere in
-  // the ip-pool wiring, the stale-route sweep, or the refresh loop must never
-  // cost the deployment its only free provider.
+  // handing the picker the staticFreeModels bootstrap list. A throw anywhere
+  // in the ip-pool wiring, the stale-route sweep, or the refresh loop must
+  // never cost the deployment its only free provider.
   ctx.llm.registerAdapter([PROVIDER_ID], adapter)
   logger.info(`oc2dsh: adapter registered for "${PROVIDER_ID}" (catalog warms up in background)`)
 
@@ -238,8 +225,8 @@ function applyAdapter(
   // registration, then prepareCall) rather than here: loading the plugin must
   // not fork a process, and a host that only inspects the catalog should never
   // pay for one. The adapter reads `baseUrl` per request, so a relay that is
-  // still coming up simply means that attempt goes direct (the pre-fix 429
-  // surface) instead of failing.
+  // still coming up means that attempt goes direct (and is answered 429)
+  // instead of failing.
   if (typeof ctx.effect === 'function') {
     ctx.effect.call(ctx, () => () => {
       relayStatus = relay.status()
@@ -251,15 +238,15 @@ function applyAdapter(
     })
   }
 
-  // IP-pool exit routing (docs/ip-pool.md IP-1..IP-5): manual proxies,
-  // pinned, free sources, subscriptions, and (IP-5) the volatile `ipPool`
-  // settings field with live apply + the /status /models /probe bridge. Opt-in
-  // via settings page or cordis.patch.yml; disabled keeps the process
-  // byte-for-byte on direct. Lifecycle (assembly on first enable, live
-  // reconfigure, dispose) is owned by applyIpPoolSettings through the plugin
-  // fiber. The probe-model dropdown rows include the live catalog, so this
-  // must run after the catalog instance exists — and it is fenced, because the
-  // route above is already live and must survive anything this layer throws.
+  // IP-pool exit routing (docs/ip-pool.md IP-1..IP-5): manual proxies, pinned,
+  // free sources, subscriptions, and the volatile `ipPool` settings field with
+  // live apply + the /status /models /probe bridge. Opt-in via settings page or
+  // cordis.patch.yml; disabled keeps the process byte-for-byte on direct.
+  // Lifecycle (assembly on first enable, live reconfigure, dispose) is owned by
+  // applyIpPoolSettings through the plugin fiber. It runs after the catalog
+  // exists (the probe-model dropdown lists the live catalog) and inside
+  // try/catch, because the provider route above must survive anything this
+  // layer throws.
   try {
     applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
       listLiveModels: () => catalog.list(),
@@ -275,14 +262,11 @@ function applyAdapter(
     logger.error(`oc2dsh: catalog start failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  // A sidecar leftover (llm-pi-ai.providers.oc2dsh pointing at a dead
-  // local port) would shadow the adapter registration and fail every dispatch
-  // with a connection error. Remove it before the route can be used.
-  //
-  // The `settings` seam is requested rather than assumed: 0.1.7's SettingsForms
-  // is absent from a headless composition, and its read face is `describe()`
-  // (the 0.1.1 `get(ns)` is gone), so both the read and the write go through
-  // the same resolve-as-available path the sidecar uses.
+  // A sidecar leftover (llm-pi-ai.providers.oc2dsh pointing at a dead local
+  // port) would shadow the adapter registration and fail every dispatch with a
+  // connection error, so it is removed before the route can be used. The
+  // `settings` seam is requested rather than assumed (0.1.7's SettingsForms is
+  // absent from a headless composition) and reads through `describe()`.
   if (typeof ctx.inject === 'function') {
     void Promise.resolve(ctx.inject(['settings'], (sctx: PluginContext) => {
       if (!sctx.settings) return
@@ -323,13 +307,11 @@ function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: 
   }
 
   /**
-   * Sidecar mode's two extra seams, asked for lazily. `inject` declares only
-   * `llm` so the shipped adapter mode never waits on services a headless
-   * composition does not compose, which means sidecar has to request
-   * `credentials`/`settings` itself. A bounded race keeps a composition that
-   * composes neither from parking the first refresh forever: the attempt
-   * settles on the next tick when the services are already up, and gives up
-   * with the warn below when they never arrive.
+   * Sidecar mode's two extra seams, asked for lazily: `inject` declares only
+   * `llm`, so sidecar requests `credentials`/`settings` itself. The 2 s race
+   * keeps a composition that composes neither from parking the first refresh
+   * forever — it settles immediately when the services are already up, and
+   * falls back to what ctx carries when they never arrive.
    */
   let seams: Promise<{ credentials?: PluginContext['credentials']; settings?: PluginContext['settings'] }> | undefined
   const resolveSeams = (): Promise<{ credentials?: PluginContext['credentials']; settings?: PluginContext['settings'] }> => {

@@ -11,7 +11,7 @@ import { withEnvBlock } from '../src/adapter/env-block.ts'
 /**
  * The exact method surface dsh-llm touches on a registered adapter. A missing
  * member throws inside registerAdapter and silently drops the provider from
- * the model selector (regression: providerRetryPolicy, index.js:1208).
+ * the model selector.
  */
 test('ZenAdapter implements the full dsh-llm adapter surface', () => {
   const adapter = new ZenAdapter(new ModelCatalog())
@@ -52,7 +52,7 @@ test('resolveModel declares image input from models.dev, and the built-in patter
   assert.equal(textOnly.defaultMaxTokens > 0, true)
   assert.equal(textOnly.provider, 'oc2dsh')
   assert.equal(textOnly.id, 'big-pickle')
-  // The mimo-v2.6 family is the live-verified vision lane (2026-09-28).
+  // The mimo-v2.6 family is the vision lane.
   const vision = adapter.resolveModel('oc2dsh', 'mimo-v2.6-flash-free')
   assert.deepEqual(vision.inputModalities, ['text', 'image'])
 
@@ -109,7 +109,7 @@ test('resolveModel prefers models.dev limits and keeps the defaults without them
   assert.equal(roomy.resolveModel('oc2dsh', 'big-pickle').context.contextWindow, 1048576)
   assert.equal(roomy.resolveModel('oc2dsh', 'big-pickle').defaultMaxTokens, 384000)
 
-  // metadata cannot speak: flat defaults, exactly as before the fix
+  // metadata cannot speak: flat defaults win
   const plain = new ZenAdapter(catalog())
   assert.equal(plain.resolveModel('oc2dsh', 'ghost').context.contextWindow, 262144)
   assert.equal(plain.resolveModel('oc2dsh', 'ghost').defaultMaxTokens, 32768)
@@ -173,9 +173,9 @@ test('listModels awaits the catalog warm before reading (issue #45)', async () =
 })
 
 test('listModels answers from the live roster once the first fetch lands (issue #45)', async () => {
-  // The registration-time read races the first Zen fetch; before the fix it
-  // handed the host the 7-id bootstrap list, which the picker then kept for
-  // the whole host generation.
+  // The registration-time read races the first Zen fetch: without the await the
+  // host is handed the 7-id bootstrap list, which the picker keeps for the
+  // whole host generation.
   let release: (() => void) | undefined
   const gate = new Promise<void>((resolve) => {
     release = resolve
@@ -265,11 +265,9 @@ function capturingProvider() {
   return { provider, captured }
 }
 
-/** A body that already satisfies the free-lane gate recipe: since 2026-10-14
- *  that means the GENUINE bash/read definitions (adapter/gate-tools.ts), not
- *  placeholder stubs. */
-// A body already satisfying BOTH halves of the free-lane payload gate: the
-// genuine tools and a system slot carrying the `<env>` block (env-block.ts).
+/** A body already satisfying BOTH halves of the free-lane payload gate: the
+ *  genuine tool definitions (adapter/gate-tools.ts) and a system slot carrying
+ *  the `<env>` block (env-block.ts). */
 // Shaped this way, onPayload leaves it untouched unless a test asks for more —
 // which is what keeps these cases about the reasoning effort alone.
 const gateBody = {
@@ -323,7 +321,7 @@ test('stream keeps the free-lane gate rewrite alongside the effort injection', a
     ['read', 'shell'],
   )
   // the injected tools are the genuine definitions and are NOT call-disabled:
-  // `tool_choice: 'none'` is a 403 of its own since 2026-10-14
+  // `tool_choice: 'none'` is a 403 of its own
   assert.equal(shaped.tool_choice, undefined)
 
   // non-chat payloads pass through untouched even with an effort selected
@@ -531,9 +529,9 @@ test('the wire request carries the correlation headers the free-lane gate requir
     { providerOverride: provider },
   )
   for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [] })) void chunk
-  // The 2.1.4 recipe (byte-capture 2026-10-24): a canonical ses_* id rides ALL
-  // FOUR session spellings, `x-opencode-request` is absent, and
-  // `x-opencode-project` is the prefix-less project id (`prj_*` 403s).
+  // The 2.1.4 recipe: a canonical ses_* id rides ALL FOUR session spellings,
+  // `x-opencode-request` is absent, and `x-opencode-project` is the
+  // prefix-less project id (`prj_*` 403s).
   for (const name of ['x-opencode-session', 'x-opencode-session-id', 'x-session-affinity', 'x-session-id']) {
     assert.match(headers?.[name] ?? '', /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/, name + ' carries the canonical shape')
   }
@@ -684,9 +682,8 @@ test('a deterministic refusal stays untagged — the host must not wait on it', 
 
 /**
  * The origin ladder (adapter/lane.ts), from the adapter's side: the same
- * request bytes are sent to the second door only when the first one answers
- * with an ORIGIN-shaped failure, and that switch never spends an exit
- * rotation (on 2026-10-19 both doors served the identical recipe).
+ * request bytes go to the second door only when the first one answers with an
+ * ORIGIN-shaped failure, and that switch never spends an exit rotation.
  */
 function laneProvider(outcomes: Array<'refuse' | 'limited' | 'answer'>, seen: string[]) {
   const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 }

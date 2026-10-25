@@ -29,12 +29,8 @@ function makeAdmission(good: Set<string>) {
     deps: {
       pool: new ExitPool(),
       undici: {} as never,
-      // admitCandidate is imported inside refill; we intercept via the
-      // fetchSourceImpl + a patched admit seam through the deps object by
-      // giving refill a fake AdmissionDeps.undici whose ProxyAgent throws —
-      // but the simplest seam: refill calls admitCandidate directly, so we
-      // test through fetch + a stub undici that makes admission succeed for
-      // good addresses via the echo script.
+      // refill runs admitCandidate itself, so the seam used by these tests is
+      // the scripted fetch + stub undici below, not a fake AdmissionDeps.
     },
   }
 }
@@ -248,14 +244,10 @@ test('refill: admission quota bounds the round; full pool evicts worst on replac
 })
 
 test('refill: survivor overflow beyond the quota is not admitted (replace-flow guard)', async () => {
-  // Live-observed regression (2026-09-07): when a round surfaces more coarse
-  // survivors than the quota, the whole survivor list was enqueued because
-  // the quota gate was evaluated at task-build time (before any admission
-  // completed, admitted/admittedLimited were both 0). The queue then ran the
-  // replace flow (evict worst + insert) for every survivor — latency-ranked,
-  // so each replacement evicted a better node for a worse one. The gate must
-  // hold while the queue drains: once the quota is filled, remaining queued
-  // admissions for this round are skipped.
+  // The reservation gate is re-checked while the queue drains, not only when
+  // the tasks are built: once the quota is filled, remaining queued admissions
+  // for this round are skipped, so the replace flow (evict worst + insert)
+  // never churns the pool for the surplus.
   const pool = new ExitPool({ targetSize: 3 })
   const stack = makeStack({
     pool,
@@ -278,11 +270,11 @@ test('refill: survivor overflow beyond the quota is not admitted (replace-flow g
 })
 
 test('refill: smoke-429 survivors are admitted cooling and do not satisfy the quota', async () => {
-  // Live-observed semantics (docs 4.5, 2026-09-05): a candidate whose proxy
-  // is alive and whose Zen tunnel works but hits 429 at smoke is a good exit
-  // with its quota consumed elsewhere — admit it cooling, keep the state
-  // machine hungry for truly-usable nodes, and let the periodic probe retry
-  // when the cooldown expires.
+  // docs/ip-pool.md 4.5: a candidate whose proxy is alive and whose Zen tunnel
+  // works but hits 429 at smoke is a good exit with its quota consumed
+  // elsewhere — admit it cooling, keep the state machine hungry for
+  // truly-usable nodes, and let the periodic probe retry when the cooldown
+  // expires.
   const stack = makeStack({
     lists: { 'https://raw.githubusercontent.com/ProxyScraper/ProxyScraper/main/http.txt': ['hot:1', 'good:1'] },
     admitOk: () => true,

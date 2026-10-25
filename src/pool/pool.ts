@@ -39,18 +39,17 @@ export type ExitState = 'unknown' | 'ok' | 'dead'
 /**
  * How long an exit is benched after OpenCode's IP-reputation refusal
  * (…abusive traffic from this IP address…). The flag lives upstream and is
- * measured in hours — the same addresses answered 403 all afternoon on
- * 2026-10-19 — so a minutes-long cooldown would just re-burn the same refusal
- * on the next rotation. The card's 探测 action still probes it on demand, and
- * a probe that passes clears the note (markOk).
+ * measured in hours (docs/ip-pool.md §3.2), so a minutes-long cooldown would
+ * just re-burn the same refusal on the next rotation. The card's 探测 action
+ * still probes it on demand, and a probe that passes clears the note (markOk).
  */
 export const ABUSIVE_COOLDOWN_MS = 3 * 60 * 60 * 1000
 export type BanState = 'ok' | 'suspect' | 'banned'
 /**
  * Why an exit is benched beyond a plain cooldown. `'abusive'` is OpenCode's
- * IP-reputation refusal (…detected abusive traffic from this IP address…,
- * measured 2026-10-19): the flag lives upstream for hours, so the exit is
- * benched for the long haul instead of being retried every rotation.
+ * IP-reputation refusal (…detected abusive traffic from this IP address…):
+ * the flag lives upstream for hours, so the exit is benched for the long haul
+ * instead of being retried every rotation.
  */
 export type ExitNote = '' | 'abusive'
 
@@ -62,7 +61,7 @@ interface ExitHealth {
   cooldownUntil: number
   /** Serial-probe lock slot: at most one in-flight probe per exit (4.1). */
   inflight: boolean
-  /** Consecutive dead rechecks; eviction after deadEvictions (3.5). */
+  /** Consecutive strikes; a free row evicts after deadEvictions (3.5). */
   deadStrikes: number
   /**
    * When the exit was last struck dead (epoch ms); 0 = not dead. Diagnostic
@@ -104,7 +103,7 @@ export interface PoolOptions {
   limitedCooldownMaxMs?: number
   /** Suspect -> banned after this many consecutive 401/403. */
   modelBanConfirmations?: number
-  /** Dead exits are evicted after this many probe strikes (free source only). */
+  /** Dead exits are evicted after this many strikes (free source only). */
   deadEvictions?: number
   now?: () => number
 }
@@ -119,10 +118,9 @@ export function gradeOf(latencyMs: number): ExitNode['quality'] {
 
 /**
  * Grade for an exit that was never measured. gradeOf(0) returns 'S' (a 0ms
- * admission), so the trusted-admission fallback — which carries `latencyMs: 0`
- * because the probe produced no facts — used to hand the BEST grade to the
- * WORST exits, and the picker sorts by grade. An unmeasured exit ranks last
- * until a probe actually measures it.
+ * admission), which would hand the BEST grade to an exit carrying NO facts,
+ * and the picker sorts by grade. An unmeasured exit ranks last until a probe
+ * actually measures it.
  */
 export const UNVERIFIED_QUALITY: ExitNode['quality'] = 'C'
 
@@ -154,7 +152,7 @@ export class ExitPool {
    * Exits rejected by the upstream lane (a failed OpenCode smoke, or a 401/403
    * verdict) with no reserve left to promote: they stay in the pool as the last
    * resort but are ranked last by `pick()` and listed last by `list()` — the
-   * pool keeps its size instead of draining to zero (live request 2026-10-13).
+   * pool keeps its size instead of draining to zero (docs/ip-pool.md §4.7).
    */
   readonly #demoted = new Set<string>()
   #targetSize: number
@@ -267,13 +265,11 @@ export class ExitPool {
    * Register a callback fired after every node newly added to the pool.
    *
    * The runtime assembly uses it to engage routing the moment a pool that
-   * assembled EMPTY stops being empty. The free-source refill loop had its own
-   * hook for that (live-observed 2026-09-09 on a free-only pool), but the
-   * subscription path had none — a subscription-only profile (free disabled)
-   * assembled empty, filled up minutes later, and never installed the
-   * dispatcher, so the pool reported "enabled" while every request kept going
-   * direct (live-observed 2026-10-12). This hook is source-agnostic: free,
-   * subscription and manual admissions all reach it through add().
+   * assembled EMPTY stops being empty. Without a source-agnostic hook here, a
+   * profile that fills up after boot (subscription-only, free disabled) keeps
+   * the dispatcher uninstalled and reports "enabled" while every request still
+   * goes direct; free, subscription and manual admissions all reach this hook
+   * through add().
    */
   onAdmitted(callback: () => void): void {
     this.#admittedCallbacks.push(callback)
@@ -294,8 +290,7 @@ export class ExitPool {
    * Register a callback fired when an exit TRANSITIONS to `dead` (once per
    * transition, not once per strike). The runtime uses it to rotate: the
    * subscription layer swaps the dead exit for the next-fastest reserve, or
-   * parks it at the pool tail when no reserve is left (live request
-   * 2026-10-14 — "其余 dead 自动轮换").
+   * parks it at the pool tail when no reserve is left (docs/ip-pool.md §4.7).
    */
   onDead(callback: (id: string) => void): void {
     this.#deadCallbacks.push(callback)
@@ -320,10 +315,9 @@ export class ExitPool {
    * leave the table while the probe is in flight (a dead rotation, a refusal
    * replacement, an operator's 删除). `add()` is an upsert, so writing that
    * snapshot back RESURRECTS the removed row — and a resurrected row has no
-   * local listener, while `isUsable()` still hands it out as the last resort.
-   * Measured live 2026-10-14: 11 rows against a capacity of 10, the extra one
-   * demoted, unverified and listenerless. Facts for a row that left the table
-   * are dropped instead: the probe measured an exit the pool already gave up on.
+   * local listener, while `isUsable()` still hands it out as the last resort
+   * (docs/ip-pool.md §4.7). Facts for a row that left the table are dropped
+   * instead: the probe measured an exit the pool already gave up on.
    *
    * Only the admission-measured fields are writable here — identity, source and
    * the pin flag belong to whoever put the row in the table.
@@ -421,11 +415,9 @@ export class ExitPool {
    * exit that was never measured no longer outranks one that was.
    *
    * NOT a revival: an exit already struck dead stays dead until a probe
-   * proves it alive (`markOk`). Un-verifying used to re-arm a corpse, so a
-   * trusted line whose local port no longer exists was re-admitted every
-   * round and absorbed every rotation — live 2026-10-19: one retired sing-box
-   * port took 48 connect failures in a row, each one preceded by this call
-   * dropping it back to 'unknown' (still pickable, and pinnable).
+   * proves it alive (`markOk`). Otherwise a trusted line whose local port no
+   * longer exists is re-admitted every round and absorbs every rotation
+   * (docs/ip-pool.md §3.2).
    */
   markUnverified(id: string): void {
     const health = this.#health.get(id)
@@ -437,13 +429,10 @@ export class ExitPool {
   /**
    * Put one struck-dead row back into service, WITHOUT claiming it is healthy.
    *
-   * Why this has to exist (live 2026-10-25): a `dead` mark is permanent until
-   * something proves the row alive, and the only two proofs were a real 2xx
-   * through it — impossible, `pick()` skips dead rows — or the card's 探测
-   * action. That made ONE strike a life sentence for a row whose only fault
-   * was a mislabelled protocol: correcting the label fixed the cause and left
-   * the sentence behind, so a pinned row that had been healed still read dead
-   * and still never carried a request.
+   * A `dead` mark is permanent until something proves the row alive, and
+   * `pick()` skips dead rows — so a row nothing routes to earns no real 2xx,
+   * and a corrected cause (a mislabelled protocol) would otherwise leave the
+   * sentence behind (AGENTS.md, egress row hygiene).
    *
    * The revived row lands in 'unknown', not 'ok': a corrected label is evidence
    * about the LISTENER, not about the lane, so it re-enters the rotation below
@@ -466,11 +455,10 @@ export class ExitPool {
 
   /**
    * OpenCode refused this exit's IP on reputation grounds (…abusive traffic
-   * from this IP address…, live 2026-10-19): bench it for the long haul and
-   * record why. Rotating back onto the same address inside the flag's lifetime
-   * can only burn requests, and a pin on it turns into an endless failure loop
-   * — the cooldown makes `isUsable()` false, so pick() skips it whatever the
-   * pin says.
+   * from this IP address…): bench it for the long haul and record why.
+   * Rotating back onto the same address inside the flag's lifetime can only
+   * burn requests, and a pin on it turns into an endless failure loop — the
+   * cooldown makes `isUsable()` false, so pick() skips it whatever the pin says.
    */
   markAbusive(id: string, windowMs: number = ABUSIVE_COOLDOWN_MS): number {
     const health = this.#health.get(id)
@@ -505,13 +493,13 @@ export class ExitPool {
   }
 
   /**
-   * Pin every request to THIS machine: the 本机 row's 固定 button
-   * (live request 2026-10-14). The sentinel is {@link LOCAL_EXIT_ID}, which
-   * can never collide with a real exit id (those are `host:port` or
-   * `scheme://host:port`), so `pick()` can tell "no exit at all" from "the
-   * pinned exit is unusable" and return null instead of falling through to
-   * the rotation pool. Traffic then egresses locally — the same path a pool
-   * with no usable exit takes (3.3 never fails closed).
+   * Pin every request to THIS machine: the 本机 row's 固定 button. The sentinel
+   * is {@link LOCAL_EXIT_ID}, which can never collide with a real exit id (those
+   * are `host:port` or `scheme://host:port`), so `pick()` can tell "no exit at
+   * all" from "the pinned exit is unusable" and return null instead of falling
+   * through to the rotation pool. Traffic then egresses locally through the
+   * dispatcher's local-egress branch, regardless of the 本地出口兜底 switch
+   * (docs/ip-pool.md §3.3).
    *
    * No row carries the `pinned` flag here: there is no primary exit, and
    * leaving a stale flag behind would keep routing a row down the pinned
@@ -612,9 +600,9 @@ export class ExitPool {
     health.inflight = false
     health.deadStrikes += 1
     health.deadAt = this.#now()
-    // A dead exit sinks to the end of the table (live request 2026-10-14) and
-    // tells the runtime to rotate a reserve in. Only on the TRANSITION: a node
-    // that keeps failing would otherwise be re-inserted on every strike.
+    // A dead exit sinks to the end of the table and tells the runtime to
+    // rotate a reserve in. Only on the TRANSITION: a node that keeps failing
+    // would otherwise be re-inserted on every strike.
     if (!wasDead) {
       this.#moveToTail(id)
       this.#notifyDead(id)
@@ -664,13 +652,12 @@ export class ExitPool {
       return 'refused'
     }
     // 5xx: count into the dead bucket for diagnostics, but DO NOT strike the
-    // exit dead. Live-observed 2026-09-09: upstream 500s are often the MODEL
-    // failing behind a healthy exit (muse without contributor access answers
-    // 500 through every exit) — one strike used to mark the exit dead, the
-    // single-exit pool then picked null, and ALL traffic silently fell back
-    // direct while the pool looked enabled. Exit liveness stays the
-    // transport layer's call (sentinel/onResponseError); recovery for a
-    // 5xx-flapping exit is the adapter rotate loop (5xx is in its set).
+    // exit dead. A 500 is often the MODEL failing behind a healthy exit (muse
+    // without contributor access answers 500 through every exit), and striking
+    // would dead a single-exit pool, empty `pick()` and silently send ALL
+    // traffic direct while the pool still looked enabled. Exit liveness stays
+    // the transport layer's call (sentinel/onResponseError); a 5xx-flapping
+    // exit is recovered by the adapter rotate loop (5xx is in its set).
     this.#countPassive(id, 'dead')
     return 'dead'
   }
@@ -687,7 +674,7 @@ export class ExitPool {
    *
    * Cuts reach this table through pool/transport.ts, which may still be
    * finding out what one means: a listener whose scheme is mislabelled
-   * answers nothing at all, and that is not a dead line (live 2026-10-25).
+   * answers nothing at all, and that is not a dead line.
    * The counters are diagnostics — `passive.transport` has to say how often an
    * exit dropped a request either way — so counting is separable from
    * striking.
@@ -777,10 +764,9 @@ export class ExitPool {
    * documented direct path (3.3), not an error.
    *
    * A pin that IS set but unusable falls through to the rotation — and says so
-   * through the pin-skip callback. The fall-through is correct (a pin is a
-   * preference, see `pinnedStrict`), but it used to be invisible, which is how
-   * a live profile read "the pinned row is working" while every request was
-   * carried by another exit (2026-10-25).
+   * through the pin-skip callback. The fall-through is correct: a pin is a
+   * preference (see `pinnedStrict`), so the callback is what keeps an unusable
+   * pin visible to the operator (AGENTS.md, egress row hygiene).
    */
   pick(session: string, model: string): string | null {
     if (this.pinnedId === LOCAL_EXIT_ID) return null
@@ -789,9 +775,8 @@ export class ExitPool {
       // Record the binding even on the pin path: the verdicts that arrive
       // AFTER the response (the adapter's 403 accounting — exitOfSession) need
       // to know which exit answered, and while a pin is set that is always the
-      // pinned one. Without this, an IP-reputation refusal or a RegionError
-      // landed with no exit to blame, so the row was never benched — live
-      // 2026-10-19, a pin on a flagged exit kept failing with nothing recorded.
+      // pinned one. Without this binding a refusal lands with no exit to blame,
+      // so the row is never benched.
       this.#sessionExit.set(session, pinned)
       return pinned
     }
@@ -916,10 +901,10 @@ export class ExitPool {
 
   /**
    * Replace the worst free node to make room (3.5). A DEAD row ranks worse
-   * than any live one — with the periodic probe gone (2026-10-23) a corpse
-   * only leaves through this eviction or the strike threshold, and ranking by
-   * grade alone made refill churn evict a live C-grade exit while a dead
-   * S-grade corpse kept its slot. Ties keep the C-grade/oldest rule.
+   * than any live one — with no periodic probe a corpse only leaves through
+   * this eviction or the strike threshold, and ranking by grade alone would
+   * let refill evict a live C-grade exit while a dead S-grade corpse keeps its
+   * slot. Ties keep the C-grade/oldest rule.
    */
   evictWorstFree(): boolean {
     let worst: ExitNode | null = null

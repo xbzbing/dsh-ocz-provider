@@ -19,14 +19,13 @@
  *     goproxy probe action     already exist) — this is the SETTINGS CARD's
  *                              探测/批量探活 action, an explicit user request
  *   - subscription add/      -> admitBySpeed: steps 1-2 ONLY — the speed test
- *     refresh                   whose latency the pool displays. Per operator
- *                              decision 2026-10-24 (添加订阅后，不对 OpenCode
- *                              进行任何主动探测，只显示测速的延迟) neither the
+ *     refresh                   whose latency the pool displays. Neither the
  *                              refresh nor a later reserve swap sends a single
- *                              request to OpenCode; acceptance of an exit IP
- *                              is learned passively from real traffic.
- *                              pinned nodes are admitted with warnings instead
- *                              of rejections (the user vouches, 3.1).
+ *                              request to OpenCode (docs/ip-pool.md §4.5);
+ *                              acceptance of an exit IP is learned passively
+ *                              from real traffic. Pinned nodes are admitted
+ *                              with warnings instead of rejections (the user
+ *                              vouches, 3.1).
  */
 
 import type { Dispatcher } from 'undici'
@@ -58,7 +57,7 @@ export interface AdmissionDeps {
   /**
    * Probe-content pool (settings `probeContents`): ONE entry is drawn per
    * exit probe — i.e. once per call into this module, so a candidate's whole
-   * admission shares one turn (live correction 2026-10-14: 每个出口随机抽一个).
+   * admission shares one turn (docs/ip-pool.md §4.2).
    * Empty/undefined falls back to {@link DEFAULT_SMOKE_CONTENT}
    * (smoke-content.ts).
    */
@@ -77,13 +76,10 @@ export interface AdmissionDeps {
   /**
    * The Bun relay's base URL, read at probe time (null while it is down).
    *
-   * A smoke request is a real chat call, so it faces the SAME connection-stack
-   * gate the adapter does: sent from undici it is answered 429 whatever its
-   * payload, which the verdict table then reads as "exit quota consumed" and
-   * cools a perfectly good exit (2026-10-25). With a relay up, the smoke goes
-   * through it with the candidate's own egress, and the verdict means what it
-   * says. The models-list step stays direct — it is not gated, and probing it
-   * through the relay would hide a broken exit behind a working relay.
+   * A smoke request is a real chat call and faces the adapter's connection-stack
+   * gate: sent without the relay it is answered 429 whatever its payload, which
+   * the verdict table reads as spent quota and cools a healthy exit. The
+   * models-list step stays direct on purpose (docs/relay.md §6).
    */
   relayBaseUrl?: () => string | null
   logger?: { warn(message: string): void }
@@ -218,10 +214,10 @@ export interface AdmissionResult {
   reason?: string
   /**
    * The candidate passed every step except quota: alive proxy, working Zen
-   * tunnel, 429 at smoke (2026-09-05 decision: these are good exits whose
-   * quota is consumed elsewhere — free proxies are shared worldwide). The
-   * caller admits them and immediately cools them (markLimited), so the
-   * periodic probe retries when the cooldown expires.
+   * tunnel, 429 at smoke — these are good exits whose quota is consumed
+   * elsewhere (free proxies are shared worldwide). The caller admits them and
+   * immediately cools them (markLimited); once the cooldown expires they
+   * return to rotation, where real traffic re-judges them.
    */
   limited?: boolean
   /**
@@ -230,14 +226,10 @@ export interface AdmissionResult {
    * because the source is paid and the address is the routing key
    * (docs §4.5: never evict a subscription line over one probe failure).
    *
-   * Callers MUST NOT read this as "healthy". Live 2026-10-13: five dead
-   * subscription exits (one trojan pointed at 10.255.255.255, two behind an
-   * unreachable 166.0.16.46, one hysteria2 port refused, one anytls edge
-   * whose TLS never completed) were re-admitted by this fallback and then
-   * markOk()'d on every probe round — state `ok`, grade `S` (gradeOf(0)),
-   * `exitIP` unknown — so the picker ranked them FIRST and fed them real
-   * requests that died at the transport layer. Keep the node, demote the
-   * claim: `markUnverified()` instead.
+   * Callers MUST NOT read this as "healthy": claiming health for a node with
+   * no facts hands it `state: ok` and grade 'S' with an unknown exitIP, so the
+   * picker ranks dead rows FIRST and feeds them real traffic (docs/ip-pool.md
+   * §3.2). Keep the node, demote the claim: `markUnverified()` instead.
    */
   unverified?: boolean
 }
@@ -263,15 +255,14 @@ export async function admitCandidate(
   const smokeModel = deps.smokeModel ?? 'big-pickle'
   // One draw per call = one draw per exit probe (a pre-drawn pass value wins).
   const smokeContent = deps.smokeContent ?? pickSmokeContent(deps.smokeContents, deps.random)
-  // Live-observed 2026-09-09: zen now REJECTS anonymous-lane chat without
-  // the CLI session headers (400 MissingSessionID "can only be used in
-  // OpenCode") — the smoke request must carry the same disguise set the
-  // adapter sends, or every candidate fails step 4 regardless of exit
-  // quality (a full refill round admitted 0 of 701 tunnel-OK survivors).
+  // The lane REJECTS anonymous-lane chat without the CLI session headers
+  // (400 MissingSessionID "can only be used in OpenCode") — the smoke request
+  // must carry the same disguise set the adapter sends, or every candidate
+  // fails step 4 regardless of exit quality.
   // Per-candidate ids: the upstream correlates sessions with exits, so a
   // probe session must not collide with real adapter sessions. The canonical
-  // mapping (ids.ts) is mandatory here too — the old 24-hex probe sessions
-  // drew 403 FreeTierError on the free lane like every other foreign shape.
+  // mapping (ids.ts) is mandatory here too: a non-canonical probe session is
+  // a foreign shape the gate refuses.
   const probeHeaders = () => disguiseHeaders({
     session: canonicalSessionID(`admission:${candidate.address}`),
     request: mintedMessageID(),
@@ -348,17 +339,17 @@ export async function admitCandidate(
 
     // Step 4: anonymous-lane smoke (streaming, 1 token). The free lane
     // rejects non-streaming bodies outright and wants the gate tools in the
-    // body — now with the GENUINE definitions (2026-10-14) — plus a canonical
-    // `ses_*` session header and the request/project id shapes the adapter
-    // sends (adapter/ids.ts). `tool_choice` is left to the model: the gate
-    // rejects `'none'` outright (403), and a 200 is all this step reads.
+    // body — the GENUINE 2.1.4 definitions (adapter/gate-tools.ts) — plus a
+    // canonical `ses_*` session header and the request/project id shapes the
+    // adapter sends (adapter/ids.ts). `tool_choice` is left to the model: the
+    // gate rejects `'none'` outright (403), and a 200 is all this step reads.
     //
-    // Two things the smoke shares with the adapter since 2026-10-25: the
-    // system prompt carries the `<env>` block the quota layer demands
-    // (adapter/env-block.ts), and the request is sent through the Bun relay
-    // when one is up, because the stack gate refuses every Node-side chat —
-    // a smoke that always 429s would read as "exit quota consumed" and cool
-    // healthy exits. Without a relay the probe keeps its old direct shape.
+    // Two things the smoke shares with the adapter: the system prompt carries
+    // the `<env>` block the gate demands (adapter/env-block.ts), and the
+    // request is sent through the Bun relay when one is up, because the
+    // connection-stack gate refuses every Node-side chat — a smoke that always
+    // 429s would read as "exit quota consumed" and cool healthy exits. Without
+    // a relay the probe sends directly.
     const relayBase = deps.relayBaseUrl?.() ?? null
     const smokeBody = JSON.stringify({
       model: smokeModel,
@@ -395,8 +386,8 @@ export async function admitCandidate(
     if (smokeStatus !== 200) {
       // 429 = the exit is good (alive + tunnel verified) but its anonymous
       // quota is currently consumed. Admit with limited: the caller cools it
-      // and the periodic probe retries later (measured 2026-09-05: 429 is
-      // the single largest smoke failure among tunnel-OK survivors).
+      // and the cooldown returns it to rotation (429 is the largest smoke
+      // failure class among tunnel-OK survivors).
       if (smokeStatus === 429) {
         return {
           admitted: true,
@@ -434,13 +425,12 @@ export async function admitTrusted(
   const result = await admitCandidate(deps, candidate, { pinned: options.pinned, echoFacts: options.echoFacts })
   if (result.admitted) return result
   // Trusted candidates: keep the node (the address is the routing key
-  // fallback, 3.1), warn, and let periodic probing revisit.
+  // fallback, 3.1), warn, and let a later probe or real traffic revisit.
   deps.logger?.warn(`opencode2dsh: trusted exit ${candidate.address} failed admission (${result.reason}); kept UNVERIFIED with ${options.previous?.exitIP ? 'previous' : 'unknown'} exit facts (not routing until a probe verifies it)`)
   const previous = options.previous
   // Keep only what was actually MEASURED. A previous entry with no exitIP
   // carries no measurement (it is itself a former fallback), so preserving its
-  // grade would keep a phantom 'S' alive across rounds — exactly how the dead
-  // nodes stayed top-tier on 2026-10-13.
+  // grade would keep a phantom 'S' alive across rounds.
   const kept = previous !== undefined && previous.exitIP !== '' ? previous : undefined
   return {
     admitted: true,
@@ -455,7 +445,7 @@ export async function admitTrusted(
       exitLocation: kept?.exitLocation ?? '',
       latencyMs: kept?.latencyMs ?? 0,
       // A never-measured exit gets the WORST grade, not the best: gradeOf(0)
-      // is 'S', which ranked dead nodes above live ones until 2026-10-13.
+      // is 'S', which would rank dead nodes above live ones.
       quality: kept === undefined ? UNVERIFIED_QUALITY : kept.quality ?? gradeOf(kept.latencyMs),
       addedAt: Date.now(),
     },
@@ -463,18 +453,17 @@ export async function admitTrusted(
 }
 
 /**
- * Speed-test-only admission for PAID sources (subscription refresh, operator
- * decision 2026-10-24: 添加订阅后，不对 OpenCode 进行任何主动探测，只显示
- * 测速的延迟). Runs coarseScreen — connectivity, exit IP, geo, latency — and
- * NOTHING else: no Zen models list, no anonymous-lane smoke, no request of any
- * kind to OpenCode. The measured latency IS the value the pool row displays;
- * whether OpenCode will accept this exit IP is left entirely to passive
- * verdicts from real traffic (pool.recordPassive), the standing liveness model
- * since 2026-10-23.
+ * Speed-test-only admission for PAID sources (subscription refresh): runs
+ * coarseScreen — connectivity, exit IP, geo, latency — and NOTHING else: no
+ * Zen models list, no anonymous-lane smoke, no request of any kind to OpenCode
+ * (docs/ip-pool.md §4.5). The measured latency IS the value the pool row
+ * displays; whether OpenCode will accept this exit IP is left entirely to
+ * passive verdicts from real traffic (pool.recordPassive), the standing
+ * liveness model (docs §4.3).
  *
  * Failure never rejects a paid line (docs §4.5): the node is kept UNVERIFIED
  * with unknown facts — same trusted-source contract as admitTrusted's
- * fallback, minus the probe that used to decide it.
+ * fallback, minus the OpenCode probe that subscriptions never run.
  */
 export async function admitBySpeed(
   deps: Pick<AdmissionDeps, 'undici' | 'ipEchoUrl' | 'blockedCountries' | 'logger'>,
@@ -511,7 +500,7 @@ export async function admitBySpeed(
       exitIP: '',
       exitLocation: '',
       latencyMs: 0,
-      // Never measured -> worst grade (gradeOf(0) is 'S', the 2026-10-13 trap).
+      // Never measured -> worst grade (gradeOf(0) is 'S').
       quality: UNVERIFIED_QUALITY,
       addedAt: Date.now(),
     },

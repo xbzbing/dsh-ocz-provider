@@ -1,6 +1,5 @@
 /**
- * The probe's user turn (live request 2026-10-14: "增加探测文案的配置，默认
- * content 修改为「hello」，允许用户自定义多个 content，探索时随机选择").
+ * The probe's user turn: a small pool of one-liners, default `hello`.
  *
  * The smoke is a 1-token chat request that proves the anonymous lane answers
  * through a candidate exit (docs/ip-pool.md §4.5 step 4). Its user turn is
@@ -29,7 +28,7 @@ export function normalizeSmokeContents(contents: readonly string[] | undefined):
 /**
  * One EXIT PROBE's user turn: a random entry of the configured pool, or the
  * default when nothing is configured. The draw belongs to the exit, not to the
- * request (live correction 2026-10-14): callers that probe one exit across
+ * request (docs/ip-pool.md §4.2): callers that probe one exit across
  * several models draw ONCE and reuse it for the whole pass (admission's
  * `smokeContent`). `random` is a seam (tests, and any future deterministic
  * caller); the index is clamped, so a seam returning 1 — or a negative, or

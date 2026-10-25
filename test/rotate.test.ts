@@ -73,11 +73,11 @@ async function collect(adapter: ZenAdapter): Promise<string[]> {
 }
 
 /**
- * A provider that yields NOTHING and never will — the tunnel that stood and
- * went mute. Parks on a REF'D timer instead of a bare promise: the adapter's
- * deadline is unref'd on purpose (a watchdog must never hold a real process
- * open), so with no ref'd handle left the event loop drains and `node --test`
- * cancels the file before the watchdog can fire. Callers clear the timer.
+ * A provider that yields NOTHING and never will: the adapter's deadline is
+ * unref'd on purpose (a watchdog must never hold a real process open), so the
+ * stream parks on a REF'd timer instead of a bare promise — with no ref'd
+ * handle left the event loop drains and `node --test` cancels the file before
+ * the watchdog can fire. Callers clear the timer.
  */
 function muteProvider(armed: { timer?: NodeJS.Timeout }): { streamSimple(): AsyncIterable<ScriptedEvent> } {
   return {
@@ -93,7 +93,7 @@ function muteProvider(armed: { timer?: NodeJS.Timeout }): { streamSimple(): Asyn
 /** The other 403: the request shape, not the address (same from every exit). */
 const SHAPE_403 = '403: {"type":"FreeTierError","message":"OpenCode\'s free tier can only be used from within OpenCode."}'
 
-/** The live IP-reputation body, verbatim (2026-10-19). */
+/** The IP-reputation refusal body, verbatim. */
 const ABUSE = '403: {"type":"FreeTierError","message":"OpenCode\'s free models aren\'t available from your current network because we\'ve detected abusive traffic from this IP address. This isn\'t related to your account."}'
 
 const err = (message: string): ScriptedEvent => ({
@@ -117,8 +117,8 @@ test('classifyStreamFailure maps the taxonomy', () => {
   assert.equal(classifyStreamFailure('Request timed out'), 'transport')
   // pi-ai's truncation sentinel: a cut before the terminal finish_reason chunk
   assert.equal(classifyStreamFailure('Stream ended without finish_reason'), 'transport')
-  // opencode2dsh #105: cuts \bsocket\b misses — "WebSocket" has no inner
-  // boundary; "other side closed" is undici's SocketError (the realistic
+  // word-boundary matching must still catch these: "WebSocket" has no inner
+  // boundary, "other side closed" is undici's SocketError (the realistic
   // exit-pool cut), and the h2 variant is its premature close.
   assert.equal(classifyStreamFailure('WebSocket closed'), 'transport')
   assert.equal(classifyStreamFailure('other side closed'), 'transport')
@@ -275,8 +275,7 @@ test('adapter watchdog: pre-content silence times out and rotates to a live exit
   pool.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
   pool.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
   setRotateDelegate(createRotateDelegate(pool, { maxAttempts: 3 }))
-  // attempt 1: a stream that never sends ANY event (the tunnel that stood
-  // and went mute — the 70-minute hang shape); attempt 2: healthy.
+  // attempt 1: a stream that never sends ANY event; attempt 2: healthy.
   let call = 0
   const armed: { timer?: NodeJS.Timeout } = {}
   const mute = muteProvider(armed)
@@ -354,11 +353,10 @@ test('adapter watchdog: mid-stream silence after delivered content surfaces, nev
 })
 
 /**
- * Two different 403s come off this lane and they mean different things:
- * "…can only be used from within OpenCode" blames the REQUEST SHAPE (same from
- * every address), while "…detected abusive traffic from this IP address" blames
- * the ADDRESS (live 2026-10-19: 6 of 10 subscription exits, four countries).
- * Only the second one is worth benching an exit for.
+ * Two 403s come off this lane and mean different things: "…can only be used
+ * from within OpenCode" blames the REQUEST SHAPE (same from every address),
+ * while "…detected abusive traffic from this IP address" blames the ADDRESS.
+ * Only the second one is worth benching an exit for (docs/ip-pool.md).
  */
 test('isIpReputationRefusal separates the address verdict from the shape verdict', () => {
   const abuse = '403: {"type":"FreeTierError","message":"OpenCode\'s free models aren\'t available from your current network because we\'ve detected abusive traffic from this IP address. This isn\'t related to your account. If you\'re on a VPN or proxy, turn it off and try again."}'
@@ -395,7 +393,7 @@ test('an address verdict benches the exit that answered for that session', () =>
   pool.add(node({ id: 'h:flagged', exitIP: '61.92.237.2' }))
   pool.add(node({ id: 'h:clean', exitIP: '2.2.2.2', latencyMs: 900 }))
   pool.markOk('h:clean')
-  pool.pin('h:flagged') // the operator's click: exactly the live 2026-10-19 case
+  pool.pin('h:flagged') // the operator's pin: it must still get benched
   const delegate = createRotateDelegate(pool, { maxAttempts: 3 })
 
   // The dispatcher picks for the session (a pin still records the binding), the

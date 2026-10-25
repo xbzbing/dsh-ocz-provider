@@ -4,10 +4,10 @@ import assert from 'node:assert/strict'
 import { isOriginFailure, laneOrigins, ZEN_FALLBACK_BASE_URL, ZEN_PRIMARY_BASE_URL } from '../src/adapter/lane.ts'
 
 /**
- * The origin ladder (2026-10-19): `/inference` and `/zen` accept the SAME
- * fingerprint, so the lane has one recipe and two doors. These tests pin WHEN
- * a second door is worth a round trip and WHICH origins may form a ladder — a
- * test or an operator override must never silently reach the live console.
+ * The origin ladder: `/inference` and `/zen` accept the SAME fingerprint, so
+ * the lane has one recipe and two doors. These tests pin when a second door
+ * is worth a round trip and which origins may form a ladder — no test or
+ * operator override may silently reach the live console.
  */
 
 test('the ladder puts the primary first and the console second, trailing slashes collapsed', () => {

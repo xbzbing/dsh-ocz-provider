@@ -351,88 +351,43 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
 }
 
 /**
- * The anonymous free-lane gate, as re-probed on 2026-10-14 against
- * `POST https://opencode.ai/inference/v1/chat/completions` — the lane moved
- * there the same day (adapter/catalog.ts `ZEN_BASE_URL`). A chat request
- * answers 200 only when ALL of these hold:
+ * The anonymous free-lane contract this file enforces
+ * (`ensureFreeLaneShape` / `ensureResponsesFreeLaneShape` below):
  *
- *   1. the endpoint is `/inference/v1`: the lane moved there on 2026-10-14
- *      (adapter/catalog.ts `ZEN_BASE_URL`) and `/zen/v1` answered 403
- *      FreeTierError to a request that passed on the new origin — including a
- *      byte-copy of the client's own request. `/zen/v1/models` alone answered
- *      200, which is why the catalog and the settings card's `/status` stayed
- *      green while every chat died. RE-PROBED 2026-10-19: `/zen/v1` serves the
- *      SAME recipe again (200 SSE, no redirect, two models, both egress
- *      families), so the lane now has two doors and the adapter walks them as
- *      a ladder on an origin-shaped failure — 401/403/404/5xx (adapter/lane.ts);
- *   2. a canonical `ses_*` id rides BOTH spelling pairs — `x-opencode-session`
- *      + `x-opencode-session-id` AND `x-session-affinity` + `x-session-id`,
- *      all four carrying the same id (byte-capture of the 2.1.4 CLI,
- *      2026-10-24; the 2.x client sends the affinity pair for its own
- *      `opencode` provider too — the 2026-10-14 reading that it marked a
- *      foreign client was the 1.x generation's behaviour). The 12-hex prefix
- *      is the client's DESCENDING word, and RE-MEASURED 2026-10-25 its
- *      TIMESTAMP is the checked half: now/-1h/-1d/-7d/-30d -> 200, a future
- *      timestamp -> 429, any effectively-random prefix (including the
- *      digest-derived one this adapter used to mint) -> 429; counters
- *      1/32/63/64/128/4095 pass, only 0 fails. adapter/ids.ts therefore
- *      mints a clock-based prefix and caches one id per conversation;
- *   3. `x-opencode-project` is the prefix-less project id (`global`, or a
- *      40-hex worktree hash) — `prj_*` 403s on its own (adapter/ids.ts);
- *      `x-opencode-request` is ABSENT on the 2.x wire (byte-capture
- *      2026-10-24) and re-adding it still passes (2026-10-24: 429), so it is
- *      optional — omitted here because a 1.x-only header inside a 2.x
- *      fingerprint is the mix this lane rejects;
- *   4. a streaming body (`stream: true`);
- *   5. a NON-EMPTY `tools` array carrying an entry NAMED `read`. RE-PROBED
- *      2026-10-24 under the 2.1.4 header set, one variable per request (429 =
- *      gate passed, 403 = gate rejected): the captured 12-tool payload 429,
- *      `read` ALONE 429, `shell` alone 403, the previous `bash`+`read` pair
- *      429. Content validation is OFF again; the genuine 2.1.4 `shell`+`read`
- *      pair is injected as insurance (gate-tools.ts);
- *   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass);
- *   7. status codes RE-READ 2026-10-25: 403 FreeTierError still means the
- *      SHAPE was rejected (a body with no `tools` still 403s that day), but
- *      429 FreeUsageLimitError no longer means "gate passed, quota spent" —
- *      with the anonymous window open the official Bun client answered a real
- *      200 while a byte-identical replay from Node h1/h2, curl, Python and Go
- *      answered 429 from every egress (direct v4/v6, the client's own source
- *      address, 7 pool exits). A connection-stack gate (TLS/HTTP client
- *      fingerprint) now sits in front of the quota layer; the ablation above
- *      still ranks SHAPES, but a 429 no longer means the request would have
- *      been served (adapter/gate-tools.ts).
- *   8. `<env>` RE-READ AND SOLVED 2026-10-25 (env-block.ts): a 429 also means
- *      the system prompt carries no non-empty `<env>` block. Byte-identical
- *      official bodies, sent through a Bun egress, flip on this ONE variable —
- *      empty `<env>` / tags stripped / official prefix without the block -> 429;
- *      `<env>` plus a single real line -> 200, and a block-only system prompt
- *      -> 200. The official 2.1.4 prompt ends with that block (index 7731 of
- *      8368). Both halves must hold at once: block WITH OLD STACK -> 429,
- *      stack WITHOUT block -> 429, and only block + Bun -> 200 (2026-10-25,
- *      `docs/local/capture-214/relay/`). `ensureFreeLaneShape` therefore
- *      appends the block (see shapeEnvMessages) and the adapter sends through
- *      the bundled Bun relay (src/relay/) — a Node request cannot pass the
- *      stack half, whatever its payload says.
+ *   1. endpoint: the flat `/inference/v1` (adapter/catalog.ts `ZEN_BASE_URL`);
+ *      the official family path answers chat identically but its `/models`
+ *      404s, so the flat route is the one origin for chat + catalog +
+ *      admission, and `/zen` is the second door on an origin-shaped failure
+ *      (adapter/lane.ts);
+ *   2. session id: one canonical `ses_*` (`ses_` + 12 lowercase hex + 14
+ *      Base62) rides all FOUR spellings — `x-opencode-session`,
+ *      `x-opencode-session-id`, `x-session-affinity`, `x-session-id` —
+ *      `x-opencode-request` is ABSENT, and the 12-hex prefix must decode to a
+ *      recent unix_ms (adapter/ids.ts mints it and caches one id per
+ *      conversation);
+ *   3. project: `x-opencode-project` is prefix-less (`global` or a 40-hex
+ *      worktree hash); `prj_*` is refused (adapter/ids.ts);
+ *   4. body: `stream: true`, a NON-EMPTY `tools` array carrying an entry
+ *      NAMED `read` (the genuine `shell` + `read` pair is injected,
+ *      adapter/gate-tools.ts), and `tool_choice` never `'none'`;
+ *   5. system prompt: a non-empty `<env>` block (adapter/env-block.ts),
+ *      appended by the shapers below.
  *
- * NOT gates, measured live: `Bearer public`, `max_tokens`, `temperature`, and
- * the system prompt's content (the client's title prompt must not ride WITH
- * tools — that pair 403s — but any other prompt passes). The UA string is not
- * pinned either, but its SHAPE is per generation: a 1.x string carries the
- * platform/parenthetical runtime tail (`opencode/1.18.31 (darwin arm64;
- * node24.21.0)` passed while a bare `opencode/1.19.0` failed, 2026-10-14),
- * whereas the 2.x shape `opencode/<channel>/<version>/<client>` is complete
- * without any tail. The official 2.1.4 client routes to the FAMILY path
- * `/inference/openai/v1` (models.dev `api` field; byte-capture 2026-10-24)
- * and that chat path answers the same as the flat `/inference/v1` this
- * adapter uses (both 429-pass on 2026-10-24; the family `/models` 404s, so
- * the flat route stays the one origin for chat + catalog + admission).
+ * Status codes: 403 FreeTierError = the SHAPE was rejected. 429
+ * FreeUsageLimitError = one of the three gate halves is missing — no `<env>`
+ * block, a request not sent through the Bun relay (src/relay/), or a session
+ * prefix that does not decode to a recent time — not a spent quota.
  *
- * The two shapes are mutually exclusive at the edges: a no-tools request is
- * only accepted with the client's exact title-generator prompt, which is why
- * this adapter always ensures the gate tools are present rather than ever
- * sending an empty `tools` array. Whatever the gate's current strictness, the
- * SHAPE of the request is the contract: one recipe, two origins
- * (adapter/lane.ts), never a mixture of generations.
+ * Not gates: `Bearer public`, `max_tokens`, `temperature`, and the system
+ * prompt's content (the client's title-generator prompt must not ride WITH
+ * tools — that pair is refused — but any other prompt passes). The UA string
+ * is not pinned, only its per-generation SHAPE: 2.x is
+ * `opencode/<channel>/<version>/<client>` with no runtime tail.
+ *
+ * A no-tools request is only accepted with the client's exact title-generator
+ * prompt, so the gate tools are always present rather than an empty `tools`
+ * array: one recipe, two origins (adapter/lane.ts), never a mixture of
+ * generations.
  */
 export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
 
@@ -608,8 +563,7 @@ export function ensureFreeLaneShape(payload: unknown): unknown | undefined {
   const dropsNone = body.tool_choice === 'none'
   // The `<env>` half of the gate (env-block.ts): a body whose system prompt has
   // no environment block is answered 429 FreeUsageLimitError, indistinguishable
-  // from "quota spent" — the reason this plugin failed for a week while the
-  // official client worked (2026-10-25).
+  // from "quota spent".
   const env = shapeEnvMessages(body.messages as unknown[], 'text')
   if (!changed && !dropsNone && !env.changed) return undefined
   const next: Record<string, unknown> = { ...body, tools }

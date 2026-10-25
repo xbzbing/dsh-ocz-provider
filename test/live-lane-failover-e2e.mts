@@ -1,12 +1,10 @@
 /**
- * Live acceptance for the lane origin ladder (2026-10-19).
- *
- * Drives the REAL adapter through a REAL broken primary door: the ladder is
- * `[https://opencode.ai/inference-does-not-exist, https://opencode.ai/zen]`,
- * so the first rung answers 404 (an origin-shaped failure) and the answer can
- * only come from the console rung. A control run on the ordinary ladder proves
- * nothing changed for the happy path, and the catalog listing is asked of the
- * same broken pair.
+ * Acceptance for the lane origin ladder: the REAL adapter runs against a REAL
+ * broken primary door — `[https://opencode.ai/inference-does-not-exist,
+ * https://opencode.ai/zen]` — so the first rung answers 404 (an origin-shaped
+ * failure) and the answer can only come from the console rung. A control run on
+ * the ordinary ladder proves nothing changed for the happy path, and the
+ * catalog listing is asked of the same broken pair.
  *
  * Run: node test/live-lane-failover-e2e.mts
  * Env: PROBE_MODEL (mimo-v2.6-flash-free)

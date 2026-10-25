@@ -1,8 +1,7 @@
 /**
- * Full-path live e2e (user's requested test): send a real message through
- * ZenAdapter -> pi-ai -> fetch -> installed router -> real 7897 exit ->
- * Zen anonymous lane, and check the agent's reply. Asserts BOTH the reply
- * AND that the dispatch actually rode the proxy exit (router hits > 0).
+ * Full-path live e2e: send a real message through ZenAdapter -> pi-ai -> fetch
+ * -> installed router -> the 7897 exit -> the Zen anonymous lane. Pass needs
+ * the agent's reply AND router hits > 0 (the dispatch really rode the exit).
  */
 import { ExitPool } from '../src/pool/pool.ts'
 import { setRotateDelegate, createRotateDelegate } from '../src/pool/rotate.ts'

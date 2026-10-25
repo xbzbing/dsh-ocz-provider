@@ -2,7 +2,7 @@
    detail section. Controls are dsh primitives (Switch/SegmentedControl/
    Button/Input/Tag/StateDot); this stylesheet owns layout, the list editor,
    and the pieces the primitives do not cover. The stats modal and usage panel
-   further below predate the redesign and keep their pinned shapes. */
+   further below keep their own fixed shapes. */
 
 .body {
   display: flex;
@@ -57,11 +57,7 @@
 }
 
 /* Label line carrying a trailing action (立即刷新 / 解除固定): the button
-   rides WITH the label so the input below stays full-width. The old
-   fieldAction column + padding-bottom hack floated the button at the label
-   height anyway — the parent was align-items:flex-start, so the column never
-   stretched and the padding just lifted the button off the input (live
-   2026-10-15: 立即刷新 sat on the 刷新间隔 label line). */
+   rides WITH the label so the input below stays full-width. */
 .fieldHead {
   display: flex;
   align-items: center;
@@ -167,11 +163,10 @@
 
 /* -- switch rows (master switch · desktop-mode toggle) -------------------------- */
 
-/* The switch leads the row and the title/hint block follows it (live request
-   2026-10-17; it used to sit at the trailing edge under space-between). No
-   space-between any more — with the control first the text block takes the
-   remaining width, so a long hint wraps beside the switch instead of being
-   pushed away from it. */
+/* The switch leads the row and the title/hint block follows it (no
+   space-between): with the control first the text block takes the remaining
+   width, so a long hint wraps beside the switch instead of being pushed away
+   from it. */
 .settingRow {
   display: flex;
   align-items: flex-start;
@@ -317,7 +312,7 @@
 
 /* The Input primitive's wrap is 32px; Button sm is 28px. Stretch the add
    button to the input's box so the row reads as one control, not two
-   mis-stacked boxes (live 2026-10-15). */
+   mis-stacked boxes. */
 .listAddRow > button {
   height: 32px;
 }
@@ -568,9 +563,8 @@
 .footerSub {
   font-size: 11px;
   color: var(--dsw-alias-label-tertiary, #6b7280);
-  /* Three numbers now (请求 · token · tok/s) on one line: without nowrap the
-     last one wraps under the button and reads as a second row (live
-     2026-10-14). */
+  /* Three numbers (请求 · token · tok/s) on one line: without nowrap the last
+     one wraps under the button and reads as a second row. */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -595,12 +589,13 @@
 
 /*
  * The compact label for a WIDE sidebar whose button got squeezed by a second
- * footer trigger. 180px is the switch: two buttons in a ~260px row land near
- * 130px each (the live screenshot that prompted this), one button owns
- * ~250px, and the request/token pair needs about 130px plus the icon and
- * padding. Browsers without container-query support simply keep both numbers.
- * Live 2026-10-15: two stacked lines — TODAY's tokens on top, the recent
- * tok/s underneath (hidden at 0, so an idle window collapses to one line).
+ * footer trigger. 180px is the switch (the @container rule below): two
+ * buttons in a shared row land near half-width each, and the request/token
+ * pair needs about 130px plus the icon and padding, so below the threshold the
+ * wide sub-line hides and this label takes over. Browsers without
+ * container-query support simply keep both numbers. Two stacked lines —
+ * today's tokens on top, the recent tok/s underneath (hidden at 0, so an idle
+ * window collapses to one line).
  */
 .footerCompactOnNarrow {
   display: none;
@@ -633,11 +628,9 @@
 
 /* —— 弹窗 tab（出口 / 流量）—— */
 /* The tab CHROME is the platform's SegmentedTabs (module-scoped inside
-   @deepseek-ai/dsh-client-ui-primitives): this stylesheet used to carry a
-   hand-rolled .tabBar/.tab pair that read as two buttons and, worse, lived
-   inside the scrolling pane. The placement rules for the bar and the one
-   scrolling pane now sit with the other stats styles (.statsTabs /
-   .statsPane). */
+   @deepseek-ai/dsh-client-ui-primitives): this stylesheet carries no
+   .tabBar/.tab pair of its own. The placement rules for the bar and the one
+   scrolling pane sit with the other stats styles (.statsTabs / .statsPane). */
 
 /* —— 流量 tab —— */
 .usagePanel {
@@ -664,12 +657,12 @@
   color: var(--dsw-alias-label-secondary, #4b5563);
 }
 
-/* The Top 会话 / 项目 switch (live request 2026-10-18): underline tabs, the
-   host workspace's own 对话/轨迹 idiom (dsh-client-ui-conversation's
-   .tabs/.tab/.tabActive). The underline is the tab's own :after — 2px,
-   radius 2px, transparent until the tab is active and then theme blue —
-   sitting ON the row's hairline so the active mark reads as part of the
-   line rather than a second one. Titles move into the tabs themselves. */
+/* The Top 会话 / 项目 switch: underline tabs in the host workspace's own
+   对话/轨迹 idiom (dsh-client-ui-conversation's .tabs/.tab/.tabActive). The
+   underline is the tab's own :after — 2px, radius 2px, transparent until the
+   tab is active and then theme blue — sitting ON the row's hairline so the
+   active mark reads as part of the line rather than a second one. Titles live
+   in the tabs themselves. */
 .usageTabs {
   display: flex;
   gap: 20px;
@@ -708,12 +701,11 @@
 }
 
 
-/* The per-day chart (live request 2026-10-18: 改成日期+柱状图). One column per
-   day on a shared baseline: the bar's height is that day's share of the
-   heaviest day in the window, and the date plus the real token figure sit
-   under it. A flex row of divs rather than a charting library — the client
-   half may not pull dependencies (the same rule that keeps icons.tsx
-   hand-drawn), and 14 bars need nothing more. */
+/* The per-day chart. One column per day on a shared baseline: the bar's
+   height is that day's share of the heaviest day in the window, and the date
+   plus the real token figure sit under it. A flex row of divs rather than a
+   charting library — the client half may not pull dependencies (the same rule
+   that keeps icons.tsx hand-drawn), and 14 bars need nothing more. */
 .dayChart {
   display: flex;
   align-items: flex-end;
@@ -750,8 +742,8 @@
 .dayBar {
   display: block;
   width: 100%;
-  /* Same 2px floor the old list gave a bar's WIDTH: a day with nothing
-     recorded still reads as a mark on the baseline, not a gap. */
+  /* 2px floor: a day with nothing recorded still reads as a mark on the
+     baseline, not a gap. */
   min-height: 2px;
   border-radius: 4px 4px 0 0;
   background: var(--dsw-alias-state-business-primary, #4f8cff);
@@ -773,8 +765,8 @@
   overflow-x: hidden;
 }
 
-/* Auto layout, unlike the exit table's fixed one: the session labels are free
-   text and the columns are few. */
+/* Fixed layout with an explicit column budget (40/18/12/12/18): the session
+   label takes the widest share because it is free text. */
 .usageTable {
   width: 100%;
   border-collapse: collapse;
@@ -877,11 +869,9 @@
 .statsSummary {
   display: flex;
   flex-wrap: wrap;
-  /* A row of pills, not a stretch contest. Without this the 清空 button's own
-     height (its padding + 13px label ≈ 32px) became the row's cross size and
-     every chip inherited it — the pills rendered 32px tall instead of 22px,
-     and the blue scope pill made it look like one broken border (live
-     2026-10-14: 常态的左侧 tag 边框高度异常). */
+  /* A row of pills, not a stretch contest: align-items keeps each chip at its
+     own height, because without it the taller 清空 button (padding + 13px
+     label ≈ 32px) sets the row's cross size and every pill stretches to it. */
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
@@ -890,9 +880,8 @@
 .statsChip {
   /* One pill height for EVERY chip. The line box follows the font that renders
      the label, and a Chinese label falls back to a face ~3px taller than the
-     Latin one — so a mixed row rendered two pill heights side by side and the
-     odd one out read as a broken border (live 2026-10-14: 常态的左侧 tag 边框
-     高度异常). Pinning the line box and centring the text makes them equal. */
+     Latin one, so an unpinned line box gives a mixed row two pill heights.
+     Pinning the line box and centring the text keeps them equal. */
   display: inline-flex;
   align-items: center;
   line-height: 18px;
@@ -906,30 +895,27 @@
   white-space: nowrap;
 }
 
-/* The primitives' Modal defaults to a 380px confirmation card; the 7-column
-   exit table needs a data-table width. Double-class selector so the override
-   wins regardless of stylesheet order; 100% keeps it inside the root's 24px
+/* The primitives' Modal defaults to a 380px confirmation card; the exit table
+   needs a data-table width. Double-class selector so the override wins
+   regardless of stylesheet order; 100% keeps it inside the root's 24px
    viewport padding on narrow windows. max-height caps growth per the Modal
    contract (consumers cap with max-height, never viewport calc). */
 .statsModal.statsModal {
   width: min(1040px, 100%);
-  /* One FIXED box for both tabs (live request 2026-10-14: "切换 tab 保持窗口
-     大小不变"). Height used to be content-driven, so switching between the
-     exit table and the traffic breakdown resized the dialog — and the mouse
-     ended up somewhere else than where the tab button had been. The content
-     region below scrolls instead, which is what its flex/overflow pair was
-     already built for. 100% (never a viewport calc) keeps it inside the root's
-     padding on a short window, per the Modal contract. */
+  /* One FIXED box for both tabs: a content-driven height would resize the
+     dialog on every tab switch, so the content region below scrolls instead —
+     what its flex/overflow pair is built for. 100% (never a viewport calc)
+     keeps it inside the root's padding on a short window, per the Modal
+     contract. */
   height: min(640px, 100%);
   max-height: 100%;
 }
 
 /* The primitives' Modal wraps header (title + close), the optional description
-   and the body in ONE content column, and hands that column to contentClassName.
-   It used to be this project's scroller, so a tall exit list dragged the title
-   out of the card with it (live request 2026-10-18: 固定 title 位置). The column
-   now only stretches; the body scrolls, so the title and close button stay
-   parked at the card's top edge. */
+   and the body in ONE content column, and hands that column to
+   contentClassName. The column only stretches; the body scrolls, so the title
+   and close button stay parked at the card's top edge while a tall exit list
+   scrolls beneath them. */
 .statsContent {
   flex: 1 1 auto;
   min-height: 0;
@@ -1076,8 +1062,8 @@
   font-weight: 500;
 }
 
-/* The local SOCKS5 endpoint of an exit that was never verified: a debugging
-   handle, never an exit IP, so it stays muted and out of the way. */
+/* The muted suffix in the IP cell: the local endpoint (host:port) of an exit
+   that was never verified — a debugging handle, never an exit IP. */
 .statsEndpoint {
   margin-left: 4px;
   color: var(--dsw-alias-label-tertiary, #6b7280);
@@ -1148,12 +1134,11 @@
   cursor: default;
 }
 
-/* The SELECTED state (live request 2026-10-14: 固定 clicked, but the button
-   looked the same afterwards — "无法看到效果"). A pinned row's toggle paints
-   filled in the business colour with a white glyph, so "this exit is the
-   fixed one" is answerable from the button itself, not just the 主力 mark in
-   the IP cell. Declared after the hover rule so hovering an already-active
-   button does not wash the fill back out. */
+/* The SELECTED state: a pinned row's toggle paints filled in the business
+   colour with a white glyph, so "this exit is the fixed one" is answerable
+   from the button itself, not just the 主力 mark in the IP cell. Declared
+   after the hover rule so hovering an already-active button does not wash the
+   fill back out. */
 .rowActionActive,
 .rowActionActive:hover:not(:disabled) {
   border-color: var(--dsw-alias-state-business-primary, #4f8cff);
@@ -1185,12 +1170,11 @@
   cursor: default;
 }
 
-/* 固定 + 轮换 are one SEGMENTED group, not two buttons with a gap (live request
-   2026-10-14): the shared edge collapses to a single 1px border and only the
-   group's outer corners stay rounded. The -1px margin is what does the
-   collapsing — the second button's border sits on top of the first one's — and
-   the hovered button lifts above its neighbour so the highlight is not clipped
-   by that overlap. */
+/* 固定 + 轮换 are one SEGMENTED group: the shared edge collapses to a single
+   1px border and only the group's outer corners stay rounded. The -1px margin
+   does the collapsing — the second button's border sits on top of the first
+   one's — and the hovered/focused button lifts above its neighbour so the
+   highlight is not clipped by that overlap. */
 .actionGroup {
   display: inline-flex;
   vertical-align: middle;
@@ -1222,12 +1206,12 @@
   margin-left: 4px;
 }
 
-/* The action outcome toast (live request 2026-10-14): docks at the modal's
-   bottom-right corner, fades itself out and unmounts on the same clock. The
-   modal card (the primitives' Modal `.dialog`, which carries statsModal) is
-   the nearest positioned ancestor, so this rides the modal — not the viewport,
-   not the scrolling content region. A read-only profile lands in the warn
-   tone: the pin works, it just will not survive a restart. */
+/* The action outcome toast: docks at the modal's bottom-right corner, fades
+   itself out and unmounts on the same clock. The modal card (the primitives'
+   Modal `.dialog`, which carries statsModal) is the nearest positioned
+   ancestor, so this rides the modal — not the viewport, not the scrolling
+   content region. A read-only profile lands in the warn tone: the pin works,
+   it just will not survive a restart. */
 .statsToast {
   position: absolute;
   right: 20px;

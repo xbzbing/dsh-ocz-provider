@@ -133,9 +133,9 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   assert.ok(!result.admitted)
   assert.match(result.reason!, /zen smoke HTTP 403/)
 
-  // the smoke body must satisfy the free-lane gate (2026-10-14 recipe):
-  // streaming, the GENUINE bash+read definitions, and a canonical ses_* session
-  // header. `tool_choice` is left to the model — the gate rejects `'none'`.
+  // the smoke body must satisfy the free-lane gate recipe: streaming, the
+  // GENUINE bash+read definitions, and a canonical ses_* session header.
+  // `tool_choice` is left to the model — the gate rejects `'none'`.
   const okTransport = fakeTransport(okScript())
   const okResult = await admitCandidate(deps(okTransport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
   assert.ok(okResult.admitted)
@@ -147,8 +147,8 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   }
   assert.equal(smokeBody.stream, true)
   assert.equal(smokeBody.tool_choice, undefined, 'none is a 403 of its own since 2026-10-14')
-  // The system slot carries the `<env>` block the quota layer demands
-  // (2026-10-25), so the probe sentence is the turn AFTER it.
+  // The system slot carries the `<env>` block the free lane demands,
+  // so the probe sentence is the turn AFTER it.
   const smokeMessages = smokeBody.messages ?? []
   assert.equal(smokeMessages.length, 2)
   assert.equal(smokeMessages[0]!.role, 'system')
@@ -175,7 +175,8 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
 })
 
 test('admission: the probe content is drawn at random from the configured pool', async () => {
-  // Live request 2026-10-14: 允许用户自定义多个 content，探索时随机选择.
+  // The operator may configure several probe contents; admission draws one
+  // of them at random.
   const pool = ['alpha', 'beta', 'gamma']
   const first = fakeTransport(okScript())
   await admitCandidate(deps(first, { smokeContents: pool, random: () => 0 }), { address: 'h:1', protocol: 'http', source: 'free' })
@@ -190,18 +191,19 @@ test('admission: the probe content is drawn at random from the configured pool',
   await admitCandidate(deps(messy, { smokeContents: ['  ', 'only'], random: () => 0.5 }), { address: 'h:3', protocol: 'http', source: 'free' })
   assert.equal(smokeContentOf(messy), 'only')
 
-  // A pre-drawn pass value wins: the caller probing ONE exit across several
-  // models draws once and hands the same turn to every model of that pass
-  // (live correction 2026-10-14: 每个出口随机抽一个探测文案).
+  // A pre-drawn pass value wins: one random probe content per exit — the
+  // caller probing ONE exit across several models draws once and hands the
+  // same turn to every model of that pass.
   const pinned = fakeTransport(okScript())
   await admitCandidate(deps(pinned, { smokeContents: pool, smokeContent: 'drawn-once', random: () => 0.99 }), { address: 'h:4', protocol: 'http', source: 'free' })
   assert.equal(smokeContentOf(pinned), 'drawn-once', 'the pass value is not re-drawn')
 })
 
 test('admission: latency gate (relaxed for critical/emergency states)', async () => {
-  // >3000ms response rejects in fast mode... simulate via a script that
-  // answers slowly is overkill; the gate reads latencyMs from Date.now(),
-  // so test the relaxed branch by forcing a slow echo through real sleep.
+  // The fast gate rejects a candidate whose echo answers slower than 3000 ms
+  // (relaxed for critical/emergency states, docs/ip-pool.md 4.6). The gate
+  // reads latencyMs from Date.now(), so this pins only the fast path: a
+  // latency-~0 answer admits.
   const transport = fakeTransport(okScript())
   // fast path admits (latency ~0)
   const fastResult = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
@@ -221,10 +223,11 @@ test('admission: trusted sources are admitted with warnings even on failure', as
 })
 
 /**
- * Live 2026-10-13: five unreachable subscription exits were re-admitted by
- * this fallback on every probe round and then markOk()'d by the caller —
- * state `ok`, grade `S` (gradeOf(0) is 'S'), exitIP unknown — so the picker
- * ranked them FIRST and fed them real requests that died in transport.
+ * The trusted fallback re-admits unreachable subscription exits on every probe
+ * round and the caller markOk()s them — state `ok`, grade `S` (gradeOf(0) is
+ * 'S'), exitIP unknown — so the picker would rank them FIRST and feed them
+ * real requests that die in transport. It must report `unverified` and grade
+ * an unmeasured exit C instead.
  */
 test('admission: the trusted fallback reports `unverified` and never grades an unmeasured exit S', async () => {
   const transport = fakeTransport({ '*': new Error('connect ECONNREFUSED') })
@@ -261,11 +264,11 @@ test('admission: the trusted fallback reports `unverified` and never grades an u
 })
 
 /**
- * The subscription contract (operator decision 2026-10-24: 添加订阅后，不对
- * OpenCode 进行任何主动探测，只显示测速的延迟): a subscription add/refresh
- * runs admitBySpeed — the ip-api echo ONLY. The models list and the anonymous
- * smoke are never touched, and a failed speed test keeps the paid line
- * unverified instead of rejecting it (docs 4.5).
+ * The subscription contract: a subscription add/refresh probes nothing on
+ * OpenCode, it only shows the speed-test latency. admitBySpeed therefore runs
+ * the ip-api echo ONLY — the models list and the anonymous smoke are never
+ * touched, and a failed speed test keeps the paid line unverified instead of
+ * rejecting it (docs 4.5).
  */
 test('admission: admitBySpeed runs the speed test alone and never touches OpenCode', async () => {
   const warnings: string[] = []
@@ -340,7 +343,7 @@ test('coarseScreen: scheme-carrying address keeps its scheme in the agent URI', 
 
 test('admission end-to-end: real undici.request through a real local proxy', async () => {
   // Load-bearing integration: admission's per-request ProxyAgent path works
-  // against npm undici's request API (the seam verified in the IP-2 probe).
+  // against npm undici's request API.
   let proxied = 0
   const server = http.createServer((req, res) => {
     if (req.url?.startsWith('http://')) proxied += 1
@@ -365,7 +368,7 @@ test('admission end-to-end: real undici.request through a real local proxy', asy
   assert.ok(result.admitted, result.reason)
   assert.equal(result.node?.exitIP, '5.5.5.5')
 
-  // issue #44 end-to-end: the scheme the card asks for must survive the real
+  // the scheme the card asks for must survive the real
   // ProxyAgent too (undici throws InvalidArgumentError on http://http://...)
   const withScheme = await admitCandidate(depsReal as never, {
     address: `http://127.0.0.1:${port}`,

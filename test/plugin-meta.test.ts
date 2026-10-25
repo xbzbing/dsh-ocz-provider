@@ -1,15 +1,11 @@
 /**
- * Plugin display-metadata contract (dsh-app-boot `readPluginMeta`, live
- * 2026-10-15): the plugin manager reads `locale/<lang>.json` meta maps and
- * `package.json.icon` through the exports resolver WITHOUT evaluating plugin
- * code, so both must ship inside the package and stay valid — a missing
- * export or an out-of-package icon path makes the metadata silently absent
- * (or surfaces as a metadataError diagnostic on the plugin card).
- *
- * Reference: dsh-app-boot lib package-meta.js — locale files share the
- * en.json directory, each `meta.title`/`meta.description` is a non-empty
- * string, and the manifest icon is a relative in-package path to an
- * SVG/PNG/JPEG/WebP file of at most 256 KiB.
+ * Display-metadata contract (dsh-app-boot `readPluginMeta`, ref.
+ * lib/package-meta.js): `locale/<lang>.json` meta maps and `package.json.icon`
+ * resolve through Node's ESM exports WITHOUT evaluating plugin code, so both
+ * must ship in-package and stay valid — a missing export or an out-of-package
+ * icon path makes the display metadata silently absent (or surfaces a
+ * metadataError diagnostic on the plugin card). The icon cap is 256 KiB,
+ * relative and SVG/PNG/JPEG/WebP; locale files share the en.json directory.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -37,9 +33,8 @@ test('locale dictionaries ship en + zh with non-empty title and description', ()
 })
 
 test('exports expose the locale directory to the metadata resolver', () => {
-  // readPluginMeta resolves `<package>/locale/en.json` (and sibling language
-  // files) through Node's ESM resolver: without an export entry the whole
-  // display identity silently disappears from the plugin manager.
+  // readPluginMeta resolves these through Node's ESM resolver; without an
+  // export entry the whole display identity silently disappears.
   const entries = pkg.exports ?? {}
   const exposed = entries['./locale/*'] === './locale/*' || entries['./locale/en.json'] !== undefined
   assert.ok(exposed, 'package.json exports must expose ./locale/')

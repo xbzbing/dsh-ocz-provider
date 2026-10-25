@@ -54,9 +54,9 @@ test('buildOutbound: trojan/vless/hysteria2/tuic map their credentials', () => {
     reality: { enabled: true, public_key: 'pk', short_id: 'sid' },
   })
 
-  // A bare hysteria2 node still gets tls — hysteria2 is TLS-mandatory, and
-  // emitting it without TLS is what made `sing-box check` reject a whole
-  // config (see the dedicated regression below).
+  // A bare hysteria2 node still gets tls: hysteria2 is TLS-mandatory, and a
+  // config that emits it without one is rejected by `sing-box check` (see the
+  // dedicated regression below).
   const hy2 = buildOutbound({
     name: 'h', type: 'hysteria2', server: 'h.example.com', port: 443,
     raw: { type: 'hysteria2', password: 'pw2' },
@@ -80,13 +80,11 @@ test('buildOutbound: anytls forces TLS on (GoProxy forceTLS)', () => {
 })
 
 test('buildOutbound: TLS-mandatory protocols get tls even without any TLS field', () => {
-  // Regression (live 2026-10-12): a real airport's Clash YAML wrote 4
-  // hysteria2 nodes with no sni/tls/client-fingerprint/reality-opts, so
-  // applyTLS() bailed and sing-box rejected the WHOLE config with
-  // "initialize outbound[N]: TLS required" — one round produced zero
-  // converted exits and all 49 nodes stayed parked. Verified against
-  // sing-box 1.14.3 that hysteria2, tuic and anytls all demand TLS, while
-  // trojan does not, so only the mandatory three are forced.
+  // hysteria2, tuic and anytls demand TLS even when the YAML carries no
+  // sni/tls/client-fingerprint/reality-opts field, while trojan does not
+  // (verified against sing-box 1.14.3): applyTLS() must force TLS for the
+  // mandatory three, or sing-box rejects the whole config with
+  // "initialize outbound[N]: TLS required".
   const bare = (type: string): Record<string, unknown> => ({ type, password: 'pw' })
 
   const hy2 = buildOutbound({ name: 'h', type: 'hysteria2', server: 'h.example.com', port: 2497, raw: bare('hysteria2') }, 'out-h')
@@ -148,14 +146,10 @@ test('generateConfig: unsupported nodes are skipped without burning a port', () 
 })
 
 /**
- * Live 2026-10-13: the exit table showed 13 exits for a 44-node subscription.
- * `generateConfig` keyed its port map by `type:server:port` — a GoProxy habit —
- * which is not a node identity for an airport that fronts many distinct nodes
- * on ONE edge host and separates them by the anytls TLS `server_name`. 44 nodes
- * collapsed into 13 keys, the LAST port per key won, every earlier node
- * resolved to that same port, and 31 generated inbounds were orphaned:
- * listening, never handed to the pool. The synthetic fixture hid this for
- * months because every node in it has a unique hostname.
+ * The port map is keyed per NODE, never by `type:server:port`: an airport can
+ * front many distinct nodes on ONE edge host and separate them only by the
+ * anytls TLS `server_name`, so a host-level key collapses them (last port
+ * wins) and leaves the other nodes' inbounds orphaned.
  */
 test('generateConfig: nodes sharing host:port but differing in TLS SNI each keep their own port (live regression)', () => {
   const edge = 'b2efc912.edge.0443.me.uk'
@@ -220,8 +214,7 @@ test('generateConfig: byte-identical nodes still get one port each — the pool 
   // Conversion is not the dedupe layer: two entries that really are one exit
   // must each be dialable so the pool can MEASURE them, and then `add()`
   // refuses the second address carrying the same exit IP (docs §3.1, one IP =
-  // one anonymous quota bucket). Collapsing them here is what made the loss
-  // invisible: no probe, no measurement, no evidence in the exit table.
+  // one anonymous quota bucket).
   const node = (): ParsedNode => ({
     name: 'same',
     type: 'anytls',
@@ -266,7 +259,8 @@ test('subscription refresh with supervisor: encrypted nodes convert and speed-ad
     },
   }
   // The seam serves ONLY the speed pass (ip-api). Anything else is recorded:
-  // the subscription flow must never send a request to OpenCode (2026-10-24).
+  // the subscription flow must never send a request to OpenCode
+  // (docs/ip-pool.md).
   const probeAttempts: string[] = []
   const seam = {
     ProxyAgent: class {
@@ -304,8 +298,8 @@ test('subscription refresh with supervisor: encrypted nodes convert and speed-ad
   fetcher.setUrls(['https://sub.example.com/token'])
   const state = await fetcher.refresh()
   // 38 anytls nodes convert, but the onboarding keeps only the pool's capacity
-  // (10 by default) and shrinks the conversion to them — the whole point of
-  // "池子数量 10 个 / 避免建立太多本地连接" (live request 2026-10-13/14).
+  // (10 by default) and shrinks the conversion to them — "池子数量 10 个 /
+  // 避免建立太多本地连接".
   assert.equal(state.convertedAdmitted, 10)
   assert.equal(state.pendingConversion.length, 0)
   assert.equal(pool.list().length, 10, 'the pool holds its capacity, not all 38 candidates')
@@ -315,7 +309,7 @@ test('subscription refresh with supervisor: encrypted nodes convert and speed-ad
   // ports), and the other 18 are reserve rather than listeners.
   assert.ok(pool.list().every((entry) => /^127\.0\.0\.1:310\d\d$/.test(entry.id)))
   // The whole pipeline ran on speed tests alone: no request to OpenCode
-  // (2026-10-24 contract), and every admitted row carries its speed facts.
+  // (docs/ip-pool.md), and every admitted row carries its speed facts.
   assert.deepEqual(probeAttempts, [], 'the conversion pipeline sent ZERO requests to OpenCode')
   assert.ok(pool.list().every((entry) => entry.exitIP !== ''), 'every row carries a speed-test exit IP')
 })
@@ -336,10 +330,9 @@ test('subscription refresh without supervisor: encrypted nodes park as pending',
 })
 
 /**
- * Live 2026-10-13: a subscription node with `server: 10.255.255.255` was
- * converted into a local SOCKS5 exit anyway — it took a port, joined the
- * pool through the trusted fallback and showed up in the exit table as an
- * unreachable "127.0.0.1:30005" row for the life of the process.
+ * A placeholder literal (`10.255.255.255` and friends) must be rejected before
+ * conversion: otherwise it takes a port, joins the pool and shows up as an
+ * unreachable `127.0.0.1` row for the life of the process.
  */
 test('isDialableServer: placeholder literals are never nodes', () => {
   for (const server of [
@@ -417,16 +410,11 @@ test('subscription refresh: a node whose server cannot be dialled is skipped, ne
 })
 
 /**
- * The end-to-end shape of the 2026-10-13 outage: every converted node that
- * can't be measured came back `admitted: true` from the trusted fallback with
- * no facts. Before the fix the fetcher called markOk() on all of them, so dead
- * exits entered the pool as healthy, grade-S candidates.
- *
- * Under the onboarding pipeline the same input ends differently by design
- * (and since 2026-10-24 without any probe either): the speed pass measures
- * nothing, so the candidates go unranked and each is KEPT but parked
- * unverified at the tail. The pool holds its capacity instead of draining,
- * and nothing claims health.
+ * Nodes that fail every measurement keep EMPTY facts and park unverified at
+ * the tail: the speed pass measures nothing, so the candidates go unranked and
+ * each is KEPT rather than dropped, the pool holds its capacity instead of
+ * draining, and nothing may claim health — a failed measurement must never
+ * come back as `admitted: true` with grade-S/`ok` facts this run never earned.
  */
 test('subscription refresh: nodes that fail every measurement stay unverified at the tail', async () => {
   const fixture = ANYTLS_SUBSCRIPTION

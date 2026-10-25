@@ -1,9 +1,9 @@
 /**
- * Client-bundle build check (dsh-llm-proxy's client-build.test.js adapted):
- * verifies lib/client.js exists (run `pnpm build:client` first) and carries
- * the loader handoff, the plugin id, the Plugins page (`plugins.item`)
- * registration gated on the Host serving the entry, the apply/inject exports
- * the shell expects, and that the bridge URL is baked in.
+ * Client-bundle build check: verifies lib/client.js exists (run
+ * `pnpm build:client` first) and carries the loader handoff, the plugin id,
+ * the Plugins page (`plugins.item`) registration gated on the Host serving
+ * the entry, the apply/inject exports the shell expects, and that the bridge
+ * URL is baked in.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -24,19 +24,19 @@ const code = (source: string): string =>
     .join('\n')
 
 test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
-  // Live request 2026-10-14: the 固定/删除 text buttons became ICON buttons,
-  // and 删除 was renamed — nothing is deleted, the row is rotated (a reserve
-  // takes its slot, or it sinks to the pool tail). The icons are inline SVG
-  // paths, so their geometry is the cheapest thing to pin here.
+  // The row's action buttons are ICONs (a padlock and a circular arrow): the
+  // old 删除 action is named 轮换 — nothing is deleted, the row is rotated (a
+  // reserve takes its slot, or it sinks to the pool tail). The icons are
+  // inline SVG paths, so their geometry is the cheapest thing to pin here.
   const source = code(bundle())
   assert.ok(source.includes('M5.6 7V5.2'), 'the 固定 padlock path is in the bundle')
   assert.ok(source.includes('M12.8 8A4.8'), 'the 轮换 circular-arrow path is in the bundle')
   assert.ok(source.includes('轮换'), 'the rotated-out action is named 轮换, not 删除')
   assert.ok(!source.includes('已删除'), 'no user-visible string still says 已删除')
   assert.ok(source.includes('statsRotateHint'), 'the icon buttons carry their explanation in a tooltip')
-  // 固定 + 轮换 are one segmented group, not two buttons with a gap (live
-  // request 2026-10-14): the shared edge collapses to a single border via the
-  // -1px pull, and only the group's outer corners keep their radius.
+  // 固定 + 轮换 are one segmented group, not two buttons with a gap: the
+  // shared edge collapses to a single border via the -1px pull, and only the
+  // group's outer corners keep their radius.
   assert.ok(source.includes('actionGroup>button+button{margin-left:-1px'), 'the shared edge is collapsed, not gapped')
   assert.ok(source.includes('actionGroup>button:not(:first-child){border-top-left-radius:0'), 'the inner corners are squared')
   assert.ok(source.includes('actionGroup>button:not(:last-child){border-top-right-radius:0'), 'and the outer ones keep their radius')
@@ -66,8 +66,8 @@ test('client mounts on the Plugins page while the Host serves the entry', () => 
   // settings, so the page mounts only while the namespace is served.
   assert.ok(source.includes('whileServed'), 'registration is gated on whileServed')
   assert.ok(/whileServed\(\[SETTINGS_NAMESPACE\]/.test(source), 'gated on this entry\'s namespace')
-  // The entry id is the Loader entry id (the plugin name), not the old
-  // `ip-pool` namespace the Host registered.
+  // The entry id is the Loader entry id (the plugin name), not the `ip-pool`
+  // namespace.
   assert.ok(source.includes('"oc2dsh"'), 'the served entry id is the plugin name')
 
   const stripped = code(source)
@@ -98,9 +98,9 @@ test('client reads and writes settings through the page-supplied ConfigPageForm'
 
 test('the probe-content field ships in the bundle', () => {
   const source = bundle()
-  // Live request 2026-10-14: the probe's user turn became a configurable pool
-  // (default 'hello'). The field is a plain string list next to the probe-model
-  // picker; this pins that the section is actually mounted in the shipped half.
+  // The probe's user turn is a configurable pool (default 'hello'): a plain
+  // string list next to the probe-model picker. This pins that the section is
+  // mounted in the shipped half.
   assert.ok(source.includes('field-probeContents'), 'the 探测文案 list editor is mounted')
   assert.ok(source.includes('探测文案'), 'with its zh label')
   assert.ok(source.includes('probeContentsHint'), 'and its hint (留空 = 默认 hello)')
@@ -108,7 +108,8 @@ test('the probe-content field ships in the bundle', () => {
 
 test('the 本地出口兜底 switch ships in the bundle', () => {
   const source = bundle()
-  // Live request 2026-10-18: 默认关闭，池内没有可用 IP 时不走本机出口.
+  // 本地出口兜底 ships OFF by default: with no usable exit in the pool, the
+  // request does not fall through to this machine's egress.
   assert.ok(source.includes('field-localFallback'), 'the switch is mounted in the pool card')
   assert.ok(source.includes('本地出口兜底'), 'with its zh label')
   assert.ok(source.includes('localFallbackHint'), 'and the hint that spells out both positions')
@@ -116,9 +117,9 @@ test('the 本地出口兜底 switch ships in the bundle', () => {
 
 test('the 清空 control ships in the bundle', () => {
   const source = bundle()
-  // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空的功能按钮.
-  // The armed state is a separate control, so a stray click on the first button
-  // can never delete anything by itself.
+  // Totals age out after 90 days (USAGE_RETENTION_DAYS), so the 流量 tab ships
+  // a 清空 button. The armed state is a separate control, so a stray click on
+  // the first button can never delete anything by itself.
   assert.ok(source.includes('usage-clear'), 'the clear button is mounted in the 流量 tab')
   assert.ok(source.includes('usage-clear-confirm'), 'with its own confirm control')
   assert.ok(source.includes('清空统计'), 'and its zh label')
@@ -126,11 +127,10 @@ test('the 清空 control ships in the bundle', () => {
 })
 
 test('the summary chip row keeps one pill height', () => {
-  // Live 2026-10-14: 常态的左侧 tag 边框高度异常. Two causes, both pinned here:
-  // the row had no align-items (so the 清空 button's 32px became every chip's
-  // height via the default stretch), and a chip's line box followed whichever
-  // font rendered its label (a Chinese label fell back to a face ~3px taller
-  // than the Latin one, so a mixed row showed two pill heights).
+  // The chip row must show ONE pill height: align-items:center stops the
+  // 清空 button's 32px stretching every chip, and the pinned line box keeps a
+  // Chinese label (a fallback face ~3px taller than the Latin one) from
+  // showing a second height in a mixed row.
   const source = code(bundle())
   assert.ok(/statsSummary\{[^}]*align-items:center/.test(source), 'the chip row centres its items instead of stretching them')
   assert.ok(/statsChip\{[^}]*line-height:18px/.test(source), 'and every chip has the same pinned line box')
@@ -179,11 +179,10 @@ test('client manifest is declared in package.json', () => {
 })
 
 test('the switch rows lead with their control', () => {
-  // Live request 2026-10-17: the master switch — and the desktop-mode toggle
-  // sharing the row style — moved from the row's trailing edge to its leading
-  // one. Two things carry that, and a type check sees neither: the control is
-  // the row's first child, and the row no longer pushes it away with
-  // space-between. Both rows are checked because they share one rule.
+  // The master switch — and the desktop-mode toggle sharing the row style —
+  // leads the row: the control is the row's first child, and the row must not
+  // push it away with space-between. A type check sees neither; both rows are
+  // checked because they share one rule.
   const source = code(bundle())
   for (const id of ['field-enabled', 'field-desktopMode']) {
     const at = source.indexOf(id)
@@ -200,8 +199,8 @@ test('the switch rows lead with their control', () => {
 
 test('the 本机出口协议族 dropdown ships in the bundle', () => {
   const source = bundle()
-  // Live request 2026-10-18: 增加一个下拉选项，本机使用 IPv4 还是 IPv6，
-  // 默认有 IPv6 的话走 IPv6.
+  // The dropdown picks which family the 本机 egress dials with; the default
+  // prefers IPv6 when this machine has it.
   assert.ok(source.includes('field-localIpFamily'), 'the dropdown is mounted in the pool card')
   assert.ok(source.includes('本机出口协议族'), 'with its zh label')
   assert.ok(source.includes('localIpFamilyHint'), 'and the hint that spells out the three positions')
@@ -210,7 +209,8 @@ test('the 本机出口协议族 dropdown ships in the bundle', () => {
 
 test('the model context-window editor ships and writes its own root node', () => {
   const source = bundle()
-  // Zen 接口实际支持 1M，但 models.dev 有可能只声明 200K：配置页给出逐模型覆盖。
+  // The Zen endpoint serves 1M while models.dev may declare only 200K: the
+  // settings page gives a per-model override.
   assert.ok(source.includes('field-modelContextWindows'), 'the context editor is mounted in the pool card')
   assert.ok(source.includes('模型上下文'), 'with its zh group title')
   assert.ok(source.includes('modelContextHint'), 'and its syntax hint')

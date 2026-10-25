@@ -1,6 +1,5 @@
 /**
- * Host session titles for the usage ledger's Top 会话 list (live request
- * 2026-10-14: "会话显示会话标题，现在看起来是显示的部分提示词").
+ * Host session titles for the usage ledger's Top 会话 list.
  *
  * The ledger records a label at request time — the conversation's first user
  * turn, truncated (adapter/ids.ts conversationLabel). That is a PROMPT

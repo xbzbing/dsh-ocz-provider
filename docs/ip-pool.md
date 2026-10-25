@@ -110,7 +110,7 @@ design.md §9.2 曾把「多出口」定为灰色能力并默认关闭（当时�
 
 所以加密节点走「外部核心转换成本地 SOCKS5，再按明文处理」的路线，与 GoProxy 的 sing-box 用法完全同构。转换核心二选一，设置页自动探测（有哪个用哪个，都无则明文照常、加密节点标「待转换」灰显）：
 
-1. **sing-box standalone**（官方二进制，用户自装，`sing-box` 在 PATH）：我们生成最小 config（每节点一个本地 SOCKS5 入站，端口 30000+ 递增——GoProxy singbox.go 同构），spawn 为子进程，按需重载。**这是本插件唯一会 spawn 的外部进程**：用户显式配置订阅加密节点才拉起；「spawn 外部已有二进制」与「打包原生二进制进 npm 包」是两回事，后者才是被淘汰的分发问题（§1.4）。
+1. **sing-box standalone**（官方二进制，用户自装，`sing-box` 在 PATH）：我们生成最小 config（每节点一个本地 SOCKS5 入站，端口 30000+ 递增——GoProxy singbox.go 同构），spawn 为子进程，按需重载。**这是本插件唯一会 spawn 的外部进程**：用户显式配置订阅加密节点才拉起；「spawn 外部已有二进制」与「打包原生二进制进 npm 包」是两回事，后者才是被淘汰的分发问题（§1.4）。生成的 config 里 `hysteria2`/`tuic`/`anytls` 必须**强制 TLS**、`trojan` 不必——sing-box 1.14.3 会以 `initialize outbound[N]: TLS required` 把缺 TLS 的整份配置拒掉（`test/singbox.test.ts` 钉住）。
 2. ~~**GoProxy 实例**~~（原选项 2，2026-09-05 摘牌）：内建能力覆盖后残余价值归零（§1.2）；外部核心只剩 sing-box standalone 一条路。
 
 **「我们历史上外挂过 Go（legacy/ sidecar），是不是自己写个 Go 端更好做？」——不。要外挂的是 sing-box 这个进程，不是「我们的 Go」**
@@ -449,6 +449,7 @@ POST {zen}/v1/chat/completions
 | 5xx / 传输错误 / 超时 | ExitHealth.state = dead | 出口链路问题（代理烂），与限额无关。2026-10-23 起 dead 不再有周期复探：free 连续 N 次出池、subscription 换储备、手动/订阅靠手动探测回池 |
 
 - suspect（首次 401/403）期间照常可用（可能是瞬时抖动），banned 才被 pick 跳过。
+- **5xx 只有探测会判死，被动信号不判**：探测链失败（5xx / 超时 / 传输错误）直接 strike dead（`ip-pool.ts` `probeOne` → `markDeadStrike`）；被动侧 `pool.recordPassive` 对 5xx **只计入 dead 桶、不判死**——500 常是模型侧故障（muse 没有 contributor 权限时每个出口都回 500），判死会把单出口池清空、`pick()` 返回空，于是全部流量静默走直连而池子看上去还开着。被动的出口存活判定权在传输层（`pool/transport.ts` → `recordPassiveTransport`）与适配器轮换循环（5xx 在它的换出口集合里）。
 - 被动信号（真实请求成败）与探测共用这张规则表与两级健康结构。**2026-10-23 起探测只由人或准入触发，不再有定时器**：真实请求已经给出的结论不再被复核，存活判定的唯一周期来源就是流量本身。
 - `GET /v1/models`（目录刷新）不影响出口结论。
 
@@ -526,7 +527,7 @@ POST {zen}/v1/chat/completions
 
 ### 4.7 池子上线（bounded onboarding，2026-10-13）
 
-**目标**：池子有明确容量（`poolSize`，默认 20），且**本地连接数有界**——容量就是本地监听数的上限。
+**目标**：池子有明确容量（`poolSize`，默认 10；区别于免费池的 `free.targetSize`，默认 20），且**本地连接数有界**——容量就是本地监听数的上限。
 
 **为什么必须先全量转换再收缩**：加密节点只有经 sing-box 才能拨通，而本机实测的机场（`*.edge.0443.me.uk`）把多个不同节点挂在**同一个 edge 主机:端口**上，靠 TLS SNI（anytls `server_name`）区分——裸 TCP 握手对它们完全一样，**只有走隧道内的请求才能测速排名**。所以上线是两相：
 
@@ -600,6 +601,8 @@ Config = Schema.object({
   }),
   pinnedExitId: Schema.string().default(''),       // 固定主力出口（§3.6；出口列表行内设置或此处直填地址）
   pinnedStrict: Schema.boolean().default(false), // true = 绝对固定：失败也不换出口、不直连（§3.6 行为契约）
+  proxyHosts: Schema.array(Schema.string()).default([]),   // 池子代持哪些主机（§3.3 路由键）；空 = 解析成默认 `opencode.ai`
+  proxyPathPrefixes: Schema.array(Schema.string()).default([]), // 这些主机上代持哪些路径前缀；空 = 解析成默认 `/inference/v1`，`/` 才是「全路径」
   localFallback: Schema.boolean().default(false), // 本地出口兜底（§3.3）：false = 池内无可用出口时请求失败，不用本机 IP
   localIpFamily: Schema.string().default('auto'), // 本机出口协议族（§3.7）：'auto' 有 IPv6 走 IPv6，'ipv4'/'ipv6' 强制；字符串而非 union，手改 patch 也读得回来
   cooldown: Schema.object({ /* §4.6 参数 */ }),
@@ -635,7 +638,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 - `POST /status`：池状态机快照——四态徽章 + 可用/容量 + 来源计数（free/manual/subscription）+ 两级健康（出口表：地址/来源/位置/延迟/质量/出口 IP/状态/冷却到期时刻 + 封禁表：(出口, 模型, bannedAt)）+ Prober 队列进度（enqueued/completed/inFlight/queued）+ refill 上轮摘要 + 订阅层状态（pendingConversion 数、convertedAdmitted、lastFetch、lastError——**不含 URL 明文**）。返回结构化 JSON，卡片 3s 轮询（探活进行中 1s）。
 - `POST /exit`：`{action: 'pin'|'pin-local'|'unpin'|'rotate', exitId?}` —— 两张出口表的行内动作（2026-10-14 新增）。`pin` 把 `pinnedExitId` 写进本插件的设置命名空间（`ctx.settings.mutate('oc2dsh', [{op:'set', path:['ipPool','pinnedExitId'], value}])`，与卡片自己的写路径同形；空值走 `unset`，让 schema 默认值生效）并即时 `pool.pin()`；`pin-local` 是弹窗本机行的按钮——**哨兵值由宿主侧拼**，前端只表达意图（`pin-local`），这样浏览器半永远不需要拼写 `local`；`unpin` 清空。只读配置下写失败不阻断：点击仍然即时生效（live pin），响应里 `persisted: false`，弹窗据此显示「已生效，但未写入配置（重启后失效）」。`rotate` = 用户主动轮换一行（动作名原为 `remove`，2026-10-14 按语义更正：什么都没被删除）：交给订阅层的候选表 `replaceExit()`——有候补就补位（`promoted: true`），候补用尽就把该出口沉到池尾（§4.7），没有 onboarder（本进程还没跑过订阅轮）时退化为 `demoteToTail()`；若正好有上线/裁剪轮占着重建互斥量，`replaceExit()` 会在**没查候补**的情况下返回 false，这时回 `busy: true` 而**不**沉底（弹窗提示「轮换进行中，请稍后重试」）——否则「先补位、无候补才沉底」的约定会在这一窗口被违反；若被删的正是当前 pinned，先解除固定再删（否则下一次提交会把一个已不在池里的 id 重新 pin 回来，而订阅出口 id `127.0.0.1:30001` 恰好能通过 manual 地址解析，会被当成手填节点重新入池）。
-- `POST /probe`：`{scope: 'all'|'exit'|'refill', exitId?}`。`all`：全池出口 × probeModels 的周期探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`exit`：单出口插队探测；`refill`：手动触发一次状态机 refill 轮（免费源抓取+准入）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
+- `POST /probe`：`{scope: 'all'|'exit'|'refill'|'subscription', exitId?}`。`all`：对全池出口 × probeModels 各探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`exit`：单出口插队探测；`refill`：手动触发一次状态机 refill 轮（免费源抓取+准入）；`subscription`：手动重拉订阅 URL（§5.2「立即刷新」，刷新定时器之外唯一的重拉入口）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
 - `POST /usage`：`{action: 'reset'}` —— 台账的**清空按钮**（2026-10-14 新增：「总量统计保留 90 天，自然过期，增加一个清空的功能按钮」）。它**不需要池子在跑**：台账在池子关闭时也照记（每个请求落进本机桶，§5.6），所以清空也不能依赖运行中的池子。清空同时抹掉持久台账与「本次重启」两套桶（只清一半会让两个口径对不上，读起来像 bug），并且**把空文档写进磁盘**——否则重启会把数字带回来（`UsageStore.clear()`，先 `load()` 再重置再 flush，避免 flush 内部的 load 把旧文档合并回来）。响应 `{cleared: true}`，弹窗随后重读 `/status`，chips、每天柱状图与左下角入口一起归零。
 - 路由护栏照抄 dsh-llm-proxy settings.js：loopback socket + 规范 Host + same-origin 三重校验、JSON body 上限、`{ok, code, message}` 信封。**不做 settings 代理面**（官方通道在）。
 - 页面注册进 `plugins.item`（`@deepseek-ai/dsh-client-ui-plugin-manager` 拥有的 list slot，`id: 'oc2dsh'`）；插件页拥有卡片外框、标题、one-liner 与保存按钮，`view:'summary'` 返回描述、`view:'page'` 返回表单，保存走共享 `SettingsForm` 外框。挂载门控 `ctx.configForms.whileServed(['oc2dsh'], …)`，官方 form ready 之前不渲染。0.1.7 之前的 keyed `settings.plugin.item` 与双形态兼容分支都已删除。

@@ -11,20 +11,16 @@ import { tmpdir } from 'node:os'
 import { defaultRelayScript, findBun } from '../src/relay/supervisor.ts'
 
 /**
- * The shipped relay (relay/oc2dsh-relay.mjs) is plain JS in a bun child process,
- * so nothing else in the suite executes it. Two behaviours added on 2026-10-25
- * exist ONLY there and cost a whole session each when they regress:
+ * The shipped relay (relay/oc2dsh-relay.mjs) runs as plain JS in a bun child
+ * process, so nothing else in the suite executes it. It owns two behaviours
+ * that exist nowhere else in this codebase:
  *
  *   1. a 429 is annotated with the egress that produced it plus its
- *      `retry-after`, because the lane's quota is per egress ADDRESS and the
- *      bare message had the whole team hunting a wire bug three times;
+ *      `retry-after`, because the lane's quota is per egress ADDRESS;
  *   2. an egress whose protocol is mislabelled is retried once on the other
- *      scheme and the correction remembered — a `http` row on a SOCKS inbound
- *      used to 502 in 6 ms on every single request.
+ *      scheme and the correction remembered (`PROTO-FIX` in its log).
  *
- * Real listeners stand in for the proxies, and the upstream is TLS (Bun only
- * tunnels through a proxy for `https://` targets; a plain-http target uses
- * absolute-form and never touches CONNECT).
+ * Real listeners stand in for the proxies.
  */
 
 const bun = findBun()
@@ -33,8 +29,7 @@ const maybe = bun === null ? test.skip : test
  * The upstream must be TLS: Bun only tunnels through a proxy for `https://`
  * targets (a plain-http target uses absolute-form and never touches CONNECT),
  * so the CONNECT/bridge path under test would go unexercised. The certificate
- * is generated per run into a temp dir rather than committed — a private key
- * in a public repository is not worth the convenience.
+ * is generated per run into a temp dir rather than committed.
  */
 interface TlsPair {
   cert: Buffer
@@ -90,8 +85,8 @@ async function upstream(tls: TlsPair): Promise<Closer> {
   return {
     port: typeof address === 'object' && address !== null ? address.port : 0,
     close: () => new Promise<void>((done) => {
-      // Keep-alive sockets outlive the assertions; without this the harness
-      // waits on them forever (measured: test 3 hung in teardown).
+      // Keep-alive sockets outlive the assertions; destroy them or the harness
+      // waits on them forever in teardown.
       for (const socket of sockets) socket.destroy()
       server.close(() => done())
     }),
@@ -147,8 +142,8 @@ async function socksProxy(): Promise<Closer> {
   return {
     port: typeof address === 'object' && address !== null ? address.port : 0,
     close: () => new Promise<void>((done) => {
-      // Keep-alive sockets outlive the assertions; without this the harness
-      // waits on them forever (measured: test 3 hung in teardown).
+      // Keep-alive sockets outlive the assertions; destroy them or the harness
+      // waits on them forever in teardown.
       for (const socket of sockets) socket.destroy()
       server.close(() => done())
     }),
@@ -194,8 +189,8 @@ async function httpProxy(): Promise<Closer> {
   return {
     port: typeof address === 'object' && address !== null ? address.port : 0,
     close: () => new Promise<void>((done) => {
-      // Keep-alive sockets outlive the assertions; without this the harness
-      // waits on them forever (measured: test 3 hung in teardown).
+      // Keep-alive sockets outlive the assertions; destroy them or the harness
+      // waits on them forever in teardown.
       for (const socket of sockets) socket.destroy()
       server.close(() => done())
     }),
@@ -218,8 +213,8 @@ async function silentProxy(): Promise<Closer> {
   return {
     port: typeof address === 'object' && address !== null ? address.port : 0,
     close: () => new Promise<void>((done) => {
-      // Keep-alive sockets outlive the assertions; without this the harness
-      // waits on them forever (measured: test 3 hung in teardown).
+      // Keep-alive sockets outlive the assertions; destroy them or the harness
+      // waits on them forever in teardown.
       for (const socket of sockets) socket.destroy()
       server.close(() => done())
     }),
@@ -266,7 +261,7 @@ async function startRelay(upstreamPort: number): Promise<Relay> {
     log: () => log,
     close: () => new Promise<void>((done) => {
       // A child that is already gone never emits 'exit' again — waiting for it
-      // is a permanent hang, which is exactly how this test wedged once.
+      // would hang forever.
       if (child.exitCode !== null || child.signalCode !== null) {
         done()
         return
@@ -385,9 +380,8 @@ maybe('a proxy that never answers the handshake fails fast instead of hanging', 
     const silent = await silentProxy()
     const relay = await startRelay(upstreamPort)
     try {
-      // A silent peer used to hang the request with no status line at all: the
-      // bridge had no handshake timeout and the rescue attempt had no ceiling.
-      // Both bounds are now visible here — 3 s handshake, 8 s rescue.
+      // Both bounds are asserted here: a 3 s SOCKS handshake timeout and an
+      // 8 s rescue ceiling, so a peer that never answers ends as a 502.
       const reply = await post(relay.port, '/v1/ok', `socks5://127.0.0.1:${silent.port}`)
       assert.equal(reply.status, 502, 'a peer that never answers must end as a 502, not a hang')
       assert.match(reply.body, /relay_error/)

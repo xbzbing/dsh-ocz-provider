@@ -19,47 +19,27 @@ import { sanitizeModelContextWindows, type ModelContextWindows } from '../model-
 /**
  * The anonymous lane's PRIMARY base URL (every caller appends `/v1`).
  *
- * It was `https://opencode.ai/zen` until 2026-10-14, when OpenCode moved the
- * whole lane — free models included — to `https://opencode.ai/inference/v1`.
- * Four independent sources agree: the client's runtime catalog
- * (`https://models.opencode.ai/api.json`, read at every boot, whose `opencode`
- * provider entry now carries `api: https://opencode.ai/inference/v1`),
- * models.dev's `opencode` entry (the same URL), the Console model table at
- * `https://opencode.ai/v2/docs/console/models/` (every free id is listed with
- * an `/inference/v1/...` endpoint), and the client's own request, captured
- * 2026-10-14 from OpenCode Desktop 1.19.0 (a `POST` to
- * `/inference/v1/chat/completions` that answered 200).
+ * One lane, two doors (adapter/lane.ts `laneOrigins`): this origin is the 2.x
+ * client's, `https://opencode.ai/zen` is the console origin and the ladder's
+ * second rung, so the base is the head of a ladder rather than a single
+ * hard-coded host. The catalog, the settings card's `/status` and the pool's
+ * admission probe all read this constant, so they follow one origin together:
+ * a `/models` route that answers while chat refuses is exactly what hides an
+ * origin move from the operator.
  *
- * Live-probed the same day, `/zen/v1` answered 403 FreeTierError to a request
- * that passed on `/inference/v1`, so the plugin treated the old lane as closed
- * for five days. Re-probed 2026-10-19 (single variable per request, captured
- * adapter bytes replayed, two models, both egress families): `/zen/v1` serves
- * the SAME recipe again — 200 SSE, no redirect, and its `/v1/models` lists the
- * same 85 ids. Both origins are therefore live doors of one lane, which is why
- * the base is now the head of a ladder (adapter/lane.ts `laneOrigins`) rather
- * than a single hard-coded host. `/zen/v1/models` answering while chat refused
- * is also what hid the 2026-10-14 move: the catalog stayed green (and
- * `adapter-status.json` reported `ready`) while every chat request failed.
- *
- * 2026-10-24 (2.1.4 capture + live probe): the CURRENT models.opencode.ai
- * feed declares `api: https://opencode.ai/inference/openai/v1` for the
- * `opencode` provider — the FAMILY path with an `/openai` segment — and the
- * installed 2.1.4 CLI really posts there. Both were probed on the same exit,
- * one variable at a time: the family chat path answers exactly like the flat
- * one (the same 429 on both in 2026-10-24, read that day as gate-passed with
- * the quota spent; re-read 2026-10-25 — a 429 can also be the connection-stack
- * gate, adapter/gate-tools.ts), but
- * `/inference/openai/v1/models` 404s while `/inference/v1/models` answers 200.
- * Since the catalog, the settings card's `/status` and the pool's admission
- * probe all share this base, the flat spelling stays: it is the one path that
- * serves chat AND catalog, and the gate does not read the route.
+ * The official 2.1.4 client posts chats to the FAMILY path
+ * `/inference/openai/v1` (models.dev `api` field), and that chat path answers
+ * like the flat one — but `/inference/openai/v1/models` 404s while
+ * `/inference/v1/models` answers 200. The flat spelling therefore stays: it is
+ * the one path that serves chat AND catalog, and the gate does not read the
+ * route.
  */
 export const ZEN_BASE_URL = 'https://opencode.ai/inference'
 
 /**
- * Free-lane blocklist (issue #56 live matrix, 2026-10-10): models the live
- * chat lane can never serve. The Zen catalog still lists them, so S1 alone
- * exposes dead ids — one exclusion reason per model:
+ * Free-lane blocklist: models the live chat lane can never serve. The Zen
+ * catalog still lists them, so S1 alone exposes dead ids — one exclusion
+ * reason per model:
  *   exo-free                             410 ModelDeprecated (upstream delisted)
  *   jev-1.13-free                        400 ModelProtocolUnsupported (SystemOne-only)
  *   ling-3.0-flash-fin-free              400 "Model is unavailable" (upstream-side)
@@ -76,20 +56,20 @@ export const FREE_LANE_BLOCKLIST: ReadonlySet<string> = new Set([
 
 /** Verified against the anonymous lane with a real chat (agent/internal/catalog/static_models.go). */
 export const staticFreeModels: string[] = [
-  'big-pickle', // verified 2026-08-28: anonymous chat 200 (non-stream + stream)
-  'mimo-v2.5-free', // verified 2026-08-28: anonymous chat 200 (non-stream); models.dev deprecated since 2026-10-03, still answers
-  'mimo-v2.6-flash-free', // verified 2026-10-03: anonymous chat 200 (stream, adapter path); successor of mimo-v2.5-free
-  'ling-3.0-flash-fin-free', // verified 2026-09-01: anonymous chat 200
-  'nemotron-3.5-lightning-free', // verified 2026-09-01: anonymous chat 200
-  'nemotron-3-ultra-free', // verified 2026-09-01: anonymous chat 200 (7s, earlier timeout was transient)
-  'muse-spark-1.2-contributor-free', // verified 2026-09-01: listed free in docs pricing; 403 region-blocked from our probe, region restriction accepted as non-fatal
+  'big-pickle', // anonymous chat 200 (non-stream + stream)
+  'mimo-v2.5-free', // anonymous chat 200 (non-stream); models.dev deprecated, still answers
+  'mimo-v2.6-flash-free', // anonymous chat 200 (stream, adapter path); successor of mimo-v2.5-free
+  'ling-3.0-flash-fin-free', // anonymous chat 200
+  'nemotron-3.5-lightning-free', // anonymous chat 200
+  'nemotron-3-ultra-free', // anonymous chat 200
+  'muse-spark-1.2-contributor-free', // listed free in docs pricing; 403 RegionError from our probe, accepted as non-fatal
 ]
 
 /** Exposed by /v1/models but without a verified anonymous chat yet. */
 export const staticFreeCandidates: string[] = [
-  // 'deepseek-v4-flash-free',          // models.dev deprecated; 2026-09-01: upstream 400 "Model is unavailable"
-  // 'laguna-s-2.1-free',                // models.dev deprecated; 2026-09-01: upstream 503 (intermittent, failed twice)
-  // 'hy3-free',                        // models.dev deprecated; 2026-09-01: delisted from /v1/models, upstream 401 "not supported"
+  // 'deepseek-v4-flash-free',          // models.dev deprecated; upstream 400 "Model is unavailable"
+  // 'laguna-s-2.1-free',                // models.dev deprecated; upstream 503 (intermittent)
+  // 'hy3-free',                        // models.dev deprecated; delisted from /v1/models, upstream 401 "not supported"
 ]
 
 export function isFreeModel(model: string): boolean {
@@ -149,11 +129,11 @@ export function decide(model: string, prices: Map<string, ModelPrice>, ready: bo
 }
 
 /**
- * models.dev fields the plugin knowingly overrides (issue #56 metadata note):
- * the feed declares `mimo-v2.6-flash-free` with `limit.context: 200000`, while
- * the MiMo V2.6 Flash model card and the official OpenCode CLI config use
- * 1048576. Checked BEFORE the metadata in `limits()`/`reasoningCapability()`/
- * `modalities()` — a fixed feed deletes its entry here.
+ * models.dev fields the plugin knowingly overrides: the feed declares
+ * `mimo-v2.6-flash-free` with `limit.context: 200000`, while the MiMo V2.6
+ * Flash model card and the official OpenCode CLI config use 1048576. Checked
+ * BEFORE the metadata in `limits()`/`reasoningCapability()`/`modalities()` —
+ * a fixed feed deletes its entry here.
  *
  * This is the BUILT-IN default. The operator-facing knob is the live
  * `modelContextWindows` setting (src/model-context.ts), read by `limits()` and
@@ -239,7 +219,7 @@ function metadataDeprecated(model: Record<string, unknown>): boolean {
 }
 
 /**
- * models.dev `reasoning_options` (live shape 2026-09-18): an array of
+ * models.dev `reasoning_options` shape: an array of
  * `{type: "effort", values: [...]} | {type: "toggle"} | {type: "budget_tokens", ...}`
  * entries, absent when the model never thinks. Only the `effort` entries carry
  * selectable levels; `toggle`/`budget_tokens` map to "reasoning, no declared
@@ -261,7 +241,7 @@ function decodeEffortValues(raw: unknown): { effortValues?: string[] } {
 }
 
 /**
- * models.dev `modalities.input` (live shape 2026-09-28): an array of lowercase
+ * models.dev `modalities.input` shape: an array of lowercase
  * kind strings such as ["text","image","video","pdf","audio"]. Only a non-empty
  * array of non-empty strings is kept, so a malformed or absent field speaks for
  * nothing and the adapter keeps its own vision pattern (isVisionModel).
@@ -430,12 +410,12 @@ export class ModelCatalog {
   }
 
   async refreshMetadata(): Promise<void> {
-    // Stale-while-revalidate (issue #55): on a cold boot a slow-but-healthy
-    // models.dev (23s observed) outlives warm()'s window and never touches the
-    // failure fallback below — capability reads (reasoning efforts, limits,
-    // modalities) then see an empty map and the host rejects explicit efforts
-    // with UNSUPPORTED_REASONING_EFFORT. Load a fresh disk cache as the
-    // baseline FIRST, then let the online fetch replace it whenever it lands.
+    // Stale-while-revalidate: on a cold boot a slow-but-healthy models.dev
+    // outlives warm()'s window and never reaches the failure fallback below —
+    // capability reads (reasoning efforts, limits, modalities) then see an
+    // empty map and the host rejects explicit efforts with
+    // UNSUPPORTED_REASONING_EFFORT. Load a fresh disk cache as the baseline
+    // FIRST, then let the online fetch replace it whenever it lands.
     // Only the refresh-triggered path does this; start()'s first round is
     // exactly that path, so cold boots are covered.
     await this.#adoptCachedPrices()
@@ -457,13 +437,13 @@ export class ModelCatalog {
 
   /**
    * Resolve once the first live fetch has settled, so a model-list read is
-   * never answered from the bootstrap list (issue #45: the host caches the
-   * snapshot its picker took at adapter registration, and the re-read
-   * triggers are topology/settings events a warming catalog never fires —
-   * so the 7-id staticFreeModels roster could stick for the whole host
-   * generation). Bounded: a dead network still answers promptly with the
-   * static list. Joins start()'s in-flight round when one exists (no
-   * duplicate fetch), or triggers a round of its own when none does.
+   * never answered from the bootstrap list: the host caches the snapshot its
+   * picker took at adapter registration, and its re-read triggers are
+   * topology/settings events a warming catalog never fires — the static
+   * `staticFreeModels` roster could stick for a whole host generation.
+   * Bounded: a dead network still answers promptly with the static list.
+   * Joins start()'s in-flight round when one exists (no duplicate fetch), or
+   * triggers a round of its own when none does.
    */
   async warm(ms = 4_000): Promise<void> {
     if (this.#zen.size > 0 || this.#stopped) return
@@ -475,8 +455,8 @@ export class ModelCatalog {
   }
 
   decision(model: string): AnonymousDecision {
-    // Issue #56: the live chat lane can never serve a blocklisted id (410
-    // delisted / 400 unavailable / 403 region) — deny before any metadata or
+    // The live chat lane can never serve a blocklisted id (410 delisted / 400
+    // unavailable / 403 region) — deny before any metadata or
     // S3 vouch, so a stale cache or the bootstrap list cannot resurrect it.
     if (FREE_LANE_BLOCKLIST.has(model)) return { allowed: false, source: 'local_blocklist', known: true }
     const metadata = decide(model, this.#prices, this.#pricesReady)

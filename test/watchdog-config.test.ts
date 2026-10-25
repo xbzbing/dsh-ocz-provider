@@ -15,14 +15,13 @@ import { usageStore } from '../src/pool/usage-store.ts'
 /**
  * These scenarios drive the PRODUCTION entry — `apply()` registers the real
  * adapter AND installs the real on-disk ledger — so the plugin's state root is
- * pointed at a scratch directory first. The redirect is not cosmetic: without
- * it every run of this file wrote three rows into the user's own 流量统计,
- * because the sample request below is a genuine one. Label "hi" (its first
- * user turn), no host session id (so the adapter mints the id from the
- * conversation seed), no pool routing (本机/local), and a watchdog TIMEOUT
- * whose zero-usage error still counts as one request — with `Date` mocked to 0
- * the minted id reads `ses_fffffffffffe…`, i.e. the 36 phantom "hi" requests
- * the operator found in the modal (live 2026-10-14).
+ * pointed at a scratch directory first. The redirect is not cosmetic: the
+ * sample request below is a genuine one, so without it every run of this file
+ * would book it in the operator's own 流量统计. It arrives as label "hi", with
+ * no host session id (the adapter mints the id from the conversation seed), no
+ * pool routing (本机/local), and a watchdog TIMEOUT whose zero-usage error
+ * still counts as one request — with `Date` mocked to 0 the minted id reads
+ * `ses_fffffffffffe…`.
  *
  * Imports are hoisted, so this assignment lands after `src/index.ts` was
  * evaluated; the store resolves its path lazily for exactly this reason
@@ -52,15 +51,10 @@ const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve
 /**
  * Let the adapter reach its peek loop before the clock is advanced.
  *
- * One `flush()` is not enough and never was: the timer is armed at the first
- * PULL of the stream, several async hops after the fetch mock resolves
- * (pi-ai's SDK handshake, then the attempt's own setup), so the number of
- * immediate turns it needs depends on how much else the process is doing. The
- * relay's supervision added exactly one hop and this fixed-1 flush lost the
- * race: the deadline was re-armed at the already-advanced clock, never fired,
- * and the scenario read `finish === undefined`. A fixed handful of turns is
- * deterministic and asserts nothing extra — the window assertions below are
- * unchanged.
+ * The watchdog timer arms at the first PULL of the stream — several async hops
+ * after the fetch mock resolves (pi-ai's SDK handshake, then the attempt's own
+ * setup) — so a fixed handful of immediate turns is what makes that
+ * deterministic; the window assertions below are unchanged.
  */
 const settle = async (): Promise<void> => {
   for (let turn = 0; turn < 10; turn += 1) await flush()
@@ -134,10 +128,9 @@ for (const scenario of [
       assert.equal(finish.failure.message, scenario.headers ? WATCHDOG_IDLE_MESSAGE : WATCHDOG_FIRST_MESSAGE)
     }
     await pending
-    // The sample request above went through the real entry, so it is accounted
-    // for real — in the SCRATCH ledger. Both halves are asserted: the redirect
-    // (this file can never touch the operator's stats again) and the row shape
-    // that made the phantom "hi" session look mysterious in the modal.
+    // The sample request went through the real entry, so it is accounted for
+    // real — in the SCRATCH ledger. Both halves are asserted: the redirect
+    // (this file can never touch the operator's stats) and the row shape.
     assert.ok(usageStore.path.startsWith(scratch), 'the state root is redirected')
     const hi = Object.values(await ledgerSessions()).find((row) => row.label === 'hi')
     assert.ok(hi, 'the watchdog sample request is accounted in the scratch ledger')

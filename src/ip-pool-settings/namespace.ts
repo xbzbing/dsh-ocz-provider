@@ -1,26 +1,21 @@
 /**
  * ip-pool settings namespace (docs/ip-pool.md §5.1) — the schemastery schema
- * the plugin's `Config` marks volatile, and the live re-apply wiring.
+ * behind the plugin's volatile `ipPool` Config field.
  *
- * Two entry states (docs §5 phase IP-5):
- *  - `ipPool.enabled` in the entry config at plugin boot: the Loader resolves
- *    it into the volatile reference, so the pool assembles immediately;
- *  - the user flips `enabled` on in the settings page later: the committed
- *    value lands in the same reference, `loader/volatile-update` fires, and
- *    the pool assembles then.
+ * Both entry states assemble through one volatile reference: an `ipPool`
+ * value in the entry config at boot resolves immediately, and a later
+ * settings save lands in the same reference and fires
+ * `loader/volatile-update`. Everything the card can change is applied to the
+ * LIVE runtime through that path (no restart): manual/pinned address lists
+ * rebuild the exit table's manual rows, subscription URLs/refresh re-seed the
+ * fetcher, probe knobs go straight to the Prober, geo blocklist to the
+ * admission deps, and `enabled` installs/uninstalls the global dispatcher.
  *
- * Everything the card can change lands through that event and is applied to
- * the LIVE runtime (no restart): manual/pinned address lists rebuild the exit
- * table's manual rows, subscription URLs/refresh re-seed the fetcher, probe
- * knobs go straight to the Prober, geo blocklist to the admission deps, and
- * toggling `enabled` installs/uninstalls the global dispatcher.
- *
- * DSH 0.1.7 owns this seam end to end: there is no `ctx.settings.register()`.
- * A plugin's editable settings ARE the volatile fields of its own exported
- * `Config`, and the namespace they are served under is the Loader entry id
- * (`dsh-settings` reads `entry.options.id`). So this constant mirrors the
- * `id:` of the row in cordis.patch.yml, and the client half spells the same
- * literal (a browser package may not import a Host one).
+ * The host offers no `ctx.settings.register()`: a plugin's editable settings
+ * ARE the volatile fields of its own exported `Config`, served under the
+ * Loader entry id (`dsh-settings` reads `entry.options.id`). So this constant
+ * mirrors the `id:` of the row in cordis.patch.yml, and the client half
+ * spells the same literal (a browser package may not import a Host one).
  */
 
 import Schema from '@deepseek-ai/schemastery'
@@ -68,13 +63,13 @@ export function readVolatile<T>(value: VolatileRef<T> | T | undefined): T | unde
 const DEFAULT_PROBE_MODEL = 'big-pickle'
 
 export const IpPoolConfigSchema = Schema.object({
-  /** Master switch; false keeps the process exactly as today (direct). */
+  /** Master switch; false = no dispatcher, every request goes direct. */
   enabled: Schema.boolean().default(false),
   /** Probe model set; empty = [S3 first] (docs §4.6 probeModels). */
   probeModels: Schema.array(Schema.string()).default([]),
   /**
    * Probe-content pool: the smoke request's user turn is picked from it at
-   * random (live request 2026-10-14). Empty = {@link DEFAULT_SMOKE_CONTENT}.
+   * random. Empty = {@link DEFAULT_SMOKE_CONTENT}.
    */
   probeContents: Schema.array(Schema.string()).default([]),
   /** Cross-exit probe concurrency cap (1-8; same-exit is always serial, §4.1). */
@@ -97,9 +92,9 @@ export const IpPoolConfigSchema = Schema.object({
   /** Manually added plain proxies: 'http://h:p' or 'socks5://h:p' (§1.2 source 2). */
   manual: Schema.array(Schema.string()).default([]),
   /**
-   * Previous patch spelling. A plain (default-less) array field here does NOT
-   * stay undefined the way this comment once assumed: `Schema.array()` resolves
-   * an absent array to `[]`, so the field is always present in a served value.
+   * Legacy patch spelling of the subscription URLs. A plain (default-less)
+   * array field here never stays undefined: `Schema.array()` resolves an
+   * absent array to `[]`, so the field is always present in a served value.
    * `resolveIpPoolSettings()` therefore prefers nested `subscription.urls` and
    * only falls back to this key when that one is empty.
    */
@@ -124,33 +119,35 @@ export const IpPoolConfigSchema = Schema.object({
   pinnedExitId: Schema.string().default(''),
   /** Absolute pinning: never rotate, never direct-fallback (docs §3.6). */
   pinnedStrict: Schema.boolean().default(false),
-  /** Hosts whose traffic goes through the pool (default opencode.ai). */
+  /** Hosts whose traffic goes through the pool (empty = the default opencode.ai). */
   proxyHosts: Schema.array(Schema.string()).default([]),
   /**
-   * Path prefixes on those hosts the pool carries (default `/inference/v1`,
-   * this plugin's own lane — the adapter's base URL since the 2026-10-14 lane
-   * move). Empty = every path on the host, which also drags the separate
-   * `opencode-go` provider's `/inference/go/v1` calls through the exits.
+   * Path prefixes on those hosts the pool carries (docs §3.3). Empty resolves
+   * to the default `/inference/v1` — this plugin's own lane, the adapter's
+   * base URL. `/` is the spelling that carries every path on the host, which
+   * also drags the separate `opencode-go` provider's `/inference/go/v1` calls
+   * through the exits.
    */
   proxyPathPrefixes: Schema.array(Schema.string()).default([]),
   /**
-   * 本地出口兜底 (live request 2026-10-18): when the pool is ON but cannot
-   * carry a request (no pickable exit, an empty pool at boot, an exit whose
-   * proxy agent failed to build), may that request leave from this machine?
+   * 本地出口兜底 (docs §3.3): when the pool is ON but cannot carry a request
+   * (no pickable exit, an empty pool at boot, an exit whose proxy agent failed
+   * to build), may that request leave from this machine?
    *
    * Default OFF — the pool exists to keep this machine's IP off the wire (the
-   * free lane 403s the CN egress behind this host). ON restores the older
-   * fail-open behaviour and lights up the modal's 直连兜底 row. An explicit
-   * 固定本机 pin is honoured either way: that is the operator asking for
-   * local egress, not the pool falling back to it.
+   * free lane refuses this host's IPv4 address). ON fails open instead and
+   * lights up the modal's 直连兜底 row. An explicit 固定本机 pin is honoured
+   * either way: that is the operator asking for local egress, not the pool
+   * falling back to it.
    */
   localFallback: Schema.boolean().default(false),
   /**
-   * 本机出口协议族 (live request 2026-10-18): the family the LOCAL egress dials
-   * with when the pool does not carry the request. `auto` prefers IPv6 where
-   * this machine has a routable one, which is what the official client does —
-   * the free lane refuses this host's IPv4 address and accepts its IPv6, on
-   * byte-identical requests (pool/local-family.ts holds the measurements).
+   * 本机出口协议族 (docs §3.7): the family the LOCAL egress dials with when the
+   * pool does not carry the request. `auto` prefers IPv6 where this machine
+   * has a routable one — what the official client does; the free lane refuses
+   * this host's IPv4 and accepts its IPv6 on byte-identical requests
+   * (measurements in pool/local-family.ts). `ipv4`/`ipv6` force the family,
+   * with no fallback.
    *
    * A string, exactly like `usageScope` below, so a hand-edited profile cannot
    * make the field unreadable; `resolveLocalIpFamily` maps anything unknown
@@ -160,11 +157,10 @@ export const IpPoolConfigSchema = Schema.object({
   /** Same-request rotate attempts on pre-content transport/429 failures (§3.4). */
   maxRotateAttempts: Schema.number().min(0).max(10).step(1).default(3),
   /**
-   * Which population the usage surfaces report (live request 2026-10-14):
-   * `total` = the persisted ledger (up to 90 days, survives restarts), `run` =
-   * this host process only. A string rather than a union schema so a hand-edited
-   * profile cannot make the field unreadable; anything but 'run' resolves to
-   * `total`.
+   * Which population the usage surfaces report: `total` = the persisted ledger
+   * (up to 90 days, survives restarts), `run` = this host process only. A
+   * string rather than a union schema so a hand-edited profile cannot make the
+   * field unreadable; anything but 'run' resolves to `total`.
    */
   usageScope: Schema.string().default('total'),
 })
@@ -260,14 +256,13 @@ export interface AnyIpPoolSection {
 export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPoolSettings {
   const raw = value ?? {}
   // Subscription URLs live under the canonical nested `subscription.urls`; the
-  // flat `subscriptions` key is the PREVIOUS patch spelling, kept only for
-  // older compositions. It cannot be tested with `??`: a resolved value has
-  // already been through the schema, and `Schema.array()` gives an ARRAY an
-  // implicit `[]` even without `.default()` — so `subscriptions` is never
-  // nullish, and a `??` chain lets that empty array shadow every URL the
-  // settings page writes. The pool then assembles with zero subscription URLs
-  // and never creates the fetcher at all. Prefer the nested spelling whenever
-  // it carries content; fall back to the legacy key only when it does not.
+  // flat `subscriptions` key is the legacy entry-config spelling. It cannot be
+  // tested with `??`: a resolved value has already been through the schema, and
+  // `Schema.array()` gives an ARRAY an implicit `[]` even without `.default()`
+  // — so a `??` chain would let that empty array shadow every URL the settings
+  // page writes, and the pool would assemble with zero subscription URLs (no
+  // fetcher created at all). Prefer the nested spelling whenever it carries
+  // content; fall back to the legacy key only when it does not.
   const nestedUrls = raw.subscription?.urls ?? []
   const legacyUrls = raw.subscriptions ?? []
   const urls = nestedUrls.length > 0 ? nestedUrls : legacyUrls

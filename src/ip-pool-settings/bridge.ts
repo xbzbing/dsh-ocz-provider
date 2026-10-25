@@ -3,13 +3,13 @@
  * webServer route pair the settings card needs beyond the official settings
  * transport: reading live pool runtime state (/status) and driving probe
  * actions (/probe). Settings reads/writes ride the official apiproxy
- * settings.describe/mutate RPCs (rc.2 serves every registered namespace —
- * no allowlist), so unlike dsh-llm-proxy this bridge carries NO settings
- * proxy surface.
+ * settings.describe/mutate RPCs (which serve every registered namespace — no
+ * allowlist), so unlike dsh-llm-proxy this bridge carries NO settings proxy
+ * surface.
  *
- * Trust model copied from dsh-llm-proxy settings.js (validated on this
- * host): loopback socket + canonical loopback Host header + same-origin
- * browser request. Everything else 403s.
+ * Trust model (same as dsh-llm-proxy settings.js): loopback socket +
+ * canonical loopback Host header + same-origin browser request. Everything
+ * else 403s.
  */
 
 import type { IpPoolRuntime } from '../ip-pool.ts'
@@ -70,9 +70,9 @@ export interface ExitRowView {
   tokens: TokenTotals
   /**
    * Recent output speed (tok/s): the process tracker's rolling 3-minute
-   * window (pool/usage.ts), NOT the lifetime ledger — the old all-time mean
-   * had too much inertia to say how fast this exit is now (live request
-   * 2026-10-15). 0 = nothing timed in the window; the UI hides the number.
+   * window (pool/usage.ts), NOT the lifetime ledger — only the recent window
+   * answers "how fast is this exit now". 0 = nothing timed in the window; the
+   * UI hides the number.
    */
   speed: number
 }
@@ -80,8 +80,8 @@ export interface ExitRowView {
 /**
  * One project as the 流量 tab groups it. Resolved at READ time from the host's
  * workspace registry (session id → workspace), never stored: the ledger keeps
- * session ids, and the registry is the authority on which project each one
- * belongs to (live request 2026-10-14: 按会话/项目记录流量).
+ * session ids and the registry is the authority on which project each one
+ * belongs to (docs §5.6).
  */
 export interface UsageProjectView {
   id: string
@@ -121,7 +121,7 @@ export interface UsageSessionView {
   project: UsageProjectView | null
 }
 
-/** The persisted-ledger view (live request 2026-10-14). */
+/** The persisted-ledger view. */
 export interface UsageView {
   /** Which population the scoped numbers came from. */
   scope: UsageScope
@@ -135,8 +135,8 @@ export interface UsageView {
   scoped: TokenTotals
   /**
    * Recent output speed (tok/s) over the process tracker's rolling 3-minute
-   * window. A live gauge: same number under every scope, because the window
-   * only exists in this process (live request 2026-10-15, 纯替换口径).
+   * window. A live gauge: the same number under every scope, because the
+   * window only exists in this process.
    */
   recentSpeed: number
   /** Day buckets, oldest first (the UI charts the tail of this). */
@@ -189,10 +189,9 @@ export interface PoolStatusView {
   /**
    * Which population produced {@link state}. `free` = the documented 3.5
    * four-state machine over the free-source pool (only meaningful while the
-   * free source is on); `pool` = the same thresholds applied to the whole
-   * pool, used once the free source is disabled — a subscription/manual-only
-   * profile otherwise stays on "emergency" forever (0 free nodes, live
-   * observation 2026-10-12).
+   * free source is on); `pool` = the same thresholds applied to the whole pool
+   * once the free source is disabled — a profile with no free nodes would
+   * otherwise read "emergency" forever.
    */
   stateBasis: 'free' | 'pool'
   total: number
@@ -213,9 +212,9 @@ export interface PoolStatusView {
   /**
    * Why the pin above is not carrying traffic right now (null = it is, or
    * nothing is pinned). The rotation deliberately falls through to another exit
-   * when the pinned row is unusable — that is what 主力+备胎 means — but doing it
-   * silently made a dead pin look healthy (live 2026-10-25: the card showed the
-   * row as 固定 + dead while the session was actually riding other exits).
+   * when the pinned row is unusable — that is what 主力+备胎 means — so the
+   * status must say so, or a dead pin reads healthy (AGENTS.md egress-row
+   * hygiene).
    */
   pinnedSkip: 'dead' | 'cooling' | null
   proxyHosts: string[]
@@ -231,10 +230,10 @@ export interface PoolStatusView {
   direct: { requests: number; tokens: TokenTotals }
   /**
    * Model traffic that egressed from THIS machine instead of a pool exit:
-   * hosts outside {@link proxyHosts} (including the empty-host-list case that
-   * silently routed everything locally) plus the {@link direct} fallbacks.
-   * Requests/tokens come from the usage tracker, so a response with no usage
-   * event is not counted — the same basis as the per-exit token column.
+   * hosts outside {@link proxyHosts} (and every request while routing is off)
+   * plus the {@link direct} fallbacks. Requests/tokens come from the usage
+   * tracker, so a response with no usage event is not counted — the same
+   * basis as the per-exit token column.
    */
   local: { requests: number; tokens: TokenTotals; lastUsedAt: number; speed: number }
   /** The persistent usage ledger (null when no store is wired). */
@@ -246,22 +245,21 @@ export interface PoolStatusView {
   /**
    * Pool-wide recent output speed (tok/s): every timed bucket in the
    * process tracker's rolling 3-minute window — the modal summary chip and
-   * the footer both read this (live request 2026-10-15).
+   * the footer both read this.
    */
   recentSpeed: number
   /**
    * Today's all-in token figure (input + output + cache) from the ledger's
-   * day bucket — THE footer's token figure in every variant (live request
-   * 2026-10-18: 左下角的 tok 从总量改为当天用量; the compact two-line mode
-   * led on 2026-10-15). Falls back to the process tracker's own totals when
-   * no ledger is wired; 0 when nothing was recorded today.
+   * day bucket — THE footer's token figure in every variant (docs §5.5).
+   * Falls back to the process tracker's own totals when no ledger is wired;
+   * 0 when nothing was recorded today.
    */
   todayTokens: number
   /**
    * 本地出口兜底 in force on the running router (docs §3.3): false = a pool
    * miss fails the request instead of egressing from this machine, which is
    * what the modal's 直连兜底 row is quiet about. Optional so a client bundle
-   * can still read a host snapshot from before the switch existed.
+   * can still read a host snapshot that predates the field.
    */
   localFallback?: boolean
   /**
@@ -324,13 +322,13 @@ export function buildStatusView(
   /**
    * Per-exit numbers follow the scope switch: the ledger's persisted buckets
    * for 总览, the in-process tracker for 本次重启. A composition with no ledger
-   * falls back to the tracker, which is exactly the pre-ledger behaviour.
+   * falls back to the tracker.
    */
   const tokensOf = (id: string): TokenTotals => (store === undefined ? usageTracker.totals(id) : store.exitTotals(id, scope))
   /**
-   * Recent speed always reads the PROCESS tracker's rolling window — the
-   * lifetime ledger cannot answer "how fast is it now", and the window has
-   * no scope dimension (live request 2026-10-15).
+   * Recent speed always reads the PROCESS tracker's rolling window: the
+   * lifetime ledger cannot answer "how fast is it now", and the window has no
+   * scope dimension.
    */
   const tracker = store === undefined ? usageTracker : store.run
   /** 最后使用: the live dispatch stamp for 本次重启, the ledger's last recorded
@@ -375,10 +373,9 @@ export function buildStatusView(
     : []
   /**
    * Usable exits across the WHOLE pool, any source. `availableFree` is only
-   * the free-source subset, so rendering it as a bare "可用 n/capacity"
-   * reads as "nothing is usable" to anyone running subscription/manual
-   * exits only — a live profile showed "可用 0/20 · 手填 1 · 订阅 12" while
-   * 7 of those 12 were healthy.
+   * the free-source subset, so a bare "可用 n/capacity" built from it reads
+   * as "nothing is usable" on a profile running only subscription/manual
+   * exits.
    */
   const availableTotal = exits.filter((exit) => exit.state === 'ok').length
   const stateBasis: 'free' | 'pool' = freeEnabled ? 'free' : 'pool'
@@ -484,10 +481,9 @@ function todayTokensOf(store: UsageStore | undefined, now: number): number {
  *
  * `direct` = pool-host traffic that should have used an exit but could not;
  * `local` = hosts outside the proxy set (and every request while routing is
- * off). Both left this machine, so the row sums them, while the request
- * count prefers the pool's dispatch counter when it has one: that counter
- * sees the request even when no usage event follows (an aborted turn), which
- * a token-only bucket would silently drop.
+ * off). Both left this machine, so the row sums them — requests and tokens on
+ * the same recorded-usage-event basis as the per-exit column (a response with
+ * no usage event is not counted).
  */
 function localView(
   store: UsageStore | undefined,
@@ -524,9 +520,8 @@ function localView(
  * Sessions are listed heaviest-first and their projects resolved through the
  * registry seam — a session whose project cannot be resolved keeps a null
  * project rather than a fabricated one. The row NAME prefers the host's own
- * session title over the recorded first-prompt label (live request
- * 2026-10-14: the list "looks like part of the prompt" — the prompt fragment
- * is now only the fallback for sessions the host cannot title).
+ * session title; the recorded first-prompt fragment is only the fallback for
+ * sessions the host cannot title (docs §5.5).
  */
 export function buildUsageView(
   store: UsageStore | undefined,
@@ -678,10 +673,9 @@ export type BridgeResult = { ok: true; value: unknown } | { ok: false; code: str
 /**
  * Persist one pin value into the plugin's own settings namespace. Returns
  * false when the profile cannot be written (read-only, or no settings service
- * in this composition) — the caller then keeps the live-only pin, which is
- * the honest degradation: the click works now and the modal says it is not
- * persisted. An empty value UNSETS the field so the schema default applies
- * instead of a stored empty string.
+ * in this composition) — the caller then keeps the live-only pin and the modal
+ * reports it as not persisted. An empty value UNSETS the field so the schema
+ * default applies instead of a stored empty string.
  */
 export type WritePin = (value: string) => Promise<boolean>
 
@@ -693,21 +687,19 @@ export interface BridgeHandlers {
    *  first, then the live Zen catalog entries the runtime resolved. */
   models(): Promise<BridgeResult>
   /**
-   * One row action from the exit tables (live request 2026-10-14): pin,
-   * pin-local, unpin, or rotate. The pin family writes `pinnedExitId` and
-   * applies live; `rotate` hands the row to the candidate list — a reserve
-   * takes its slot, or it sinks to the tail when there is nothing to promote.
-   * It was called `remove` until the operator pointed out that nothing is
-   * deleted: the row is rotated out.
+   * One row action from the exit tables: pin, pin-local, unpin, or rotate.
+   * The pin family writes `pinnedExitId` and applies live; `rotate` hands the
+   * row to the candidate list — a reserve takes its slot, or it sinks to the
+   * tail when there is nothing to promote.
    */
   exit(body: { action?: unknown; exitId?: unknown }): Promise<BridgeResult>
   /**
-   * Ledger maintenance (live request 2026-10-14: 清空功能按钮). `reset` drops
-   * the persisted totals AND the run scope — a cleared 总览 beside a live
-   * 本次重启 would read as a bug — and answers `{cleared: true}`; the caller
-   * re-reads /status for the new numbers. It deliberately does NOT need the
-   * pool: the ledger records every request with the pool off (§5.6), so its
-   * clear must work there too.
+   * Ledger maintenance (清空, docs §5.3). `reset` drops the persisted totals
+   * AND the run scope — clearing only one would leave the two views
+   * disagreeing — and answers `{cleared: true}`; the caller re-reads /status
+   * for the new numbers. It deliberately does NOT need the pool: the ledger
+   * records every request with the pool off (§5.6), so its clear must work
+   * there too.
    */
   usage(body: { action?: unknown }): Promise<BridgeResult>
 }
@@ -750,11 +742,11 @@ export function makeBridgeHandlers(
     async status() {
       const current = settings()
       /**
-       * The top-session join (live request 2026-10-14): ask the host for the
-       * titles of exactly the rows the view will render, before building it —
-       * the resolver is TTL-cached, so the modal's 2s poll mostly reads cache.
-       * A missing resolver or a failed batch just yields no map: every row
-       * keeps its recorded label and /status still answers.
+       * The top-session join: ask the host for the titles of exactly the rows
+       * the view will render, before building it — the resolver is TTL-cached,
+       * so the modal's 2s poll mostly reads cache. A missing resolver or a
+       * failed batch just yields no map: every row keeps its recorded label
+       * and /status still answers.
        */
       let sessionTitles: SessionTitleMap | undefined
       const store = deps.usage
@@ -792,10 +784,8 @@ export function makeBridgeHandlers(
         return { ok: true, value: { refilled: true } }
       }
       if (scope === 'subscription') {
-        // docs §5.2 订阅「立即刷新」. This scope used to be missing, so the
-        // card's button sent 'refill' (free sources) instead and
-        // IpPoolRuntime.refreshSubscriptions() had no caller at all — a
-        // subscription could never be re-pulled on demand, only by its timer.
+        // docs §5.2 订阅「立即刷新」: re-pull the subscription URLs on demand —
+        // the fetcher's refresh timer is the only other way they are re-pulled.
         await rt.refreshSubscriptions()
         return { ok: true, value: { refreshed: true } }
       }
@@ -836,22 +826,18 @@ export function makeBridgeHandlers(
           return { ok: false, code: 'unknown-exit', message: `exit "${raw}" is not in the pool` }
         }
         /**
-         * Verify BEFORE pinning (live 2026-10-25): a pin makes `pick()` hand the
-         * row to every request, so a row whose protocol was typed wrong (or a
-         * port with nothing behind it) fails EVERY request instead of one. That
-         * day a pin on `127.0.0.1:30035` — labelled `http`, in fact a sing-box
-         * SOCKS inbound — answered `502 relay_error ECONNRESET` in 6 ms for the
-         * whole session, and the ledger booked 6 requests / 0 tokens to it.
-         *
-         * The two outcomes are deliberately different:
-         *   - a listener that speaks the OTHER protocol is self-correcting: the
-         *     row is relabelled and the pin proceeds (the operator's intent —
-         *     "route through this port" — is unambiguous);
+         * Verify BEFORE pinning (AGENTS.md egress-row hygiene): a pin makes
+         * `pick()` hand the row to every request, so a row whose protocol was
+         * typed wrong (or a port with nothing behind it) fails EVERY request
+         * instead of one. The two outcomes are deliberately different:
+         *   - a listener that speaks the OTHER protocol is self-correcting:
+         *     the row is relabelled and the pin proceeds (the operator's
+         *     intent — "route through this port" — is unambiguous);
          *   - nothing answering at all is refused, because no relabel can make
          *     it work and a pin would silence the whole lane.
-         * Rows with measured facts (a verified subscription exit) are skipped:
-         * their protocol came from a real request, and a second of probing on
-         * every pin click would only add latency there.
+         * Rows with measured facts (a verified subscription exit) skip the
+         * probe: their protocol came from a real request, so probing would
+         * only add latency to every pin click.
          */
         let corrected: ProxyProtocol | null = null
         if (raw !== '' && raw !== LOCAL_EXIT_ID) {
@@ -875,10 +861,9 @@ export function makeBridgeHandlers(
               rt.pool.refresh(raw, { protocol: found })
               corrected = found
             }
-            // Pinning a row that was struck dead on a bad label has to revive
-            // it: the operator just proved the listener answers, and a pin on a
-            // dead row is a pin `pick()` skips (2026-10-25 — a live pin sat dead
-            // and every request was silently carried by another exit).
+            // Pinning a row that was struck dead has to revive it: the
+            // operator just proved the listener answers, and a pin on a dead
+            // row is a pin `pick()` skips.
             rt.pool.revive(raw)
           }
         }
@@ -897,8 +882,8 @@ export function makeBridgeHandlers(
         else rt.pool.pin(raw)
         return {
           ok: true,
-          // `corrected` appears only when the row was relabelled, so a pin on a
-          // healthy row answers exactly what it always did.
+          // `corrected` appears only when the row was relabelled, so a pin on
+          // a healthy row answers without the field.
           value: { pinned: raw, local: raw === LOCAL_EXIT_ID, persisted, ...(corrected === null ? {} : { corrected }) },
         }
       }
@@ -920,7 +905,7 @@ export function makeBridgeHandlers(
         }
         // The subscription layer owns the candidate list: it promotes the
         // next-fastest reserve, or keeps the exit at the pool tail when the
-        // reserve is empty (both documented as "rotate → refill, else sink").
+        // reserve is empty (both documented in docs §5.3 `POST /exit`).
         const promoted = await rt.subscriptions?.replaceExit(exitId).catch(() => false) ?? false
         if (!promoted && rt.pool.has(exitId)) {
           // A running onboarding/trim holds the rebuild mutex and replaceExit()

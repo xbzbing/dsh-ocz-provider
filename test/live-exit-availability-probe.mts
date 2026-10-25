@@ -1,10 +1,6 @@
 /**
- * Live availability probe for the CONFIGURED EXITS (2026-10-19): does the
- * OpenCode free lane serve the anonymous recipe from each exit's IP?
- *
- * The pool answers "is this exit healthy for the lane" with its own smoke
- * (pool/admission.ts), but when an operator asks why a subscription node
- * "does not work" the useful answer is per exit and on the real path:
+ * Availability probe for the CONFIGURED EXITS: does the OpenCode free lane
+ * serve the anonymous recipe from each exit's IP? Per exit it records
  *
  *   1. egress identity — the exit's public IP / country (a Cloudflare trace
  *      through the same dispatcher the lane request will use);

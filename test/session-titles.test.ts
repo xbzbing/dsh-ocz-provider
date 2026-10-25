@@ -1,7 +1,7 @@
 /**
- * The host session-title join (live request 2026-10-14): the 流量 tab's
- * Top 会话 rows must show the session's TITLE (what the sidebar calls it),
- * with the recorded first-prompt label only as the fallback.
+ * The host session-title join: the 流量 tab's Top 会话 rows must show the
+ * session's TITLE (what the sidebar calls it), with the recorded first-prompt
+ * label only as the fallback.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'

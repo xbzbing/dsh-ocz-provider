@@ -136,7 +136,7 @@ export function reasoningEfforts(capability: { reasoning: boolean; effortValues:
 /**
  * The `reasoning_effort` wire value for a selected effort id. The Zen gateway
  * validates the field against `minimal|low|medium|high|xhigh|max|none`
- * (live-probed 2026-09-18: any other value is a hard 400), and `none` is the
+ * (any other value is a hard 400), and `none` is the
  * only spelling that stops the always-think free models from thinking — a
  * mere omission keeps the provider default. So `off` maps to wire `none`,
  * ladder levels pass through verbatim, and unknown ids (never advertised)
@@ -200,20 +200,19 @@ function withRetryDelay(finish: FinishChunk, options: HarnessGenerateOptions): F
 }
 
 /**
- * Stream-liveness watchdogs (live-observed 2026-09-07): neither fetch nor
- * pi-ai owns a body-silence timeout, so a tunnel that stands but never
- * streams hangs the turn forever (70 minutes observed). Both messages
- * carry "timeout" so classifyStreamFailure maps them to 'transport' and
- * the rotate loop gets to move the session to a live exit.
+ * Stream-liveness watchdogs: neither fetch nor pi-ai owns a body-silence
+ * timeout, so a tunnel that stands but never streams hangs the turn forever.
+ * Both messages carry "timeout" so classifyStreamFailure maps them to
+ * 'transport' and the rotate loop gets to move the session to a live exit.
  */
 export const WATCHDOG_FIRST_MESSAGE = 'oc2dsh: first stream event timeout (exit silent before any response)'
 export const WATCHDOG_IDLE_MESSAGE = 'oc2dsh: stream body idle timeout (exit went silent mid-response)'
 
-/** Default watchdog windows (docs/ip-pool.md; test-injectable via constructor). */
+/** Default watchdog windows (docs/design.md §6.4); injected in tests. */
 export const DEFAULT_FIRST_EVENT_MS = 30_000
 export const DEFAULT_BODY_IDLE_MS = 120_000
 /**
- * Body-idle window for Responses models (muse-spark-*, issue #7): their
+ * Wider body-idle window for Responses models (`muse-spark-*`): their
  * chain-of-thought streams pace in bursts with long mid-stream pauses, so
  * the chat default misreads slow reasoning as a dead tunnel. Named and
  * constructor-injectable so tests can exercise the wider window without
@@ -258,16 +257,14 @@ interface AttemptMeta {
 }
 
 /**
- * Responses-only models (issue #7): `muse-spark-*` return a bare 500 on
+ * Responses-only models: `muse-spark-*` return a bare 500 on
  * `POST /inference/v1/chat/completions` but 200 on
  * `POST /inference/v1/responses` (opencode #44659/#44847, DSH #3957). Route by
  * model id; extend this list if the lane moves more models (candidates:
  * gpt-5.6-luna, grok-4.6).
  *
- * The gate covers BOTH surfaces: since 2026-10-14 the chat lane validates the
- * request's content (adapter/gate-tools.ts, adapter/messages.ts) and the whole
- * lane lives at `/inference/v1` — the old `/zen/v1` answers 403 for every
- * shape, so it is no longer "the lane of record" for anything.
+ * The free-lane gate covers BOTH surfaces: `/responses` carries the same
+ * tools, `<env>` block and session shape as chat (adapter/messages.ts).
  */
 
 
@@ -279,16 +276,16 @@ interface AttemptMeta {
  * input kinds each model takes, and the free roster rotates constantly, so a
  * family-scoped pattern cannot track it: space-bunny-free,
  * muse-spark-1.*-contributor-free, mimo-v2.5-free, fledge-alpha-free and
- * longcat-2.5-preview-free all declare `image` upstream and are refused today
- * with `Model "<id>" does not support image input.` A declared text-only model
- * stays refused, so the gate still protects the lane in both directions.
+ * longcat-2.5-preview-free all declare `image` upstream and sit outside the
+ * mimo family. A declared text-only model stays refused, so the gate still
+ * protects the lane in both directions.
  *
- * The built-in pattern remains the fallback for the ids whose image input was
- * live-verified end-to-end on 2026-09-28 (the mimo-v2.6 family), so metadata
- * being pending, absent or silent never changes what those models can do.
- * Models that end up text-only make DSH's attachment gates and pi-ai's image
- * downgrade refuse image parts instead of forwarding them to a model that
- * cannot see them.
+ * The built-in pattern remains the fallback for the ids whose image input is
+ * verified end-to-end (the mimo-v2.6 family), so metadata being pending,
+ * absent or silent never changes what those models can do. Models that end up
+ * text-only make DSH's attachment gate (`Model "<id>" does not support image
+ * input.`) and pi-ai's image downgrade refuse image parts instead of
+ * forwarding them to a model that cannot see them.
  */
 export function isVisionModel(id: string, declaredModalities?: string[]): boolean {
   if (Array.isArray(declaredModalities) && declaredModalities.length > 0) {
@@ -317,8 +314,7 @@ export function toPiModel(
     // unchanged either way). `image` (see isVisionModel) keeps pi-ai's
     // downgradeUnsupportedImages from dropping the image parts toPiContext
     // loads from the attachment store (the Zen gateway accepts image_url
-    // data URLs, live-probed 2026-09-23; full round-trip through
-    // DSH 0.1.7-rc.2 with mimo-v2.6-flash-free 2026-09-28).
+    // data URLs).
     reasoning,
     // opencode2dsh #97: DeepSeek's thinking mode rejects any replayed
     // assistant turn without a reasoning_content field ("The reasoning_content
@@ -441,16 +437,15 @@ export class ZenAdapter {
 
   /**
    * Provider-owned retry policy (dsh-llm calls this unconditionally at
-   * registration, index.js:1208). The anonymous free lane 429s in bursts —
-   * live-probed 2026-10-09 (issue #51): 5/8 immediate failures on
-   * step-5-preview-free, with contention windows that outlast the host
-   * default (5 retries over ~15s), so transient throttling surfaced as
-   * user-visible errors. This policy stretches the silent absorption window
-   * to ~208s per step (10 retries; waits come from the 5s/8s/10s/15s/20s/30s
-   * ladder in retry-delay.ts, tagged per failure as providerRetryAfterMs;
-   * the exponential backoff below is only the untagged fallback). Retryable
-   * codes mirror the host default set; deterministic failures (AUTH,
-   * REGION_BLOCKED, INVALID_REQUEST) stay non-retryable.
+   * registration, index.js:1208). The anonymous free lane 429s in bursts with
+   * contention windows that outlast the host default (5 retries over ~15s),
+   * so transient throttling would surface as user-visible errors. This policy
+   * stretches the silent absorption window to ~208s per step (10 retries;
+   * waits come from the 5s/8s/10s/15s/20s/30s ladder in retry-delay.ts,
+   * tagged per failure as providerRetryAfterMs; the exponential backoff below
+   * is only the untagged fallback). Retryable codes mirror the host default
+   * set; deterministic failures (AUTH, REGION_BLOCKED, INVALID_REQUEST) stay
+   * non-retryable.
    */
   providerRetryPolicy(_provider: string): typeof FREE_LANE_RETRY_POLICY {
     return FREE_LANE_RETRY_POLICY
@@ -468,10 +463,10 @@ export class ZenAdapter {
 
   /**
    * Advisory catalog for the DSH model picker (deduped; dsh-llm rejects
-   * duplicates). Async on purpose (issue #45): the host awaits this call and
-   * caches its answer per host generation, so the first read waits —
-   * bounded, inside the catalog — for the live Zen fetch instead of handing
-   * the host the staticFreeModels bootstrap list it would then keep showing.
+   * duplicates). Async on purpose: the host awaits this call and caches its
+   * answer per host generation, so the first read waits — bounded, inside the
+   * catalog — for the live Zen fetch instead of handing the host the
+   * staticFreeModels bootstrap list it would then keep showing.
    */
   async listModels(provider: string): Promise<Array<{ provider: string; id: string; name: string; inputModalities: string[] }>> {
     // The host calls this at registration, so it is the earliest honest moment
@@ -646,7 +641,7 @@ export class ZenAdapter {
       usageLabel: conversationLabel(options.messages),
     }
     const MAX_ROTATES = 3
-    // Watchdog windows (live-observed 2026-09-07): the OpenAI SDK timeout
+    // Watchdog windows: the OpenAI SDK timeout
     // only covers time-to-response-headers — once headers arrive it clears
     // its timer and NOTHING on any layer owns body silence. FIRST_EVENT: no
     // pi-ai event at all (not even `start`, which only arrives after
@@ -669,8 +664,8 @@ export class ZenAdapter {
     // the next origin when the current one answers with an ORIGIN-shaped
     // failure — a gate refusal (401/403/404) or an edge 5xx. That switch costs
     // one round trip and does NOT spend a pool rotation: a refusing origin is
-    // not a bad exit, and on 2026-10-19 both origins served the identical
-    // recipe, so the second door is a real second chance rather than a retry.
+    // not a bad exit, and both origins serve the identical recipe, so the
+    // second door is a real second chance rather than a retry.
     const origins = this.#origins
     const originLabel = (origin: string): string => origin.replace(/^https?:\/\//, '')
     let attempt = 0
@@ -724,8 +719,7 @@ export class ZenAdapter {
       }
       // The pump the consumer sees after flush: buffered events first, then
       // the live rest of the stream, through ONE toStreamChunks pass so the
-      // done/error terminator is never missing (the pre-fix flush fed it a
-      // terminator-less slice and threw "ended without done/error").
+      // done/error terminator is never missing.
       const pumpLive = async function* (): AsyncGenerator<PiEvent> {
         for (const e of buffered) yield e
         for (;;) {

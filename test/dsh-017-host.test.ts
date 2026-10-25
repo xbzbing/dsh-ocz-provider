@@ -5,11 +5,12 @@
  * details: a 0.1.7 Loader hands `apply()` a stable volatile reference for the
  * `Config` field marked `.volatile()` and announces saves with
  * `loader/volatile-update`; `SettingsForms` offers `describe`/`mutate`/
- * `configure` and no longer has `register(ns, schema)` or `get(ns)`.
+ * `configure` — there is no `register(ns, schema)` and no `get(ns)`.
  *
- * The fake below is deliberately 0.1.7-only — every deleted 0.1.1 seam is
- * either absent or throws if touched, so a regression toward the old protocol
- * fails here instead of silently working in tests and breaking on a real host.
+ * The fake below is deliberately 0.1.7-only — every 0.1.1-only seam is
+ * either absent or throws if touched, so code written against the 0.1.1
+ * protocol fails here instead of silently working in tests and breaking on a
+ * real host.
  */
 import { test, mock } from 'node:test'
 import assert from 'node:assert/strict'
@@ -29,7 +30,7 @@ mock.method(ModelCatalog.prototype, 'start', async () => {})
 // `apply()` is the production entry: it installs the real ledger and points the
 // catalog/status/sing-box paths at the plugin's state root. Keep every write of
 // this file inside a scratch root (src/paths.ts) — a test must never add rows
-// to the operator's own 流量统计 (live bug 2026-10-14, watchdog-config.test.ts).
+// to the operator's own 流量统计.
 process.env.OC2DSH_HOME = mkdtempSync(join(tmpdir(), 'oc2dsh-host17-'))
 
 /**

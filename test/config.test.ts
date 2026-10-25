@@ -71,10 +71,10 @@ test('Config preserves subscription URLs from an older profile patch', () => {
 })
 
 test('Config declares and bounds the stream watchdog windows, undefined when unset', () => {
-  // issue #33: nothing reached ZenAdapter's constructor, so the windows were
-  // unreachable. Declaring them here is what makes them settable — and, unlike
-  // an undeclared key (schemastery passes those through unvalidated), it also
-  // makes the schema reject a nonsensical window instead of arming it.
+  // The windows must be declared in the schema to reach ZenAdapter's
+  // constructor; unlike an undeclared key (schemastery passes those through
+  // unvalidated), declaring them also makes the schema reject a nonsensical
+  // window instead of arming it.
   const config = Config({ firstEventMs: 300, bodyIdleMs: 900, responsesBodyIdleMs: 1800 })
   assert.equal(config.firstEventMs, 300)
   assert.equal(config.bodyIdleMs, 900)

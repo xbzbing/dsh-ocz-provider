@@ -1,15 +1,12 @@
 /**
  * ip-pool assembly — builds the ExitPool + RoutingInstaller from plugin
- * config and owns their lifecycle (docs/ip-pool.md IP-1 scope: manual
- * proxies + pinned, both strictness levels; free sources arrive in IP-2).
+ * config and owns their lifecycle (docs/ip-pool.md §1.2).
  *
- * Deliberately lazy about `undici`: the module is only imported when
- * ipPool.enabled is true, so the default install keeps today's dependency
- * surface (pi-ai only).
+ * `undici` is imported lazily: this module loads only when ipPool.enabled is
+ * true, so the default install keeps its dependency surface (pi-ai only).
  *
- * IP-5: the runtime additionally exposes reconfigure() so the settings
- * namespace can hot-apply committed values (docs §5.1) — no restart for any
- * knob, including enabled itself.
+ * The runtime also exposes reconfigure(), so the settings namespace hot-applies
+ * committed values (docs §5.1) — no restart for any knob, including enabled.
  */
 
 import type { Opencode2dshConfig } from './config.ts'
@@ -39,16 +36,10 @@ function dataDir(): string {
 }
 
 /**
- * Liveness is judged by REAL requests, not a timer (operator decision
- * 2026-10-23, replacing docs/ip-pool.md §4.3 周期 probing): the routing layer's
- * passive verdicts (pool.recordPassive / pool/transport.ts) already write the
- * same two-tier health a probe would, so the periodic due-probe tick spent
- * zen quota re-confirming exits that real traffic confirms for free. What the
- * tick owned — reviving dead exits — now rests with the real-request path:
- * a 2xx revives (markOk), repeated transport strikes evict free rows for the
- * refill loop to replace, subscription rows swap for reserves (onDead), and a
- * manual/pinned row is DIAGNOSED on its first cut (pool/transport.ts: relabel +
- * revive when the listener answers, strike only when nothing does).
+ * Liveness is judged by real requests, not by a timer (docs/ip-pool.md §4.3):
+ * the routing layer's passive verdicts (pool.recordPassive / pool/transport.ts)
+ * write the two-tier health directly, and a transport cut goes to
+ * pool/transport.ts for diagnosis (relabel + revive, or strike) before it counts.
  */
 
 /** Parse one manual proxy string into an exit id + protocol, or null. */
@@ -67,14 +58,10 @@ export function parseManualProxy(
 }
 
 /**
- * Which health mark one probe verdict earns. Extracted (and exported) so the
- * mapping itself is testable without a network: a verified pass marks the
- * exit ok, a 429 marks it limited, and the trusted-source fallback — which
- * returns `admitted: true` without having reached the exit at all — must NOT
- * claim health. Live 2026-10-13: markOk() on the fallback revived five dead
- * subscription exits every probe round (state ok, grade S, exitIP unknown),
- * so the picker ranked them first and fed them real traffic that died at the
- * transport layer.
+ * Which health mark one probe verdict earns: a verified pass marks the exit
+ * ok, a 429 marks it limited, and the trusted-source fallback — `admitted: true`
+ * without having reached the exit — must NOT claim health (markUnverified,
+ * docs/ip-pool.md §3.2). Exported so the mapping is testable without a network.
  */
 export function applyProbeVerdict(
   pool: ExitPool,
@@ -107,14 +94,8 @@ function manualNode(id: string, protocol: 'http' | 'socks5'): ExitNode {
  * config names, drop what it no longer names, then pin/unpin.
  *
  * Idempotent, and scoped to `source === 'manual'` rows (free and subscription
- * rows are never touched). Runs at assembly AND on every live commit.
- *
- * Live-observed gap this closes (2026-10-12): manual/pinned used to be read
- * ONLY at assembly, so editing 固定主力 in the settings card wrote the config,
- * triggered reconfigure() — and changed nothing. The stale pin kept winning
- * pick() while the deleted row stayed in the table, so the only visible fix
- * was a restart. docs §5.1 / IP-5 acceptance ("设置页改任何项保存即生效无需重启")
- * was unmet for exactly these two fields.
+ * rows are never touched). Runs at assembly AND on every live commit, so a
+ * 手填/固定主力 edit takes effect without a restart (docs §5.1).
  *
  * A pinned address that is not in the pool is admitted as a manual row (the
  * user vouches for it, docs 3.1/4.5); an id that is already in the pool keeps
@@ -147,7 +128,7 @@ export function syncManualExits(pool: ExitPool, ipPool: Opencode2dshConfig['ipPo
     } else {
       // Not in the pool yet: a manual address is vouched in; anything else
       // (garbage, or a subscription exit that has not been admitted yet)
-      // simply pins nothing — same tolerance buildPoolFromConfig always had.
+      // simply pins nothing.
       const parsed = parseManualProxy(requested)
       if (parsed) {
         pool.add(manualNode(parsed.id, parsed.protocol))
@@ -167,10 +148,10 @@ export function syncManualExits(pool: ExitPool, ipPool: Opencode2dshConfig['ipPo
   else pool.pin(pinned)
 }
 
-/** Build the ExitPool from config (manual proxies + pinned). The pool starts
- *  with unknown health; real-request verdicts and the manual probe actions
- *  (IP-2) fill it in. Pinned nodes are admitted even without admission data —
- *  the user vouches for them (docs/ip-pool.md 3.1/4.5). */
+/** Build the ExitPool from config (manual proxies + pinned). Manual rows are
+ *  vouched in as ok — the user asserts them (docs/ip-pool.md 3.1/4.5); every
+ *  other source's rows arrive later, filled in by real-request verdicts and
+ *  the card's probe actions. */
 export function buildPoolFromConfig(config: Opencode2dshConfig): ExitPool {
   const pool = new ExitPool()
   syncManualExits(pool, config.ipPool)
@@ -263,7 +244,7 @@ export interface IpPoolAssemblyDeps {
  * The undici seam is imported once here and threaded to every layer. An empty
  * pool does not stop the runtime from existing: the dispatcher is installed
  * anyway, and 本地出口兜底 decides whether that empty pool means "fail" (the
- * default) or "egress locally" (docs §3.3, 2026-10-18).
+ * default) or "egress locally" (docs §3.3).
  */
 export async function startIpPool(
   config: Opencode2dshConfig,
@@ -334,11 +315,11 @@ export async function startIpPool(
   const probeContents = ipPool.probeContents ?? []
   const prober = new Prober({ pool, maxConcurrentProbes: ipPool.maxConcurrentProbes ?? 3 })
 
-  // Free-source refill loop (docs/ip-pool.md 3.5/4.5, IP-2): periodic state
+  // Free-source refill loop (docs/ip-pool.md 3.5/4.5): periodic state
   // check -> tiered fetch -> admission probes through the Prober queue.
   let refill: RefillScheduler | null = null
 
-  // Subscriptions (docs 1.2 source 3, IP-3/IP-4): pull + parse + trusted
+  // Subscriptions (docs 1.2 source 3): pull + parse + trusted
   // smoke; encrypted nodes convert via sing-box when a binary is configured.
   let subscriptions: SubscriptionFetcher | null = null
   let supervisor: SingBoxSupervisor | undefined
@@ -374,15 +355,13 @@ export async function startIpPool(
   const applyConfig = (): void => {
     const current = config.ipPool ?? {}
     // Manual rows and the pin FIRST: they are table membership, and the
-    // subscription/free layers below must see the post-edit table. This is
-    // the hot path the settings card promises — without it, editing 固定主力
-    // wrote the config and left the old pin winning pick() until a restart.
+    // subscription/free layers below must see the post-edit table (docs §5.1).
     syncManualExits(pool, current)
     pool.setTargetSize(current.free?.targetSize ?? 20)
-    // Whole-pool capacity (settings `poolSize`, default 20): the onboarding
-    // keeps the fastest N and shrinks the sing-box config to them, and the free
-    // refill's admissionQuota() honours the same ceiling.
-    pool.setPoolSize(current.poolSize ?? 20)
+    // Whole-pool capacity (settings `poolSize`; the settings schema defaults it
+    // to 10): the onboarding keeps the fastest N and shrinks the sing-box config
+    // to them, and the free refill's admissionQuota() honours the same ceiling.
+    pool.setPoolSize(current.poolSize ?? 10)
     admissionDeps.blockedCountries = current.free?.blockedCountries
     admissionDeps.smokeModel = probeModels[0]
     admissionDeps.smokeContents = probeContents
@@ -396,7 +375,7 @@ export async function startIpPool(
     // local-egress socket dials with, live, without touching the exit table.
     installer.setLocalIpFamily?.(resolveLocalIpFamily(current.localIpFamily))
 
-    // Free loop on/off + restart on target change (interval fixed 10min).
+    // Free loop on/off (interval fixed 10min, docs 4.6).
     const wantRefill = (current.free?.enabled ?? true) && current.enabled !== false
     if (wantRefill && refill === null) {
       refill = new RefillScheduler(pool, { ...admissionDeps, prober })
@@ -412,9 +391,8 @@ export async function startIpPool(
     const fetcher = ensureSubscriptions(urls)
     if (fetcher !== null) {
       // Attach/replace the conversion core on every commit: `singbox.path` is
-      // editable while the pool runs, and the supervisor used to be read only
-      // when the fetcher was first constructed — so filling the field after
-      // that had no effect at all until a restart (docs §5.1 promises live).
+      // editable while the pool runs, so filling it after the fetcher exists
+      // must still take effect (docs §5.1 promises live).
       fetcher.setSupervisor(ensureSupervisor())
       fetcher.setIntervalMs(current.subscription?.refreshMs ?? 30 * 60_000)
       // Applied before start() so the very first refresh already carries the
@@ -426,8 +404,7 @@ export async function startIpPool(
       }
       // Lowering poolSize must converge the LIVE pool, not just the next
       // onboarding: drop the worst exits and close their listeners with them
-      // (live 2026-10-14: capacity set to 10 while 16 exits were online and
-      // nothing moved). Serialized with the other config rebuilds inside the
+      // (docs §4.7). Serialized with the other config rebuilds inside the
       // fetcher, and a no-op when the pool is at or under capacity.
       if (pool.snapshot().total > pool.poolSize) {
         void fetcher.enforceCapacity().catch(() => {})
@@ -443,10 +420,10 @@ export async function startIpPool(
    * The dispatcher is installed even with an EMPTY pool: 本地出口兜底 decides
    * what an empty pool means (fail closed by default, direct when the
    * operator switched the fallback on), and an uninstalled dispatcher would
-   * always mean "direct" — i.e. this machine's IP on the wire during exactly
-   * the window the pool has nothing to offer (2026-10-18). It also stays a
-   * retry hook for the R1 deferral: each admission re-attempts install, so a
-   * foreign dispatcher's unload is picked up without a restart.
+   * always mean "direct" — this machine's IP on the wire during exactly the
+   * window the pool has nothing to offer. Each admission re-attempts install,
+   * so a foreign dispatcher's unload (R1 deferral) is picked up without a
+   * restart.
    */
   const engageRouting = (): void => {
     if (config.ipPool?.enabled === false) return
@@ -457,12 +434,12 @@ export async function startIpPool(
   pool.onAdmitted(engageRouting)
 
   /**
-   * A dead exit must not just sit in the table (live request 2026-10-14:
-   * "其余 dead 自动轮换，dead 的出口移至列表末尾"). The subscription layer swaps
-   * it for the next-fastest reserve and, when the reserve is exhausted, parks it
-   * at the pool tail — the pool holds its size either way. Only subscription
-   * exits rotate: free rows belong to the refill loop (they evict after repeated
-   * strikes) and manual/pinned rows are explicit user config.
+   * A dead exit must not just sit in the table: the subscription layer swaps
+   * it for the next-fastest reserve and, when the reserve is exhausted, parks
+   * it at the pool tail — the pool holds its size either way (docs §4.7).
+   * Only subscription exits rotate: free rows belong to the refill loop (they
+   * evict after repeated strikes) and manual/pinned rows are explicit user
+   * config.
    */
   pool.onDead((id) => {
     if (config.ipPool?.enabled === false) return
@@ -486,10 +463,10 @@ export async function startIpPool(
    */
   const probeOne = async (entry: ReturnType<ExitPool['list']>[number], models: string[]): Promise<void> => {
     const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
-    // ONE probe content per exit pass (live correction 2026-10-14): the models
-    // of a single pass are the SAME exit, so they all send the same sentence,
-    // and the next exit draws its own. The copy keeps that draw out of the
-    // shared deps the onboarding/refill/subscription smokes also read.
+    // ONE probe content per exit pass: the models of a single pass are the
+    // SAME exit, so they all send the same sentence, and the next exit draws
+    // its own (docs §4.2). The copy keeps that draw out of the shared deps
+    // the onboarding/refill/subscription smokes also read.
     const deps: AdmissionDeps = { ...admissionDeps, smokeContent: pickSmokeContent(probeContents) }
     for (const model of models) {
       // Point the smoke's model at the current probe-model before each pass
@@ -513,10 +490,9 @@ export async function startIpPool(
       if (verdict.admitted && verdict.node) {
         // Refresh the facts on a row that is STILL in the table. `add()` is an
         // upsert and this probe holds a snapshot from before it ran, so writing
-        // it back used to resurrect an exit a rotation (or an operator's 删除)
-        // had removed meanwhile — as a row with no local listener, still
-        // pickable as the last resort. Measured live 2026-10-14: 11 rows against
-        // a capacity of 10, the extra one demoted, unverified, listenerless.
+        // it back would resurrect an exit a rotation (or an operator's 删除)
+        // removed meanwhile — a row with no local listener, still pickable as
+        // the last resort (docs §4.7).
         const refreshed = pool.refresh(entry.id, {
           protocol: verdict.node.protocol,
           exitIP: verdict.node.exitIP,
@@ -570,43 +546,18 @@ export async function startIpPool(
   // recordPassiveTransport at the routing layer). probeAll/probeExit above stay
   // for the settings card's manual actions and the enable-flip kick below.
 
-  // Adapter-layer rotate delegate (docs §3.4/§8.1, IP-7): lets zen-adapter
+  // Adapter-layer rotate delegate (docs §3.4/§8.1): lets zen-adapter
   // restart a pre-content stream on a fresh exit instead of surfacing the
   // intermediate error to the host's retry budget.
   setRotateDelegate(createRotateDelegate(pool, { maxAttempts: config.ipPool?.maxRotateAttempts ?? 3 }))
 
   /**
-   * Relay-traffic egress seams (src/relay/egress.ts).
-   *
-   * While the Bun relay carries chat requests, no dispatch ever reaches
-   * {@link PoolRoutingDispatcher}: the request is addressed at loopback and the
-   * relay opens the upstream connection. These two callbacks are how the pool
-   * keeps its two jobs — deciding WHICH exit carries a request, and grading the
-   * outcomes — instead of silently degrading to "everything egresses locally":
-   *
-   *   pick  -> the same pool.pick(session, model) the dispatcher calls, so
-   *            pinning, stickiness and two-tier health still decide; the
-   *            answer travels to the relay in a header it strips before the
-   *            upstream sees anything.
-   *   settle-> the verdict table the dispatcher's observer applies to a real
-   *            status code: a bad status degrades the exit and breaks the
-   *            session binding, a transport cut goes to pool/transport.ts,
-   *            which can tell a mislabelled listener from a dead line.
-   *
-   * An empty pool keeps its documented meaning: 本地出口兜底 decides between a
-   * direct egress and a refusal, and a refusal is returned as `fail` so the
-   * adapter can surface it (the dispatcher's #failClosed parity) rather than
-   * quietly putting this machine's address on the wire.
-   */
-  /**
    * A pin the rotation had to skip, said out loud — once per outage.
    *
    * Falling through is CORRECT (a pin is a preference: `pinnedStrict` is the
-   * card's promise about rotating on failure, and this is that failure), but it
-   * was silent, which is how a live profile read "the pinned row is still
-   * working fine" while every request was carried by another exit (2026-10-25).
-   * One line per outage, and the row's own reason, so the log answers
-   * "why is my pin not being used" without a status dump.
+   * card's promise about rotating on failure, and this is that failure), so
+   * this only adds the missing visibility: one line per outage, carrying the
+   * row's own reason, so the log answers "why is my pin not being used".
    */
   const pinSkips = new Set<string>()
   pool.onPinnedSkip((pinned, used) => {
@@ -626,6 +577,28 @@ export async function startIpPool(
     logger.warn(`oc2dsh: 固定出口 ${pinned} ${why}；本次请求改走 ${used}（修好或重新固定后自动回到它）`)
   })
 
+  /**
+   * Relay-traffic egress seams (src/relay/egress.ts).
+   *
+   * While the Bun relay carries chat requests no dispatch reaches the routing
+   * dispatcher — the request is addressed at loopback and the relay opens the
+   * upstream connection — so these two callbacks keep the pool's two jobs,
+   * instead of everything silently egressing locally:
+   *
+   *   pick  -> the same pool.pick(session, model) the dispatcher calls, so
+   *            pinning, stickiness and two-tier health still decide; the
+   *            answer travels to the relay in a header it strips before the
+   *            upstream sees anything.
+   *   settle-> the verdict table the dispatcher's observer applies to a real
+   *            status code: a bad status degrades the exit and breaks the
+   *            session binding, a transport cut goes to pool/transport.ts,
+   *            which can tell a mislabelled listener from a dead line.
+   *
+   * An empty pool keeps its documented meaning: 本地出口兜底 decides between a
+   * direct egress and a refusal, and a refusal is returned as `fail` so the
+   * adapter can surface it (the dispatcher's #failClosed parity) rather than
+   * quietly putting this machine's address on the wire.
+   */
   setRelayEgressSeams({
     pick: ({ model, session }) => {
       if (config.ipPool?.enabled === false) return null
@@ -690,10 +663,10 @@ export async function startIpPool(
       }
       if (wasEnabled !== enable) {
         logger.info(`oc2dsh: ip pool ${enable ? 'enabled' : 'disabled'} via settings (live)`)
-        // Switching on has to mean something within seconds: liveness is now
-        // judged by real requests, and a pool that was switched off has no
-        // traffic to judge with — this one-shot kick re-verifies every row so
-        // the re-enable does not hand pick() rows whose upstream died meanwhile.
+        // Switching on has to mean something within seconds: a pool that was
+        // switched off has no traffic to judge liveness with, so this one-shot
+        // kick re-verifies every row before pick() hands out entries whose
+        // upstream may have died meanwhile.
         if (enable) void probeAll().catch(() => {})
       }
     },

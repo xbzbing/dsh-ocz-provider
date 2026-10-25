@@ -2,14 +2,11 @@ import { existsSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
 
 /**
- * The `<env>` system-prompt block every accepted request must carry.
- *
- * WHY THIS EXISTS (live-probed 2026-10-25, `docs/local/capture-214/`): the
- * anonymous lane's quota layer rejects a request whose system content has no
- * environment block with 429 FreeUsageLimitError — the same status the quota
- * itself uses, which is why the missing block read as "quota spent" for days.
- * The official 2.1.4 client (a Bun binary) always sends one; it is the tail of
- * its system prompt (8368 chars total, `<env>` starting at index 7731):
+ * The `<env>` system-prompt block every accepted request must carry — one of
+ * the free lane's three gate halves: a body whose system content has no
+ * environment block is answered 429 FreeUsageLimitError, the same status a
+ * spent quota uses. The official 2.1.4 client always sends one as the tail of
+ * its system prompt:
  *
  *     <env>
  *       Working directory: /Users/…/workspace
@@ -19,20 +16,13 @@ import { posix, win32 } from 'node:path'
  *       Prefer /private/tmp/opencode over generic system temporary directories …
  *     </env>
  *
- * What the gate actually checks is PRESENCE, not fidelity — one variable per
- * request, byte-identical otherwise, official body and headers, Bun egress:
- *
- *   empty `<env>` block                     -> 429
- *   the same lines without the tags          -> 429
- *   official system prefix, 6000/7200/8000   -> 429   (no `<env>` yet)
- *   junk-padded system prompt                -> 429
- *   `<env>` + one real line                  -> 200
- *   `<env>` block only, no other system text -> 200
- *   `<env>` with a fabricated `/tmp/x`       -> 200
- *
- * So this module reproduces the block's SHAPE with this host's real values
- * instead of shipping the captured text: a hard-coded `Working directory`
- * would be a lie the model may act on, and the gate accepts either.
+ * The gate checks PRESENCE, not fidelity (probe matrix under
+ * `docs/local/capture-214/`): an empty block, the same lines without the
+ * tags, a junk-padded prompt, or a system prompt truncated before the block
+ * are refused (429); one real line passes, a block-only prompt passes, a
+ * fabricated path passes. So this module reproduces the block's SHAPE with
+ * this host's real values instead of shipping the captured text: a
+ * hard-coded `Working directory` would be a lie the model may act on.
  */
 
 /** Opening tag of the block (the gate's literal marker). */

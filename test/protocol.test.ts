@@ -5,10 +5,9 @@ import net from 'node:net'
 import { detectProxyProtocol, isLoopbackEndpoint, proxyEndpoint } from '../src/pool/protocol.ts'
 
 /**
- * The detector exists because a pool row's protocol was never checked against
- * the listener (live 2026-10-25: an `http` row on a SOCKS inbound 502'd every
- * request in 6 ms). These tests stand up real listeners, because the thing
- * under test is exactly "what does this socket answer".
+ * The detector decides what a pool row's listener actually speaks and never
+ * guesses from the address scheme. These tests stand up real listeners,
+ * because the thing under test is exactly "what does this socket answer".
  */
 
 interface Listening {

@@ -79,7 +79,7 @@ export class RefillScheduler {
   #progress: RefillProgress = idleProgress()
   /** Notified after every real admission — the runtime assembly uses it to
    *  engage routing the moment a free-source pool stops being empty (the
-   *  initial install is skipped exactly then, live-observed 2026-09-09). */
+   *  initial install is skipped exactly then). */
   #admittedCallbacks: Array<() => void> = []
 
   constructor(pool: ExitPool, deps: RefillDeps, options: RefillOptions = {}) {
@@ -235,13 +235,12 @@ export class RefillScheduler {
     // global workers, 4.1). Survivors are latency-ranked first so the scarce
     // quota goes to the best exits a full scan surfaced.
     //
-    // Reservation gate (live-observed 2026-09-07): a build-time quota check
-    // never fires (admitted/admittedLimited are both 0 while the task list
-    // is constructed) and a check at probe start still lets a full worker
-    // wave through (every worker passes the gate before the first admission
-    // lands) — the surplus then runs the replace flow (evict worst + insert)
-    // and degrades the pool one churn per surplus survivor. Claim the seat
-    // BEFORE probing: at most `quota` admissions touch the upstream per
+    // Reservation gate: the seat is claimed BEFORE probing, not when the task
+    // list is built (a build-time check always sees admitted/admittedLimited
+    // at 0) and not at probe start (every worker would pass the gate before
+    // the first admission lands, and each surplus survivor then runs a whole
+    // replace flow — evict worst + insert — degrading the pool one churn per
+    // surplus survivor). At most `quota` admissions touch the upstream per
     // round; every later queued task returns without probing. The
     // pool-satisfaction half guards against concurrent fillers this round's
     // counters cannot see (trusted probe, manual add, another round's
@@ -273,7 +272,8 @@ export class RefillScheduler {
               if (this.#pool.add(verdict.node)) {
                 if (verdict.limited) {
                   // 429 at smoke (4.5): good exit, quota consumed elsewhere —
-                  // admit cooling; the periodic probe retries when it expires.
+                  // admit cooling; real traffic re-judges it once the cooldown
+                  // expires.
                   this.#pool.markLimited(verdict.node.id)
                   admittedLimited += 1
                 } else {

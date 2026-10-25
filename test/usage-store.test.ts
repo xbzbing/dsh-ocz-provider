@@ -1,7 +1,7 @@
 /**
- * Persistent usage ledger (live request 2026-10-14: 流量重启后不再丢失，最长 90
- * 天). These tests drive the real file in a temp directory — the whole point of
- * the store is what survives a restart, which a mocked fs would not prove.
+ * Persistent usage ledger: these tests drive the real file in a temp
+ * directory — the whole point of the store is what survives a restart, which
+ * a mocked fs would not prove.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -76,7 +76,7 @@ test('the run scope counts this process only, the total scope counts everything'
 })
 
 test('clear() empties every bucket and persists the empty document', async () => {
-  // Live request 2026-10-14: 总量统计保留 90 天自然过期，增加一个清空按钮.
+  // The 清空 button wipes every bucket, not just the headline totals.
   const { dir, path } = tempPath()
   try {
     const store = new UsageStore({ path, flushMs: 0, now: () => Date.UTC(2026, 9, 14, 3, 0, 0) })
@@ -129,9 +129,9 @@ test('clear() works on a store that has not read the file yet', async () => {
 })
 
 test('OC2DSH_HOME redirects the default ledger path, and is read lazily', async () => {
-  // Regression for the live bug of 2026-10-14: the watchdog scenarios drive the
-  // real entry, whose store is built at import time — before a test body can set
-  // anything. The redirect only works because the path is resolved per use.
+  // The store built by the real entry is built at import time — before a test
+  // body can set anything — so the redirect only works because the path is
+  // resolved per use.
   const before = process.env.OC2DSH_HOME
   const dir = mkdtempSync(join(tmpdir(), 'oc2dsh-home-'))
   try {

@@ -1,7 +1,7 @@
 /**
  * Prober — the two-level probe scheduler (docs/ip-pool.md section 4.1).
  *
- * Hard constraints (2026-09-04 decision; do not "optimize" them away):
+ * Hard constraints (do not "optimize" them away):
  *  1. Serial per exit: at most one in-flight probe per exit (per-exit probe
  *     lock in ExitPool) — one exit IP is one shared quota bucket; concurrent
  *     probes against it are self-inflicted 429s.
@@ -11,10 +11,10 @@
  *  3. Same-exit models run back-to-back (no lock re-acquisition churn);
  *     different exits interleave.
  *
- * The scheduler is generic over the actual probe task: admission probes,
- * periodic health probes and settings-page "probe this exit" clicks all
- * enqueue through the same queue. Tasks are async functions returning a
- * verdict already applied to the pool by the caller.
+ * The scheduler is generic over the actual probe task: admission probes and
+ * the settings card's 探测/批量探活 actions all enqueue through the same
+ * queue. Tasks are async functions returning a verdict already applied to the
+ * pool by the caller.
  */
 
 import type { ExitPool } from './pool.ts'

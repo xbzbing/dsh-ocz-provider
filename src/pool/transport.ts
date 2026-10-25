@@ -1,33 +1,21 @@
 /**
  * What ONE transport cut means for the exit it landed on.
  *
- * A cut used to be a verdict by itself: any failure before the first response
- * byte struck the row dead (`markDeadStrike`), and a dead row never carries a
- * request again, because `pick()` skips it — so the only ways back were a real
- * 2xx through a row nothing would route to, or the settings card's 探测 click.
- * One strike outlived the cause that produced it.
- *
- * The cause that made this untenable is a MISLABELLED listener (live
- * 2026-10-25): manual row `127.0.0.1:30035` said `http` while sing-box served
- * SOCKS5 on that port, so the relay sent HTTP CONNECT into a SOCKS server, the
- * server dropped the socket, and the row was struck dead in 6 ms — while the
- * same port answered 200 through `socks5://`. The label was wrong, not the
- * line, and the pool had no way to tell the two apart.
- *
- * So a cut on a row that has NO measured facts is a QUESTION, not an answer:
- * ask the listener what it speaks (pool/protocol.ts dials nothing — a greeting
+ * A cut on a row that has NO measured facts is a QUESTION, not an answer: ask
+ * the listener what it speaks (pool/protocol.ts dials nothing — a greeting
  * and a CONNECT to an RFC 5737 address), then
  *
- *   - nothing answers          -> the row really is unusable: strike it dead;
+ *   - nothing answers           -> the row really is unusable: strike it dead;
  *   - it speaks the other scheme -> relabel it, revive it, keep it working;
- *   - it speaks the right one  -> the cut was transient noise: keep the row
+ *   - it speaks the right one   -> the cut was transient noise: keep the row
  *                                  pickable (it just loses its `ok` claim) and
  *                                  strike it on the NEXT cut instead.
  *
- * A row WITH measured facts keeps the old accounting: its protocol came from a
- * real request, so a cut is a genuine loss of the line and there is nothing to
- * ask. The grace is also one per outage per row (`windowMs`), so a genuinely
- * flapping line still dies after two cuts rather than living on diagnostics.
+ * A row WITH measured facts keeps the direct accounting: its protocol came
+ * from a real request, so a cut is a genuine loss of the line and there is
+ * nothing to ask. The grace is also one per outage per row (`windowMs`), so a
+ * genuinely flapping line still dies after two cuts rather than living on
+ * diagnostics (AGENTS.md, egress row hygiene).
  */
 
 import type { ExitNode, ExitPool } from './pool.ts'
@@ -37,7 +25,7 @@ import type { ProxyProtocol } from './protocol.ts'
 export const TRANSPORT_DIAGNOSIS_WINDOW_MS = 30_000
 
 /**
- * What one cut turned out to be:
+ * What one cut means:
  *   `struck`   the row was judged dead (measured row, spent grace, or nothing
  *              listening);
  *   `healed`   the listener spoke the other scheme, so the row was relabelled

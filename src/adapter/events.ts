@@ -5,15 +5,14 @@
  *
  * Two inbound rewrites live here, both seams for the free-lane gate's spelling:
  *
- *  - `toolNameAlias` (issue #56): wire tool names rewritten before the chunks
+ *  - `toolNameAlias`: wire tool names rewritten before the chunks
  *    leave the adapter. ON the shipped 2.1.4 recipe (adapter/messages.ts
  *    `GATE_TOOL_ALIASES`) it is `{ shell: 'bash' }`: the wire carries the
  *    official `shell` definition while DSH names the same capability `bash`,
  *    so the model's `shell` call arrives at the host as `bash`.
- *  - `toolArgumentBridge` (2026-10-14, re-keyed 2026-10-24): the gate
- *    validates the CONTENT of the gate definitions, so the adapter puts the
- *    genuine ones on the wire (adapter/gate-tools.ts) and maps the model's
- *    arguments back to the host's declared shape — the 2.1.4 wire's `path` ->
+ *  - `toolArgumentBridge`: the wire carries the GENUINE gate definitions
+ *    (adapter/gate-tools.ts), so the adapter maps the model's arguments back
+ *    to the host's declared shape — the 2.1.4 wire's `path` ->
  *    the host's `file_path`, `timeout` -> `timeoutMs`, and the host's required
  *    `description` synthesized from the command. The bridge is keyed by the
  *    POST-alias (host) name, because the alias is applied first.
@@ -109,13 +108,10 @@ function classifyError(text: string): string {
   if (/\btime(?:d)?\s*out\b|timeout/i.test(text)) return 'TIMEOUT'
   // Port parity with dsh-llm-pi-ai classifyPiAiError (lib/index.js:1456): the
   // host maps pi-ai's "Stream ended without finish_reason" sentinel to
-  // TRANSPORT, and this clean-room port had dropped exactly that line — the
-  // bare message then fell through to the UPSTREAM fallback below, which is NOT
-  // in FREE_LANE_RETRY_POLICY.retryableCodes, so dsh-llm-retry ended the turn
-  // instead of retrying a mid-stream cut. Live evidence 2026-10-15: 15 bare
-  // sentinel failures all killed the turn, while the same sentinel arriving on
-  // the host's own provider (already TRANSPORT there) was retried and recovered
-  // the step every time. Keep the host's own wording so the two stay in step.
+  // TRANSPORT, and without this line the bare message falls through to the
+  // UPSTREAM fallback below, which is NOT in FREE_LANE_RETRY_POLICY.retryableCodes,
+  // so dsh-llm-retry ends the turn instead of retrying a mid-stream cut.
+  // Keep the host's own wording so the two stay in step.
   if (/stream ended (?:before|without)\b/i.test(text)) return 'TRANSPORT'
   // opencode2dsh #105: the same cut arrives under spellings the two regexes
   // above miss. `\bsocket\b` never matches inside "WebSocket" (no boundary in
@@ -132,14 +128,15 @@ function classifyError(text: string): string {
  * mapStopReason (dsh-llm-pi-ai index.js:1286-1330, minus the usage heuristic
  * upstream dropped in opencode2api #101, ported as opencode2dsh #101).
  *
- * The request that reaches the wire carries 4-5k tokens more than the host
+ * A usage-based CONTEXT_WINDOW_EXCEEDED heuristic must NOT come back: the
+ * request that reaches the wire carries 4-5k tokens more than the host
  * estimates its history at (system prompt + the gate's genuine tool
  * definitions + serialization), so a conversation filled to the declared
- * window arrives with `usage.input > contextWindow` on a HEALTHY finish — the
- * pre-fix heuristic then rewrote a turn the upstream had already answered
- * into CONTEXT_WINDOW_EXCEEDED, which is not retryable and killed the whole
- * turn. Only the provider's own overflow WORDING (a 400 whose message says
- * context + exceed/window/length/token) is still classified as such.
+ * window arrives with `usage.input > contextWindow` on a HEALTHY finish, and
+ * rewriting that answered turn as CONTEXT_WINDOW_EXCEEDED — a non-retryable
+ * code — kills the whole turn. Only the provider's own overflow WORDING (an
+ * error whose message says context + exceed/window/length/token) classifies
+ * as such.
  */
 function mapStopReason(message: PiDoneMessage): FinishReason {
   if (message.stopReason === 'error' && message.errorMessage !== undefined && /context/i.test(message.errorMessage) && /exceed|window|length|token/i.test(message.errorMessage)) {

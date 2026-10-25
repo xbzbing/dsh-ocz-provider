@@ -1,23 +1,12 @@
 /**
- * Bun relay supervisor — the process that makes this plugin's upstream
- * requests LEAVE this process on the official client's connection stack.
- *
- * WHY (live-probed 2026-10-25, docs/local/capture-214/): the free lane gates on
- * the client's TLS/HTTP fingerprint. Byte-identical official requests answer
- * 429 from Node h1, Node h2, curl, Python and Go on every egress, and 200 when
- * the same bytes leave through Bun — including through this relay, over a
- * direct connection and over pool exits (both `http://` proxies and SOCKS5
- * ones, the latter through the relay's CONNECT->SOCKS5 bridge). No payload
- * edit reaches this layer, so the adapter needs a bun-native sender.
- *
- * The supervisor owns that sender's lifecycle: resolve the `bun` binary, spawn
- * `relay/oc2dsh-relay.mjs`, read the port it reports, health-check it, restart
- * it when it dies, and shut it down with the plugin fiber. It is deliberately
- * tolerant: a machine without bun keeps working (relay inactive, requests go
- * out directly as before) with one clear warning instead of a broken provider.
- *
- * Config comes from the `relay` node of the plugin config (config.ts):
- * `enabled` (default true), `bunPath`, `port` (0 = ephemeral), `upstream`.
+ * Bun relay supervisor: resolve the `bun` binary, spawn
+ * `relay/oc2dsh-relay.mjs`, read the `OC2DSH_RELAY_READY <port>` line, health-check
+ * the listener, restart it with bounded backoff, and stop it with the plugin
+ * fiber. The relay must send on Bun's connection stack because the free lane
+ * gates on it; a machine without bun keeps working — relay inactive, requests go
+ * out directly, one clear warning. Config comes from the `relay` node of the
+ * plugin config (config.ts): `enabled` (default true), `bunPath`, `port`
+ * (0 = ephemeral), `upstream`.
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -63,9 +52,9 @@ export interface RelaySupervisorOptions {
   /** Restart backoff ceiling (attempts beyond this give up for this process). */
   maxRestarts?: number
   /**
-   * Continuous uptime after which the restart budget is given back. A crash
-   * loop still exhausts it; isolated crashes spread over hours no longer add
-   * up to a permanent "gave up, requests go direct" state.
+   * Continuous uptime after which the restart budget is given back: the budget
+   * bounds a crash loop, not a process lifetime, and a child that dies before
+   * the window keeps its strikes.
    */
   healthyResetMs?: number
 }
@@ -149,8 +138,8 @@ export function findBun(configured?: string): string | null {
   for (const candidate of fixed) {
     if (existsSync(candidate)) return candidate
   }
-  // nvm keeps node's bin dirs under ~/.nvm/versions/node/<ver>/bin; this
-  // machine's bun is installed beside node there (1.4.4 beside v24).
+  // nvm keeps node's bin dirs under ~/.nvm/versions/node/<ver>/bin; bun can be
+  // installed beside node there, so the newest version dir is tried first.
   const nvmRoot = join(home, '.nvm', 'versions', 'node')
   try {
     if (existsSync(nvmRoot)) {
@@ -225,15 +214,9 @@ export class RelaySupervisor {
 
   /**
    * Fire-and-forget warm-up for the paths that precede traffic (the host's
-   * registration-time model list, and every prepareCall).
-   *
-   * `apply()` deliberately does NOT do this at load time: a plugin that forks a
-   * process merely by being loaded is rude to hosts that never use this
-   * provider, and it broke a real harness — a test process with mocked clocks
-   * that only wants to exercise the adapter had a live bun child inside it and
-   * misread the result (live 2026-10-25, test/watchdog-config.test.ts). Warming
-   * on the two calls the host makes right before a turn costs nothing and keeps
-   * the first request off the direct (429) path in practice.
+   * registration-time model list, and every prepareCall). `apply()` does not do
+   * this at load time: loading the plugin must not fork a process for a host
+   * that never uses this provider.
    */
   warm(): void {
     if (this.#baseUrl !== null || this.#starting !== null || this.#config.enabled === false) return
@@ -319,14 +302,10 @@ export class RelaySupervisor {
       }
       this.#child = child
       // The child stays ATTACHED until it is ready (see #detach below): while
-      // starting, its pipes are what carries the readiness line, so unref'ing
-      // them immediately would let the loop drain and leave this promise
-      // permanently pending — a caller awaiting start() in an otherwise idle
-      // process got "unsettled top-level await" (live 2026-10-25 from the built
-      // lib). Once listening it is detached, because the relay must never keep
-      // its parent alive: without that a test process calling apply() hung
-      // forever instead of finishing (live: `node --test` inside
-      // dsh-017-host.test.ts).
+      // starting, its pipes carry the readiness line, so unref'ing them early
+      // would let the loop drain and leave this promise pending forever. Once
+      // listening it is detached, because the relay must never keep its parent
+      // alive.
       let settled = false
       let stdout = ''
       const timer = setTimeout(() => {
@@ -367,7 +346,8 @@ export class RelaySupervisor {
           })
         }
       })
-      // Keep the child's log out of the host's stdout, but surface failures.
+      // The child's log stays out of the host's stdout: only `OC2DSH_RELAY_TRACE=1`
+      // mirrors these lines to stderr; stderr itself always lands in `lastError`.
       child.stdout.on('data', (chunk: string) => {
         for (const line of chunk.split('\n')) {
           if (line.trim() === '' || line.startsWith(READY_MARKER)) continue
@@ -398,15 +378,9 @@ export class RelaySupervisor {
   }
 
   /**
-   * Give the restart budget back once a relay has stayed up.
-   *
-   * The budget exists to stop a crash LOOP; it must not be a lifetime
-   * allowance. Live 2026-10-25: five independent kills (my own `pkill` while
-   * probing, not a crash) spent the whole allowance, after which the next exit
-   * would have answered "gave up after 5 restarts; requests will go direct
-   * (429 expected)" — a silent degradation on a host that had been healthy for
-   * hours. So the counter resets after {@link #healthyResetMs} of continuous
-   * uptime, and a child that dies before that keeps its strikes.
+   * Give the restart budget back after {@link #healthyResetMs} of continuous
+   * uptime: the budget exists to stop a crash LOOP, not to cap a process
+   * lifetime, and a child that dies before the window keeps its strikes.
    */
   #armBudgetReset(child: ChildProcessWithoutNullStreams): void {
     const timer = setTimeout(() => {
@@ -418,12 +392,9 @@ export class RelaySupervisor {
   }
 
   /**
-   * Release a ready (or failed) child from the parent's event loop.
-   *
-   * Everything about the relay that could pin this process alive — the child
-   * handle and its three stdio pipes — is unref'd here, and only here: during
-   * startup the same handles are what delivers the readiness line, so detaching
-   * a moment too early leaves start() pending forever. The child still dies
+   * Release a ready (or failed) child from the parent's event loop: the child
+   * handle and its three stdio pipes are unref'd here, and only here — startup
+   * needs those handles to deliver the readiness line. The child still dies
    * with us: its stdin is a pipe, and EOF is its own shutdown signal.
    */
   #detach(child: ChildProcessWithoutNullStreams): void {
@@ -493,16 +464,10 @@ export class RelaySupervisor {
 }
 
 /**
- * Default health probe: `node:http` against loopback, deliberately NOT `fetch`.
- *
- * Two reasons, both learned the hard way. (1) The pool's installer swaps
- * `globalThis.fetch` for undici's module fetch while routing is on, so a
- * readiness probe over that seam would be routed by whatever layer happens to
- * own the slot — a loopback URL has no business in that path. (2) A host or a
- * test that mocks `globalThis.fetch` would otherwise answer this probe itself:
- * the first `apply()` in `test/watchdog-config.test.ts` did exactly that and
- * consumed the mock's only scripted response, leaving the scenario's real
- * request unanswered (live 2026-10-25).
+ * Default health probe: `node:http` against loopback, deliberately NOT `fetch`:
+ * the pool's installer swaps `globalThis.fetch` while routing is on, so a
+ * `fetch` probe could be routed by that layer — or answered by a host/test
+ * mock of it — instead of reaching this process.
  */
 function defaultHealthFetch(url: string, signal: AbortSignal): Promise<unknown> {
   return new Promise((resolve, reject) => {

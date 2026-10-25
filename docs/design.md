@@ -243,6 +243,20 @@ oc2dsh 的 Go 部分命名 `oc2dsh-agent`，Go module 采用 `cmd/agent` + `inte
 
 DSH 的模型网关以 OpenAI Chat 协议请求 provider（cc-migrate 调研确认 DSH provider 走标准 OpenAI 兼容面）。Zen 匿名通道的原生协议即 Chat（`protocolForSDK` 对 openai-compatible SDK 判 Chat，models.go:574-575）。因此 Phase 0-3 全链路**Chat-in/Chat-out，零转换**，convert/stream 的跨协议代码只保留接口占位。这不损失后续扩展性：若未来某免费模型在 Zen 上仅暴露 Anthropic 协议，启用对应转换路径即可（代码已在裁剪保留清单内）。
 
+### 6.4 流式活性看门狗
+
+`fetch` 和 `pi-ai` 都不持有「响应体静默」超时：隧道建立、却始终不出流时，这一轮会永久挂住。
+`src/adapter/zen-adapter.ts` 因此自持两个窗口，超时文案带 `timeout`，`classifyStreamFailure`
+把它们归为 `transport`，轮换循环据此把会话换到活着的出口：
+
+| 窗口 | 默认 | 作用 |
+| --- | --- | --- |
+| 首事件 `DEFAULT_FIRST_EVENT_MS` | 30 s | 连接建立后到第一个流事件 |
+| 响应体静默 `DEFAULT_BODY_IDLE_MS` | 120 s | 流已开始后，两次事件之间的最长间隔 |
+| Responses 模型 `RESPONSES_BODY_IDLE_MS` | 300 s | `muse-spark-*` 的思考按突发节奏输出、中段长停顿是常态，用 chat 的默认窗口会把慢思考判成死隧道 |
+
+三个常量都可由构造器注入，测试不必等满真实窗口。
+
 ## 7. 鉴权设计（本地）
 
 - **默认启用**：插件首次启动生成 32 字节随机 token（`crypto.randomBytes(32).toString('base64url')`），写入插件数据目录（0600），以 `--server-key <token>` 或配置文件传给子进程；DSH provider 配置同一 token 作为 API key。opencode2api 的 `authenticate`（gateway.go:170-194）原样提供该能力（`x-api-key` 与 `Authorization: Bearer` 双通道、常量时间比对）。

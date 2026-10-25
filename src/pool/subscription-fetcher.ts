@@ -8,13 +8,12 @@
  *     parked until a conversion core is configured, then sing-box conversion
  *     -> the bounded onboarding pipeline (also speed test only, see onboard.ts)
  *
- * NEITHER path ever sends a request to OpenCode (operator decision 2026-10-24:
- * 添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟): the speed
- * test (ip-api echo through the candidate) measures the exit's IP, geo and the
- * latency the pool row displays, and nothing else. OpenCode's opinion of an
- * exit IP arrives passively from real traffic (pool.recordPassive). What still
- * probes OpenCode is the settings card's 探测/批量探活 action — an explicit
- * user request, outside this flow.
+ * NEITHER path ever sends a request to OpenCode (docs/ip-pool.md §4.5): the
+ * speed test (ip-api echo through the candidate) measures the exit's IP, geo
+ * and the latency the pool row displays, and nothing else. OpenCode's opinion
+ * of an exit IP arrives passively from real traffic (pool.recordPassive).
+ * What still probes OpenCode is the settings card's 探测/批量探活 action — an
+ * explicit user request, outside this flow.
  *
  * Deliberately gentle: subscription servers are paid account resources
  * (ban risk), so one request per URL per refresh — no retries, no fan-out
@@ -23,9 +22,8 @@
  * The fetch User-Agent is settings-driven (docs 5.1 `subscription.userAgent`,
  * default DEFAULT_SUBSCRIPTION_USER_AGENT): airports gate on it and a UA their
  * panel does not list can come back as an error page or a 502 rather than a
- * subscription body — one airport measured here answers 502 for
- * `clash-verge/1.6.0` and 403 `PLEASE UPGRADE CLIENT` for `clash-verge/v2.0`
- * once its panel raised the floor (2026-10-13; v2.4.2 / mihomo 1.19.8 serve).
+ * subscription body — the measured versions and what each answers are recorded
+ * in docs/ip-pool.md §4.6.
  */
 
 import { ExitPool, type ExitNode } from './pool.ts'
@@ -106,8 +104,7 @@ export class SubscriptionFetcher {
    *  reserve, so a later refusal can be replaced (see replaceExit()). */
   #onboarder: Onboarder | null = null
   /** One replacement at a time: each one rebuilds the sing-box config, and a
-   *  burst of dead exits must not stack rebuilds (the periodic probe retries
-   *  whatever a skipped one missed). */
+   *  burst of dead exits must not stack rebuilds. */
   #replacing = false
   #logger?: SubscriptionOptions['logger']
 
@@ -131,14 +128,10 @@ export class SubscriptionFetcher {
 
   /**
    * Update the subscription URL list (settings change) and, when the fetcher
-   * is already running AND the list really changed, pull right away.
-   *
-   * Live-observed 2026-10-12: saving the settings card only re-seeded the
-   * list, so a newly added airport URL stayed unfetched until the next
-   * interval tick — with the shipped 30-minute default that looked exactly
-   * like "the setting did not apply". Before `start()` (first assembly) the
-   * immediate refresh is skipped on purpose: the caller starts the fetcher
-   * right after, which fetches anyway.
+   * is already running AND the list really changed, pull right away — a newly
+   * added airport URL must not sit unfetched until the next interval tick.
+   * Before `start()` (first assembly) the immediate refresh is skipped on
+   * purpose: the caller starts the fetcher right after, which fetches anyway.
    */
   setUrls(urls: string[]): void {
     const next = urls.filter((url) => url.trim().length > 0)
@@ -150,9 +143,8 @@ export class SubscriptionFetcher {
   /**
    * Live re-apply of the refresh interval (settings page, docs §5.1). A save
    * that does not change the interval must NOT re-arm the timer: every
-   * settings commit calls this method, and restarting the countdown on each
-   * one pushed the next fetch a full interval away — a save made the pool
-   * less live, not more.
+   * settings commit calls this method, and re-arming on each one would push
+   * the next fetch a full interval further out.
    */
   setIntervalMs(ms: number): void {
     const next = Math.max(60_000, ms)
@@ -181,12 +173,11 @@ export class SubscriptionFetcher {
 
   /**
    * Attach or replace the encrypted-node conversion core (settings page,
-   * docs §5.1). `singbox.path` is editable while the pool runs, but the
-   * supervisor used to be read once at construction — so filling the field
-   * after the fetcher existed had NO effect until a restart, and the parked
-   * nodes simply stayed parked with no error to explain why. Conversion runs
-   * on the next refresh, so callers that want it immediately should follow up
-   * with refreshNow().
+   * docs §5.1). `singbox.path` is editable while the pool runs, so this is
+   * re-applied on every commit — otherwise the parked nodes simply stay
+   * parked with no error to explain why. Conversion runs on the next
+   * refresh, so callers that want it immediately should follow up with
+   * refreshNow().
    */
   setSupervisor(supervisor: SubscriptionDeps['supervisor']): void {
     this.#supervisor = supervisor
@@ -217,9 +208,9 @@ export class SubscriptionFetcher {
 
   /**
    * Whether a replacement/trim is holding the rebuild mutex. The dead-rotation
-   * path ignores this (a skipped one is retried by the periodic probe), but an
-   * operator's 删除 must not be mistaken for "no reserve left": the bridge
-   * reads this to answer "busy, try again" instead of sinking the row.
+   * path ignores this — its swap is simply skipped and the row stays dead —
+   * but an operator's 删除 must not be mistaken for "no reserve left": the
+   * bridge reads this to answer "busy, try again" instead of sinking the row.
    */
   get busy(): boolean {
     return this.#replacing
@@ -229,7 +220,7 @@ export class SubscriptionFetcher {
    * An exit in the pool must give up its slot after onboarding (a passive
    * 401/403 or transport death the runtime observed, a dead rotation, or the
    * operator's 轮换 button). Swap in the next-fastest reserve — admitted from
-   * its cached speed facts, never with a probe (2026-10-24 contract); with the
+   * its cached speed facts, never with a probe (docs §4.5); with the
    * reserve exhausted the exit is kept and moved to the pool tail, so the pool
    * holds its size.
    *
@@ -282,7 +273,7 @@ export class SubscriptionFetcher {
             // Placeholder addresses (private/loopback/CGNAT literals) are
             // dropped here rather than parked: they would otherwise be handed
             // to sing-box as a real node, get a port, and hold a rotation slot
-            // that can only ever fail (live 2026-10-13: server 10.255.255.255).
+            // that can only ever fail.
             if (!isDialableServer(node.server)) {
               unroutable.push(node)
               continue
@@ -318,8 +309,8 @@ export class SubscriptionFetcher {
         lastError,
         plaintextAdmitted: 0,
       }
-      // Encrypted nodes -> sing-box conversion -> local SOCKS5 exits (IP-4),
-      // then the bounded onboarding pipeline (speed pass -> keep the fastest
+      // Encrypted nodes -> sing-box conversion -> local SOCKS5 exits, then the
+      // bounded onboarding pipeline (speed pass -> keep the fastest
       // poolSize -> shrink the conversion to them -> admit from the speed
       // facts; later swaps reuse the cached facts, no probe — onboard.ts).
       // Without a supervisor configured they stay parked as pending.
@@ -354,8 +345,7 @@ export class SubscriptionFetcher {
         }
       }
       // Plaintext nodes get the SPEED TEST only — steps 1-2 (exit IP, geo,
-      // latency), never a request to OpenCode (operator decision 2026-10-24:
-      // 添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟), and
+      // latency), never a request to OpenCode (docs/ip-pool.md §4.5), and
       // never the hot coarse screen either: subscription nodes are paid
       // resources, so the single speed request still rides the bounded Prober
       // (docs 4.1: subscription never goes hot).

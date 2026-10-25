@@ -1,8 +1,8 @@
 /**
  * Live-config tests for the pool assembly: manual rows and 固定主力 are part
- * of the settings card's contract (docs §5.1 / IP-5 "保存即生效无需重启"), and a
- * pool that assembles EMPTY must engage routing by itself once the first exit
- * lands (subscription admissions included).
+ * of the settings card's contract (docs §5.1: a save takes effect without a
+ * restart), and a pool that assembles EMPTY must engage routing by itself
+ * once the first exit lands (subscription admissions included).
  *
  * The real startIpPool runs here; only the installer is faked, so nothing
  * touches a global dispatcher or the network (the free refill loop is off in
@@ -85,9 +85,8 @@ test('syncManualExits: assembly parity with buildPoolFromConfig', () => {
 })
 
 test('syncManualExits: an edit drops the old rows and re-pins, no restart', () => {
-  // Regression (live 2026-10-12): editing 固定主力 in the settings card wrote
-  // the config and reconfigured the runtime, but manual/pinned were read only
-  // at assembly — the stale pin kept winning pick() until a restart.
+  // manual/pinned are read at every sync, not only at assembly — otherwise an
+  // edited 固定主力 leaves the stale pin winning pick() until a restart.
   const pool = new ExitPool()
   syncManualExits(pool, { manual: ['http://a:1', 'http://b:2'], pinnedExitId: 'http://a:1' })
   syncManualExits(pool, { manual: ['http://b:2', 'http://c:3'], pinnedExitId: 'http://c:3' })
@@ -119,11 +118,10 @@ test('syncManualExits: pinning an admitted exit keeps the row and its source', (
 })
 
 test('relay transport failure relabels and revives a manual row the listener disagrees with', async () => {
-  // Live 2026-10-25: manual row `127.0.0.1:30035` said `http`, sing-box served
-  // SOCKS5 there, and every request through the relay died in 6 ms with
-  // `502 relay_error ECONNRESET`. A transport cut is indistinguishable from a
-  // dead exit to the pool, so it kept striking a row that was alive — the row
-  // has to be re-examined, and only rows with NO measured facts may be.
+  // A transport cut is indistinguishable from a dead exit to the pool, so a
+  // row whose listener speaks the other scheme would be struck while alive
+  // (docs, egress row hygiene). The cut triggers one re-examination instead —
+  // allowed only for rows with NO measured facts.
   let probes = 0
   const runtime = await startIpPool(
     { ipPool: { enabled: true, free: { enabled: false }, manual: ['127.0.0.1:30035'] } },
@@ -144,8 +142,8 @@ test('relay transport failure relabels and revives a manual row the listener dis
 
   assert.equal(probes, 1)
   assert.equal(runtime.pool.get('127.0.0.1:30035')?.protocol, 'socks5', 'the row now matches the listener')
-  // Correcting the label has to lift the sentence too: the row is pickable
-  // again, otherwise the heal only fixes the reason and keeps the corpse.
+  // Correcting the label must revive the row too: a healed reason on a
+  // still-dead mark leaves nothing routable.
   const healed = runtime.pool.list().find((entry) => entry.id === '127.0.0.1:30035')
   assert.notEqual(healed?.health.state, 'dead', 'the mislabelled row is not left dead')
   assert.equal(runtime.pool.isUsable('127.0.0.1:30035', 'mimo-v2.6-flash-free'), true)
@@ -189,14 +187,13 @@ test('relay transport failure never relabels a row that has measured facts', asy
 // -- assembly wiring -----------------------------------------------------------
 
 test('assembly: an empty pool still installs the dispatcher (本地出口兜底 decides what a miss means)', async () => {
-  // Two live lessons in one contract. (1) 2026-10-12: a subscription-only
-  // profile assembled empty, filled up minutes later, and NEVER installed the
-  // dispatcher — the card reported the pool as enabled while every request
-  // kept going direct. (2) 2026-10-18: with the dispatcher uninstalled, an
-  // empty pool is indistinguishable from "no pool at all", so 本地出口兜底
-  // could never refuse — this machine's IP went out during exactly the window
-  // the pool had nothing to offer. The layer therefore installs regardless of
-  // occupancy; admissions only recover an R1 deferral.
+  // The dispatcher installs regardless of occupancy. Two failure modes that
+  // closes: a subscription-only profile that assembles empty and fills later
+  // must already route (otherwise the card says enabled while every request
+  // goes direct), and with the layer uninstalled an empty pool looks like
+  // "no pool at all" — 本地出口兜底 can never refuse, so this machine's IP
+  // rides the wire with nothing offered. Admissions only recover an R1
+  // deferral.
   const installer = fakeInstaller()
   const runtime = await startIpPool(
     { ipPool: { enabled: true, free: { enabled: false } } },
@@ -234,11 +231,9 @@ test('assembly: 本地出口兜底 reaches the installer at assembly and on ever
 })
 
 /**
- * The periodic probe tick is gone (operator decision 2026-10-23): liveness is
- * judged by real requests (recordPassive/recordPassiveTransport), not a
- * timer. The 2026-10-13 incident the old tick existed for — probing 13 exits
- * while the pool was switched off — can no longer happen: with no timer
- * there is no probe traffic at all unless an operator or an admission asks.
+ * No periodic probe tick exists: liveness is judged by real requests
+ * (recordPassive/recordPassiveTransport), never by a timer, so no probe
+ * traffic runs at all unless an operator or an admission asks for it.
  */
 test('assembly: manual rows and the pin apply live through reconfigure', async () => {
   const installer = fakeInstaller()
@@ -306,10 +301,9 @@ function smokeTurns(transport: ReturnType<typeof fakeProbeTransport>): string[] 
 }
 
 test('one probe content is drawn per exit pass, and a commit swaps the pool', async (t) => {
-  // Live correction 2026-10-14: 每个出口随机抽一个探测文案 — a pass over
-  // several models is ONE exit, so all of its smokes share the drawn turn;
-  // the next pass draws again. The setting also has to be live, not
-  // assembly-only.
+  // one random probe content per exit: a pass over several models is ONE
+  // exit, so all of its smokes share the drawn turn; the next pass draws
+  // again. The setting is live, not assembly-only.
   const transport = fakeProbeTransport()
   const runtime = await startIpPool(
     {
@@ -364,11 +358,10 @@ test('an unconfigured probe content pool sends the default turn', async (t) => {
 })
 
 /**
- * The probe wiring itself, without a network. Live 2026-10-13: the trusted
- * fallback returns `admitted: true` (the line is kept, docs 4.5) and the
- * caller read that as "healthy", so a dead exit was revived on every probe
- * round and fed real traffic. Only a verdict that actually verified the exit
- * may mark it ok.
+ * The probe wiring itself, without a network. The trusted fallback returns
+ * `admitted: true` (the line is kept, docs 4.5); a caller reading admission
+ * as health would revive a dead exit on every probe round and feed it real
+ * traffic, so only a verdict that actually verified the exit may mark it ok.
  */
 test('applyProbeVerdict: unverified never marks an exit ok, and cannot revive a dead one', () => {
   const pool = new ExitPool()

@@ -44,9 +44,8 @@ export function conversationSeed(messages: Array<{ role: string; content: unknow
 /**
  * A readable label for one conversation: its first user turn, flattened and
  * truncated. The usage ledger's top-session list is unusable without one —
- * `ses_9f2c…` says nothing about which conversation burned the tokens (live
- * request 2026-10-14). Text blocks are concatenated; images and tool results
- * contribute nothing.
+ * `ses_9f2c…` says nothing about which conversation burned the tokens. Text
+ * blocks are concatenated; images and tool results contribute nothing.
  */
 export function conversationLabel(messages: Array<{ role: string; content: unknown }>, limit = 64): string {
   const seed = conversationSeed(messages)
@@ -71,28 +70,25 @@ export function conversationLabel(messages: Array<{ role: string; content: unkno
 /**
  * The project id sent upstream. `ProjectID` in the client is a PLAIN string —
  * `"global"` for a directory that is not a git worktree, otherwise a 40-hex
- * sha1 (live-observed `global` and `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`).
- * It has no prefix: the client's id prefix table lists job/event/session/
- * message/permission/question/part/pty/tool/workspace and NOT project. The
- * `prj_<24hex>` this adapter used to mint is now a rejection signal —
- * live-probed 2026-10-14 against `/inference/v1` with an otherwise-passing
- * request: `prj_*` -> 403 FreeTierError, `global` / a 40-hex id / the header
- * omitted -> 200. The adapter has no worktree, so it sends what the client
- * sends for a non-git directory.
+ * sha1 (values seen on the wire: `global` and
+ * `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`). It has no prefix: the client's
+ * id prefix table lists job/event/session/message/permission/question/part/
+ * pty/tool/workspace and NOT project, and `prj_*` is a rejection signal
+ * (`prj_*` -> 403 FreeTierError; `global`, a 40-hex id or the header omitted
+ * -> 200). The adapter has no worktree, so it sends what the client sends for
+ * a non-git directory.
  *
- * The 40-hex derivation, pinned 2026-10-22 by static extraction of the 2.1.3
- * `opencode-cli` and confirmed by recomputing the observed value: for a git
- * repo it prefers `sha1("git-remote:" + host + "/" + path)` of the normalized
- * `origin` URL (`git@github.com:xbzbing/dsh-git-panel.git` ->
+ * The 40-hex derivation (static extraction of the 2.1.3 `opencode-cli`): for a
+ * git repo it prefers `sha1("git-remote:" + host + "/" + path)` of the
+ * normalized `origin` URL (`git@github.com:xbzbing/dsh-git-panel.git` ->
  * `github.com/xbzbing/dsh-git-panel` -> `c956d974…`), falling back to the
  * repo's oldest root commit; a non-git directory hashes
- * `sha1("directory:" + absPath)`; `"global"` is now only the no-VCS fallback.
- * The adapter keeps `global` — a legitimate client value in the gate's
- * accepted set — rather than fabricating a directory hash for a path the
- * upstream has never seen. Decision re-affirmed 2026-10-24: the workspace
- * dimension stays as-is (no login, no project hash), and the 2.1.4 probe
- * confirmed `global` still passes the gate alongside a 40-hex id and even
- * with the project header omitted entirely.
+ * `sha1("directory:" + absPath)`; `"global"` is only the no-VCS fallback. The
+ * adapter keeps `global` — a legitimate client value in the gate's accepted
+ * set — rather than fabricating a directory hash for a path the upstream has
+ * never seen: the workspace dimension stays unsimulated (no login, no project
+ * hash), and `global` passes alongside a 40-hex id and with the header
+ * omitted entirely.
  */
 export const DEFAULT_PROJECT_ID = 'global'
 
@@ -100,11 +96,11 @@ export const DEFAULT_PROJECT_ID = 'global'
  * Derive the correlation ids for one upstream request. In adapter mode there
  * are no inbound opencode headers, so the seed is the conversation itself.
  *
- * `request` (a `msg_*` id) is still minted but NO LONGER SENT: the 2.x
- * client's wire carries no `x-opencode-request` header (byte-capture
- * 2026-10-24). It stays in the record because the pool's admission probe
- * reuses the same shape-checked minter and because `req_*` remains a
- * documented rejection signal if the header ever has to come back.
+ * `request` (a `msg_*` id) is minted but NOT SENT: the 2.x client's wire
+ * carries no `x-opencode-request` header (absent repo-wide in 2.1.3 and
+ * 2.1.4). It stays in the record because the pool's admission probe reuses
+ * the same shape-checked minter and because `req_*` remains a documented
+ * rejection signal if the header ever has to come back.
  * `x-opencode-project` must be the prefix-less project id above.
  */
 export function deriveRequestIDs(messages: Array<{ role: string; content: unknown }>): RequestIDs {
@@ -120,52 +116,35 @@ export function deriveRequestIDs(messages: Array<{ role: string; content: unknow
 
 /**
  * OpenCode's canonical session shape: "ses_" + 12 lowercase hex timestamp
- * characters + 14 Base62 characters. Since 2026-09-16 the Zen free tier
- * rejects any other session shape with 403 FreeTierError ("free tier can
- * only be used from within OpenCode") — the plain User-Agent gate stopped
- * being sufficient (upstream fix: jasonxu114514/opencode2api 8185202).
- * Live-probed 2026-09-18: the gate has a second, body-shape half (streaming
- * + bash/read tools, adapter/messages.ts); both must pass.
+ * characters + 14 Base62 characters. Any other shape is refused with 403
+ * FreeTierError ("free tier can only be used from within OpenCode"), and the
+ * gate has a second, body-shape half (streaming + a non-empty `tools` array
+ * carrying an entry named `read`, adapter/messages.ts); both must pass.
  *
- * Since 2026-10-13 the tier additionally DECODES the 12 hex characters as an
- * inverted millisecond timestamp, ~(unix_ms*0x1000+counter) in its low 48
- * bits (upstream fixes: jasonxu114514/opencode2api PR #69, then PR #70; the
- * same defect in decolua/9router is issue #4780). Two rules, both re-probed
- * live 2026-10-15 against /inference/v1 with the full gate body and this
- * adapter's header set, one variable at a time:
- *
- *   1. the word must be INVERTED — a digest-shaped or ascending prefix 403s;
- *   2. the 12-bit counter must land in 0-63. After the inversion the low 12
- *      bits read 0xFFF-counter, so anything below 0xFC0 403s: counters 0, 1,
- *      32 and 63 -> 200, counters 64 and 128 -> 403. The timestamp half is
- *      not checked at all — a prefix decoding to ts36=1 (epoch+1ms) -> 200.
- *
- * So a clock-derived counter dies after 64 mints in a long-lived process
- * (exactly what PR #70 replaced), and this adapter mints often: one session
- * per new conversation AND one per pool exit address (pool/admission.ts), so
- * a single refill round could burn the window and 403 every session minted
- * afterwards. The prefix is therefore DERIVED FROM THE DIGEST with counter 1
- * — always inside the window, stateless, and one conversation keeps one id
- * even across restarts (PR #70's encoding; the in-memory cache it replaces
- * could not do that).
+ * The 12 hex characters are the client's DESCENDING word: the low 48 bits of
+ * `~(unix_ms * 0x1000 + counter)`, so a digest-shaped or ascending prefix is
+ * refused. The TIMESTAMP is the half the lane checks — it must decode to a
+ * recent moment (see `SESSION_TS_MAX_AGE_MS`); the 12-bit counter is only a
+ * sort tiebreak (0 refused, wide values pass), so a clock-derived counter
+ * cannot exhaust any window.
  */
 const CANONICAL_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/
 
 /**
  * How far the decoded timestamp of an inbound session id may sit from now and
- * still be treated as the client's own. Measured 2026-10-25 (Bun egress, one
- * variable per request): a minted prefix decoding to now / now-1h / now-1d /
- * now-7d / now-30d -> 200; a prefix decoding to a FUTURE time (+30d) -> 429;
- * and every prefix whose timestamp is effectively random (raw random bytes, or
- * this adapter's own digest-derived prefix) -> 429. So the window is
- * "recent past", and the future side is the one that must stay tight.
+ * still be treated as the client's own. The window is "recent past": prefixes
+ * decoding to now / now-1h / now-1d / now-7d / now-30d pass; a FUTURE
+ * timestamp and every effectively-random prefix (raw random bytes, or a
+ * digest-derived prefix) are refused with 429. An all-zero prefix decodes to
+ * the sentinel `2^36-1` and passes. The future side is the one that must stay
+ * tight.
  */
 const SESSION_TS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 /** Allowed clock skew into the future (a client a few seconds ahead still passes). */
 const SESSION_TS_MAX_SKEW_MS = 60 * 60 * 1000
 /** The 36-bit timestamp field the inverted word carries (2^36 ms ≈ 2.2 years). */
 const SESSION_TS_MASK = (1n << 36n) - 1n
-/** The 12-bit counter the mint appends (1-based: counter 0 was rejected, 2026-10-25). */
+/** The 12-bit counter the mint appends (1-based: counter 0 is refused). */
 const SESSION_COUNTER_MAX = 0xfff
 
 const BASE62_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
@@ -196,8 +175,8 @@ function hex48(value: bigint): string {
  *
  * The value is CLOCK-BASED on purpose (see {@link canonicalSessionID}): the
  * lane decodes this field and refuses a timestamp it cannot believe, so a
- * digest-derived "timestamp" — which is what this adapter used to mint — is a
- * rejection signal even though its counter sits in the old accepted window.
+ * digest-derived "timestamp" — effectively a random moment — is a rejection
+ * signal.
  */
 function descendingTimePrefix(ms: number, counter: number): string {
   const word = (BigInt(ms) << 12n) | BigInt(counter & SESSION_COUNTER_MAX)
@@ -232,8 +211,8 @@ function isFreshSessionID(id: string): boolean {
 /** `to - from` on a 2^36 clock, normalized to the shorter arc. */
 function signedDelta(from: number, to: number): number {
   // `2 ** 36`, NOT `1 << 36`: JavaScript's shift operators are 32-bit, so
-  // `1 << 36` silently evaluates to 16 and every delta collapses to ~0 (which
-  // made every id look fresh — caught by the stale/future tests).
+  // `1 << 36` silently evaluates to 16 and every delta collapses to ~0 —
+  // which makes every id look fresh.
   const span = 2 ** 36
   const half = span / 2
   let delta = (to - from) % span
@@ -249,12 +228,12 @@ let messageCounter = 0
  * A `msg_*` request id, shaped exactly like the client's
  * `Session.Message.ID.create()`: `"msg_" + ascending()`, where the ascending
  * scheme is the same `unix_ms * 0x1000 + counter` low-48-bit encoding as the
- * session prefix WITHOUT the inversion, plus a random Base62 tail. The gate
- * only ever sees it as the `x-opencode-request` header, so the tail carries no
- * affinity: one fresh id per request is what the client does (`input.user.id`
- * is that request's own user turn). Unlike the session word, this one is not
- * decoded by the gate at all — live-probed 2026-10-15: counters 64 and 4095,
- * ts36=1, an inverted word and a junk tail all return 200 — so the process
+ * session prefix WITHOUT the inversion, plus a random Base62 tail. It would
+ * ride only as the `x-opencode-request` header, which the 2.x wire does not
+ * carry, so the tail carries no affinity: one fresh id per request is what the
+ * client does (`input.user.id` is that request's own user turn). Unlike the
+ * session word, this one is not decoded by the gate at all — counters 64 and
+ * 4095, ts36=1, an inverted word and a junk tail all pass — so the process
  * counter behind it can never walk out of a window.
  */
 export function mintedMessageID(): string {
@@ -266,31 +245,19 @@ export function mintedMessageID(): string {
 /**
  * The session id sent upstream.
  *
- * RE-MEASURED 2026-10-25 — the prefix rule changed a third time, and this one
- * is not a window on the counter. With the request otherwise byte-identical
- * (Bun egress, the `<env>`-shaped body, the official 16 headers), only the
- * session id varied:
+ * The lane DECODES the 12-hex prefix as `~(unix_ms*0x1000+counter)` and
+ * refuses a timestamp it cannot believe: a prefix decoding to now, an hour, a
+ * day or 30 days back passes; a future timestamp and every effectively-random
+ * prefix (raw random bytes, or a digest-derived one) answer 429
+ * FreeUsageLimitError — indistinguishable from a spent quota. The counter
+ * window older ports chased (0-63) is gone: 1/32/63/64/128/4095 all pass,
+ * only 0 fails.
  *
- *   `ses_e9345d865ffe…` (the 2.1.4 capture, minted 10-24)  -> 200
- *   minted now / now-1h / -1d / -7d / -30d                  -> 200
- *   minted now+30d, or now-90d (which wraps into the future) -> 429
- *   this adapter's digest-derived prefix                     -> 429
- *   raw random 12-hex prefixes                               -> 429
- *   all-zero prefix (decodes to 2^36-1)                      -> 200 (sentinel)
- *   counters 1, 32, 63, 64, 128, 4095 on a fresh timestamp    -> 200; counter 0 -> 429
- *
- * So the lane DECODES the timestamp and refuses one it cannot believe, while
- * the counter window that PR #69/#70 chased (0-63, counters 64+ 403) is gone.
- * The digest-derived prefix those releases introduced — this adapter shipped
- * it — therefore rejects every request with 429 FreeUsageLimitError, which is
- * indistinguishable from a spent quota: that is why the fix looked like a
- * connection-stack problem long after the relay was passing 200s.
- *
- * The mint is consequently CLOCK-BASED again: `~(unix_ms * 0x1000 + counter)`,
- * counter 1-based and per-process monotonic (0 was rejected, wide values
- * passed, so the counter is only a sort tiebreak now). The 14-char Base62 tail
- * stays DIGEST-DERIVED, so one conversation still keeps one id and its
- * prompt-cache affinity — the prefix carries no identity, only freshness.
+ * The mint is therefore CLOCK-BASED: `~(unix_ms * 0x1000 + counter)`, counter
+ * 1-based and per-process monotonic (a sort tiebreak only). The 14-char
+ * Base62 tail stays DIGEST-DERIVED, so one conversation still keeps one id
+ * and its prompt-cache affinity — the prefix carries freshness, the tail
+ * identity.
  *
  * Stability: an id is cached per signal for the life of the process (the lane
  * only accepts a fresh timestamp, so a conversation restarted days later must
@@ -353,37 +320,21 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
  * The built-in Zen User-Agent: the shape the current (2.x) client sends,
  * `opencode/<channel>/<version>/<client>`.
  *
- * Static extraction of OpenCode Desktop 2.0.32 put the builder at
+ * Static extraction of OpenCode Desktop 2.0.32 and of Desktop 2.1.3 with its
+ * bundled `opencode-cli` (a Bun binary, JS in cleartext) put the builder at
  * `opencode/${channel}/${version}/${name}`, where `name` is the SAME value the
- * client puts in its `x-opencode-client` header (`opencode/latest/2.0.32/desktop`
- * was captured live on its wire the same night). Re-extracted 2026-10-22 from
- * Desktop 2.1.3 and its bundled `opencode-cli` (Bun binary, JS in cleartext):
- * the builder and its wiring are unchanged — version const "2.1.3", channel
- * "latest", default name "cli", and the Electron shell still spawns the CLI
- * with `OPENCODE_CLIENT=desktop`, so a real Desktop now sends
- * `opencode/latest/2.1.3/desktop` (its local server log confirms
- * `cli starting version=2.1.3 channel=latest`). The gate does not pin the UA
- * string, but it does read fingerprint coherence, so the string is derived from
- * the effective client flag rather than frozen with one segment: the Desktop
- * toggle moves both spellings together.
+ * client puts in its `x-opencode-client` header: version, channel and default
+ * name are plain strings ("2.1.3", "latest", "cli"), and the Electron shell
+ * spawns the CLI with `OPENCODE_CLIENT=desktop`, so Desktop sends
+ * `opencode/latest/<version>/desktop`. The gate does not pin the UA string,
+ * but it does read fingerprint coherence, so the string is derived from the
+ * effective client flag rather than frozen with one segment: the Desktop
+ * toggle moves both spellings together. Moving this string alone is NOT a
+ * generation mix; the 1.x shape was `opencode/1.18.31 (<platform> <arch>;
+ * node<ver>)`.
  *
- * Live-probed 2026-10-17 against /inference/v1 through a non-CN egress, the v1
- * recipe held constant (bash+read gate tools, `x-opencode-request: msg_*`,
- * project `global`, no `x-session-affinity`): `opencode/latest/2.0.32/desktop`
- * with client `desktop` -> 200 and `opencode/latest/2.0.32/cli` with client
- * `cli` -> 200, both live SSE streams. Moving this string alone is therefore
- * NOT a generation mix; the previous built-in was the 1.18.x CLI string
- * `opencode/1.18.31 (<platform> <arch>; node<ver>)`.
- *
- * Re-probed 2026-10-23 against /inference/v1 through a Tokyo egress (local
- * HTTP proxy), one variable at a time — same session id (digest-stable), same
- * body, same bash+read tools: `opencode/latest/2.0.32/cli` -> 200,
- * `opencode/latest/2.1.3/cli` -> 200 and `opencode/latest/2.1.3/desktop` ->
- * 200, all live SSE on mimo-v2.6-flash-free. The version bump therefore rides
- * the same proven-safe UA-only dimension.
- *
- * The CURRENT value tracks the installed client byte-for-byte: the 2.1.4
- * CLI's own loopback capture (2026-10-24, `docs/local/capture-214/`) sent
+ * The value below tracks the installed client byte-for-byte: the 2.1.4 CLI's
+ * own loopback capture (`docs/local/capture-214/`) sent
  * `user-agent: opencode/latest/2.1.4/cli` with `x-opencode-client: cli`.
  */
 export const ZEN_UA_CHANNEL = 'latest'
@@ -450,15 +401,13 @@ export function setUserAgentOverride(value: string | undefined): void {
  *
  * The anonymous lane reads a whole FINGERPRINT — this header plus the
  * session/project/request id shapes and the tool definitions — so the two ways
- * to change it are: move THIS string alone, or move the recipe whole. Live
- * 2026-10-15 against /inference/v1 with this adapter's fingerprint held
- * constant and one variable at a time, each of these answered 200: the
- * built-in value, the installed app's OpenAI/Codex branch string
- * (`opencode/1.19.0 (darwin 27.0.0; arm64)`, extracted from `app.asar`)
- * and upstream's 2.x shape (`opencode/latest/2.0.29/cli`). The
- * gate does not pin the UA string. What still 403s is mixing GENERATIONS
- * inside one request — 2.x tool names under this header set, or upstream's
- * header set carrying our `x-opencode-request` ({@link disguiseHeaders}).
+ * to change it are: move THIS string alone, or move the recipe whole. The gate
+ * does not pin the UA string: the built-in value, an installed app's branch
+ * string (`opencode/1.19.0 (darwin 27.0.0; arm64)`) and upstream's 2.x shape
+ * (`opencode/latest/2.0.29/cli`) all pass with this fingerprint held
+ * constant. What is refused is mixing GENERATIONS inside one request — a 1.x
+ * tool name (`bash`) beside 2.x ones, or the 1.x-only `x-opencode-request`
+ * header inside this 2.x set ({@link disguiseHeaders}).
  */
 export function opencodeUserAgent(): string {
   return zenRequestHeaders()['user-agent']!
@@ -466,10 +415,10 @@ export function opencodeUserAgent(): string {
 
 /**
  * The full disguise header set sent with every upstream request
- * (design.md 2.4; gateway.go newUpstreamRequest), now the official 2.1.4
- * client's own set — byte-captured 2026-10-24 by driving the installed
- * `opencode-cli 2.1.4` against a loopback server (16 headers logged, nothing
- * left 127.0.0.1). The client sends exactly:
+ * (design.md 2.4; gateway.go newUpstreamRequest) — the official 2.1.4
+ * client's own set, captured by driving the installed `opencode-cli 2.1.4`
+ * against a loopback server (16 headers logged, nothing left 127.0.0.1).
+ * The client sends exactly:
  *
  *   authorization: Bearer public      content-type: application/json
  *   user-agent: opencode/latest/2.1.4/cli      accept: `*` + `/` star
@@ -481,54 +430,25 @@ export function opencodeUserAgent(): string {
  *
  * and NO `x-opencode-request` — the header is absent repo-wide in 2.1.3 and
  * 2.1.4 (static extraction) and absent from this capture. This set therefore
- * carries the four session spellings and drops `x-opencode-request`, which is
- * the reverse of the 1.x generation's rule below.
+ * carries the four session spellings and drops `x-opencode-request`, the
+ * reverse of the 1.x generation's rule: under a 1.x header set the affinity
+ * pair marked a FOREIGN client, while this 2.x set rides it for the client's
+ * own provider. The gate reads the fingerprint as a WHOLE, never one header in
+ * isolation — the whole 2.x recipe passes and mixed generations are refused —
+ * so the recipe ships whole.
  *
- * HISTORY (each point live-probed against `/inference/v1`):
- *   - 2026-10-14, 1.x generation: the client sent only `x-opencode-session` +
- *     `x-opencode-session-id` + `x-opencode-request` for its `opencode`
- *     provider, and adding `x-session-affinity`/`X-Session-Id` -> 403: the
- *     affinity pair marked a FOREIGN client under that fingerprint;
- *   - 2026-10-15: that was fingerprint COHERENCE, not an allow-list —
- *     replaying upstream's 2.x recipe (all four spellings, 40-hex project,
- *     2.x tool names) also answered 200, while mixing the generations 403'd
- *     every time;
- *   - 2026-10-24, 2.x generation (this set, one variable per request through
- *     a pool exit where the gate answers before the quota layer: 429 =
- *     gate PASSED, 403 = gate REJECTED): the whole 2.1.4 recipe -> 429;
- *     minus the affinity pair -> 429; plus `x-opencode-request` -> 429;
- *     UA `2.1.3` -> 429; project 40-hex -> 429; project header omitted ->
- *     429; `ses_short` session id -> 403 (calibration). On that day the only
- *     live rejection signals were a malformed session id and a `tools` array
- *     without a `read` entry (adapter/gate-tools.ts) — but the RECIPE is
- *     still shipped whole, because that is what has stayed green while the
- *     gate flipped five times;
- *   - 2026-10-25: the window reopened and the DISCRIMINATOR moved with it.
- *     The official `opencode-cli 2.1.4` (Bun) answered a real 200 from this
- *     machine — direct AND through pool exit `127.0.0.1:30033` — while a
- *     byte-identical replay (these 16 captured headers, the captured body,
- *     the official family path) answered 429 FreeUsageLimitError from Node
- *     h1, Node h2, curl 8.7 h2, Python urllib and Go net/http, on every
- *     egress tried (direct v4/v6, the CLI's own ULA source address, 7 pool
- *     exits). Header set, body, route, `accept-encoding`, HTTP version and
- *     source IP are each ruled out one variable at a time, and a local-CA TLS
- *     capture shows the live https request carries no extra header or cookie.
- *     So 403 still reads as SHAPE REJECTED, but 429 no longer reads as
- *     QUOTA SPENT: a CONNECTION-STACK gate (the client's TLS/HTTP
- *     fingerprint) now sits in front of the quota layer, and no payload edit
- *     reaches it (matrix in adapter/gate-tools.ts; probes under
- *     `docs/local/capture-214/`). RESOLVED the same day — the gate has a
- *     second payload half nobody had seen: the system prompt must carry a
- *     non-empty `<env>` block (adapter/env-block.ts), and the request must
- *     leave through Bun's stack (src/relay/). Either half missing still reads
- *     as a 429, which is why "quota spent" was the wrong diagnosis for a week.
- *     These headers are unchanged by that fix: the relay re-originates the
- *     CONNECTION, not the request.
+ * Reading the answers with this set: 403 FreeTierError = SHAPE REJECTED (a
+ * malformed session id, or a `tools` array without a `read` entry —
+ * adapter/gate-tools.ts); 429 FreeUsageLimitError = one of the gate's three
+ * halves is missing (the `<env>` payload block, the Bun connection stack, the
+ * session-id freshness — adapter/env-block.ts, src/relay/, adapter/ids.ts),
+ * not a spent quota. These headers are unchanged by that gate: the relay
+ * re-originates the CONNECTION, not the request.
  *
  * The OTel pair (`b3`/`traceparent`) is deliberately NOT fabricated: the
- * client mints it per request from its tracer, the gate ignores it (this set
- * passed without it on 2026-10-24), and a hand-rolled trace id would be one
- * more shape to keep coherent for no measured benefit.
+ * client mints it per request from its tracer, the gate ignores it (a set
+ * without it passes), and a hand-rolled trace id would be one more shape to
+ * keep coherent for no measured benefit.
  */
 export function disguiseHeaders(ids: RequestIDs): Record<string, string> {
   return zenRequestHeaders({

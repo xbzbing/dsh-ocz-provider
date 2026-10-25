@@ -1,8 +1,7 @@
 /**
- * The exit tables' row-action icons (live request 2026-10-14): 固定 and 轮换
- * were text buttons in a dense numeric table, and the second one was labelled
- * 删除 — but nothing is deleted. The action rotates the row: a reserve takes its
- * place, or it sinks to the pool tail when there is none.
+ * The exit tables' row-action icons: 固定 and 取消固定 (padlock) and 轮换
+ * (circular arrow). Nothing is ever deleted — the action rotates the row: a
+ * reserve takes its place, or it sinks to the pool tail when there is none.
  *
  * Inline SVG rather than a glyph or an emoji: the bundle must not pull in an
  * icon dependency (the client half is a plain React bundle with no UI kit), and

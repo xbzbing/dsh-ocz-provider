@@ -1,29 +1,18 @@
 /**
- * The free lane's ORIGINS — one recipe, two doors.
- *
- * OpenCode serves the anonymous free lane from two origins that accept the
- * SAME fingerprint (headers, ids, tools):
+ * The free lane's ORIGINS — one recipe, two doors (docs/design.md 3.1):
  *
  *   https://opencode.ai/inference   the 2.x client's origin, primary
- *   https://opencode.ai/zen         the 1.x console origin, live again
+ *   https://opencode.ai/zen         the console origin, fallback
  *
- * Measured 2026-10-19 13:32-13:45 +08:00, single variable per request, the
- * captured adapter bytes replayed: `/zen/v1/chat/completions` answered 200 SSE
- * to the SAME body, headers and UA that `/inference/v1` answered 200 to, with
- * no redirect (`redirect: 'manual'` also 200), on two models (mimo-v2.6-flash-free,
- * big-pickle), and `/zen/v1/models` kept listing all 85 models. That
- * contradicted this repository's 2026-10-14 note that `/zen/v1` refuses every
- * shape — the lane had simply moved back into service, which is why the
- * ladder below exists rather than a hard-coded single base.
+ * Both origins accept the SAME fingerprint (headers, ids, tools), so a lane
+ * request walks them as a ladder. The request bytes never change between
+ * rungs, only the origin they go to, so the switch cannot trip the gate's
+ * generation-coherence check (ids.ts `disguiseHeaders`). A failover costs one
+ * round trip and is spent only on an origin-shaped answer — a gate refusal
+ * (401/403/404) or an edge 5xx — never on a 429 (an exit/IP-shaped limit:
+ * rotating the exit is the cure) or a transport error (egress-shaped).
  *
- * The ladder is NOT a second recipe: the request bytes never change, only the
- * origin they are sent to, so it cannot trip the gate's generation-coherence
- * check (ids.ts `disguiseHeaders`). A failover costs one round trip and is
- * only spent on an origin-level answer — a gate refusal (401/403) or a 5xx
- * from the edge — never on a 429 (an exit/IP-shaped limit: rotating the exit
- * is the right cure) or on a transport error (egress-shaped).
- *
- * Failover also covers the SENDERS BESIDE THE CHAT: the catalog listing
+ * Failover also covers the senders BESIDE THE CHAT: the catalog listing
  * (`/v1/models`) and the pool's admission smoke both speak to the same lane,
  * so they walk the same ladder — an exit that only reaches one of the two
  * origins must not be marked dead by the other (pool/admission.ts).
@@ -31,7 +20,7 @@
 
 /** The 2.x client's origin (catalog.ts `ZEN_BASE_URL`), tried first. */
 export const ZEN_PRIMARY_BASE_URL = 'https://opencode.ai/inference'
-/** The console origin, live again since 2026-10-19; the ladder's second rung. */
+/** The console origin; the ladder's second rung. */
 export const ZEN_FALLBACK_BASE_URL = 'https://opencode.ai/zen'
 
 /** The known lane origins, primary first — the ladder's default contents. */
@@ -47,10 +36,10 @@ function normalizeOrigin(origin: string): string {
  * `primary` is whatever the caller resolved (the `zenBaseUrl` seam, default
  * `https://opencode.ai/inference`). The fallback rung is added ONLY when the
  * primary is itself a known lane origin: a base a test or an operator points
- * somewhere else must be used alone, or an injected fixture would suddenly
+ * somewhere else must be used alone, or an injected fixture would silently
  * reach the live console behind its back. Passing `fallback` explicitly
- * overrides that rule, which is how the tests drive a two-rung ladder without
- * touching the network.
+ * overrides that rule, so tests drive a two-rung ladder without touching the
+ * network.
  */
 export function laneOrigins(primary: string, fallback?: string): string[] {
   const first = normalizeOrigin(primary)
@@ -66,8 +55,7 @@ export function laneOrigins(primary: string, fallback?: string): string[] {
 /**
  * True when a failure names the ORIGIN rather than the exit: the gate refusing
  * the request outright (401/403, the `FreeTierError` body), the edge itself
- * failing (5xx), or the door not serving the route at all (404 — upstream
- * measured `/inference` without a models route on 2026-10-14). Any of those
+ * failing (5xx), or the door not serving the route at all (404). Any of those
  * means "ask the other door"; a 429, a timeout or a socket error is
  * exit-shaped and stays with the pool's rotation.
  *

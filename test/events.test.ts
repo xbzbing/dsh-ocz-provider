@@ -137,18 +137,17 @@ test('a stream cut before its terminal chunk is TRANSPORT, never UPSTREAM', asyn
   // pi-ai's openai-completions stream throws this exact message when the SSE
   // body ends without any chunk carrying choices[0].finish_reason. The host's
   // own classifier maps it to TRANSPORT (dsh-llm-pi-ai classifyPiAiError,
-  // lib/index.js:1456) and so must this port: the UPSTREAM fallback is NOT in
-  // FREE_LANE_RETRY_POLICY.retryableCodes, so a bare sentinel used to end the
-  // turn instead of being retried (15 bare failures died, 0 recovered), while
-  // the same cut on the host's own provider was retried and recovered.
+  // lib/index.js:1456) and so must this port: UPSTREAM is NOT in
+  // FREE_LANE_RETRY_POLICY.retryableCodes, so a TRANSPORT misclassification
+  // would end the turn instead of retrying the cut.
   const messages = [
     'Stream ended without finish_reason',
     // Parity guard for the host's wording — not an observed pi-ai message.
     'Stream ended before any event arrived',
-    // opencode2dsh #105: the same mid-stream cut under spellings \bsocket\b
-    // misses. "WebSocket" has no inner word boundary, and undici's own cuts
-    // arrive as "other side closed" (SocketError, client-h1.js/client-h2.js —
-    // the realistic cut through the exit pool) or the h2 premature close.
+    // Word-boundary spellings: \bsocket\b misses "WebSocket" (no inner word
+    // boundary), and undici's own cuts arrive as "other side closed"
+    // (SocketError, client-h1.js/client-h2.js — the realistic cut through the
+    // exit pool) or the h2 premature close.
     'WebSocket closed',
     'websocket stream closed before response.completed',
     'other side closed',
@@ -204,8 +203,9 @@ test('a healthy finish over the declared window is NOT a context overflow (#101)
   // The wire carries 4-5k tokens more than the host estimates its history at
   // (system prompt + the gate's genuine tool definitions + serialization), so
   // usage.input alone can exceed the declared window on a turn the upstream
-  // already answered; the pre-fix heuristic rewrote exactly such turns into
-  // CONTEXT_WINDOW_EXCEEDED, which is not retryable and killed the turn.
+  // already answered; classifying that healthy finish as
+  // CONTEXT_WINDOW_EXCEEDED would end the turn, since the code is not
+  // retryable.
   const chunks = await collect([
     event({ usage: { input: CONTEXT_WINDOW * 4, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: CONTEXT_WINDOW * 4 } }),
   ])

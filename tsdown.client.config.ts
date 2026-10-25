@@ -1,11 +1,6 @@
 /**
  * Standalone tsdown config for the oc2dsh client bundle (docs/ip-pool.md
- * §5.4) — mirrors dsh-llm-proxy's validated chain, adapted to the platform
- * seeds verified on this host (web-frontend static table): react,
- * react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis,
- * @deepseek-ai/dsh-client-ui-slots, @deepseek-ai/dsh-client-ui-primitives.
- *
- * Emits a closure-factory artifact into lib/client.js that calls
+ * §5.4). Emits a closure-factory artifact into lib/client.js that calls
  * window.__ModuleLoader__.load({ id, factory }) and resolves its externals
  * through the injected require (the shell's module table). CSS Modules are
  * compiled by lightningcss inside the bundle (virtual module). The node half
@@ -64,10 +59,8 @@ const config: UserConfig = {
   // Anything NOT in the loader module table must inline instead.
   noExternal: (id: string) => (CLIENT_EXTERNALS.includes(id) ? undefined : true),
   plugins: [{
-    // Bundle purity gate: platform seed entries stay external, everything
-    // else under @deepseek-ai is a build error (cross-plugin value imports
-    // are forbidden — collaborate through cordis services; type-only imports
-    // are erased).
+    // Bundle purity gate: platform seed entries stay external; any other value
+    // import from @deepseek-ai is a build error (type-only imports are erased).
     name: 'dsh-client-bundle-purity',
     resolveId(source: string) {
       if (!source.startsWith('@deepseek-ai/')) return null
@@ -96,13 +89,9 @@ const config: UserConfig = {
         minify: true,
       })
       const classMap: Record<string, string> = {}
-      // lightningcss's `exports` key order is NOT stable across calls (its
-      // internal hash table iterates differently run to run — measured 8/8
-      // distinct orders on a single input). Emitting the map in that order made
-      // every rebuild reshuffle ~200 lines of lib/client.js with zero content
-      // change (the "benign CSS reorder" noise AGENTS.md warned about). Sort
-      // the keys so the emitted artifact is byte-identical for identical
-      // sources.
+      // lightningcss's `exports` key order varies between calls, so the map is
+      // emitted sorted by key: identical sources must produce a byte-identical
+      // lib/client.js (AGENTS.md records the churn this prevents).
       const entries = Object.entries(cssExports ?? {})
       entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       for (const [local, exp] of entries) classMap[local] = exp.name

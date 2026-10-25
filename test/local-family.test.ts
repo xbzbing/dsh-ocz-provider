@@ -2,11 +2,10 @@
  * 本机出口协议族 (local-family.ts) — the setting, its default, and the socket
  * behaviour each position produces.
  *
- * The measurements these tests encode (live 2026-10-18, same minute, identical
- * bytes): the free lane answered 200 + a real SSE completion over this host's
- * IPv6 and 403 FreeTierError over its IPv4. Node resolves opencode.ai's A
- * records first here, so `auto` has to reorder the answers rather than trust
- * the resolver.
+ * The free lane answered 200 + a real SSE completion over this host's IPv6 and
+ * 403 FreeTierError over its IPv4 on identical bytes. Node resolves
+ * opencode.ai's A records first here, so `auto` reorders the answers rather
+ * than trust the resolver.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -78,8 +77,7 @@ test('the explicit positions pin the family; auto only reorders the answers', ()
   // auto with IPv6 present: AAAA first, IPv4 still in the list for the
   // happy-eyeballs fallback.
   assert.deepEqual(localEgressConnectOptions('auto', GLOBAL_V6), { lookup: ipv6FirstLookup })
-  // auto without IPv6: no opinion at all, i.e. exactly the pre-setting
-  // behaviour (Node's own order, IPv4 first on this host).
+  // auto without IPv6: no opinion at all — Node's own order (IPv4 first here).
   assert.deepEqual(localEgressConnectOptions('auto', IPV4_ONLY), {})
   assert.deepEqual(localEgressConnectOptions('auto', LINK_LOCAL_ONLY), {})
 })

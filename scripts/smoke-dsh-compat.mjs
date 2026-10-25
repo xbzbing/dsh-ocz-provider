@@ -74,7 +74,8 @@ class ConfigForms extends Service {
   }
 }
 new ConfigForms(ctx)
-// Reproduce the boot blocker: adding the removed service parks the main fiber.
+// A plugin injecting the absent `settingsScope` service must stay PENDING —
+// that is the boot blocker this check pins down.
 const old = ctx.plugin({ inject: ['slots', 'locale', 'settingsScope'], apply() {} })
 await old.await()
 assert.equal(old.state, 0, 'old client must remain PENDING without settingsScope')
@@ -114,7 +115,7 @@ const schema = new HostSchema(JSON.parse(JSON.stringify(entry.Config.toJSON())))
 // second serialization before validating a draft. A `.transform()` in Config
 // keeps its callback through the first toJSON() but loses it on the rebuild, so
 // the rehydrated node throws "callback is not a function", decode() returns
-// undefined and the configuration card stays loading forever (live 2026-10-15).
+// undefined and the configuration card stays loading forever.
 // Guard: the host must derive a form, and the rehydrated form must validate.
 const settingsSchema = await import(pathToFileURL(join(dirname(hostRequire.resolve('@deepseek-ai/dsh-settings')), 'types/schema.js')).href)
 const form = settingsSchema.volatileForm(schema)

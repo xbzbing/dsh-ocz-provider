@@ -73,7 +73,7 @@ export class RoutingInstaller {
    * The host list actually in force. Reads the running router when one is
    * installed (its own default already applied), otherwise resolves the
    * configured value — so the settings card can never display a default the
-   * router is not using, the exact mismatch that hid the empty-list bug.
+   * router is not using.
    */
   get proxyHosts(): readonly string[] {
     return this.#current?.proxyHosts ?? resolveProxyHosts(this.#deps.proxyHosts)
@@ -175,11 +175,10 @@ export class RoutingInstaller {
       logger: this.#deps.logger,
     })
     // Read BEFORE swapping: undici's `setGlobalDispatcher` returns void (not
-    // the replaced dispatcher) on Node 24 / undici 8.x — verified live, it
-    // yields `undefined`. The old code trusted a return value that is never
-    // there, so `#previous` stayed null and `disable()` could never restore
-    // the host's dispatcher: the routing layer outlived the plugin and kept
-    // capturing every later fetch in the process. Capture via the getter.
+    // the replaced dispatcher) on Node 24 / undici 8.x — it yields
+    // `undefined` — so `#previous` has to come from the getter, or disable()
+    // could never restore the host's dispatcher and this layer would outlive
+    // the plugin, capturing every later fetch in the process.
     let previous: unknown = null
     try {
       previous = this.#deps.undici.getGlobalDispatcher()
@@ -193,14 +192,14 @@ export class RoutingInstaller {
     this.#current = router
     this.#enabled = true
     if (old !== null) void old.destroy().catch(() => {})
-    // Global-fetch capture (R2, live-observed 2026-09-09): Node's built-in
-    // fetch reads the BUILT-IN undici's dispatcher slot — a different module
-    // instance than the npm undici this seam routes through — so
-    // setGlobalDispatcher alone never routes the OpenAI SDK's requests
-    // (it captures globalThis.fetch at call time). Swap the global fetch to
-    // the module's own (which honors OUR dispatcher slot) while routing is
-    // enabled; restore on disable. Only when the module actually exposes a
-    // distinct fetch — a same-instance host needs nothing.
+    // Global-fetch capture (R2): Node's built-in fetch reads the BUILT-IN
+    // undici's dispatcher slot — a different module instance than the npm
+    // undici this seam routes through — so setGlobalDispatcher alone never
+    // routes the OpenAI SDK's requests (it captures globalThis.fetch at call
+    // time). Swap the global fetch to the module's own (which honors OUR
+    // dispatcher slot) while routing is enabled; restore on disable. Only when
+    // the module actually exposes a distinct fetch — a same-instance host
+    // needs nothing.
     const moduleFetch = this.#deps.undici.fetch
     if (typeof moduleFetch === 'function' && globalThis.fetch !== moduleFetch) {
       this.#savedGlobalFetch = globalThis.fetch

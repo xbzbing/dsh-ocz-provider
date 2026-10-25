@@ -8,7 +8,7 @@ import { AgentProcess } from '../src/agent-process.ts'
 
 /**
  * The fake agent is a Node script that prints the READY line, then either
- * stays alive, or exits after `exitMs` (to exercise the restart shepherd).
+ * stays alive or exits after `exitMs` (to exercise the restart shepherd).
  */
 async function writeFakeAgent(dir: string, body: string): Promise<string> {
   const path = join(dir, `fake-${Math.random().toString(36).slice(2)}.mjs`)

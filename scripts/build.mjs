@@ -1,21 +1,11 @@
 #!/usr/bin/env node
 /**
- * Canonical build for the shipped plugin artifacts (`lib/`).
- *
- * Why this exists: the repository root IS the installable package — `dsh
- * plugin add file:<repo>` and `dsh plugin add github:<owner>/<repo>` both
- * resolve to it, and NEITHER runs a lifecycle script (pnpm runs none for
- * `file:` directory deps, and blocks a git-hosted build behind an
- * `allowBuilds` entry whose key contains the commit sha). So `lib/` is
- * committed to git and this script is the one command that refreshes it:
- * clean -> node half -> browser half -> manifest.
- *
- * The clean matters: both halves run tsdown with `clean: false` so they can
- * share one `lib/`.
- *
- * Root scripts deliberately expose NO lifecycle hook (`prepare`/`prepack`/
- * `postinstall`) — their mere presence is what makes git-hosted installs
- * demand an allowBuilds entry.
+ * Canonical build for the shipped plugin artifacts (`lib/`): clean -> node
+ * half -> browser half -> manifest. The root package exposes NO lifecycle hook
+ * (`prepare`/`prepack`/`postinstall`) on purpose — their presence alone makes
+ * git-hosted installs demand an `allowBuilds` entry — so `lib/` is committed
+ * and refreshed only here. The clean matters: both halves run tsdown with
+ * `clean: false` so they can share one `lib/`.
  */
 import { existsSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'

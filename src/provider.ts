@@ -35,12 +35,9 @@ export function providerBaseURL(port: number): string {
  * Remove the llm-pi-ai provider route left behind by sidecar mode. Adapter
  * mode serves the provider id itself; a stale route pointing at a dead
  * sidecar port would shadow dispatch and fail every call with a connection
- * error. Returns true when a route was actually removed.
- *
- * DSH 0.1.7 dropped the per-namespace `get(ns)` reader: `SettingsForms` serves
- * every declared namespace from one `describe()` call, keyed by entry id, so
- * the read is a lookup in that list. The 0.1.1 `get` is still tried first for a
- * host that has not moved.
+ * error. Returns true when a route was actually removed. DSH 0.1.7 serves
+ * every namespace from one `describe()` call keyed by entry id; 0.1.1's
+ * `get(ns)` is still tried first for a host that has not moved.
  */
 export async function removeProviderRoute(
   seams: Pick<DshSeams, 'settings'>,
@@ -54,10 +51,9 @@ export async function removeProviderRoute(
 }
 
 /**
- * One namespace's resolved value, from whichever read face the host offers.
- * 0.1.7's `describe()` is preferred: it is the canonical face and the only one
- * a 0.1.7 host has, and preferring it means a reduced composition that still
- * carries a vestigial `get` is never routed through it.
+ * One namespace's resolved value: `describe()` (0.1.7's canonical face) is
+ * preferred, so a reduced composition that still carries a vestigial `get` is
+ * never routed through it; `get(ns)` is the fallback.
  */
 function readNamespace(settings: DshSeams['settings'], ns: string): unknown {
   if (typeof settings.describe === 'function') {
@@ -74,12 +70,10 @@ function readNamespace(settings: DshSeams['settings'], ns: string): unknown {
 }
 
 /**
- * Minimal settings/credentials seam so tests can run against fakes.
- *
- * `mutate` is optional because DSH 0.1.7's `SettingsForms` always has it while
- * a reduced composition (and the sidecar's degraded fallback) may not; every
- * caller checks before writing rather than throwing on a missing writer.
- * The read face is `describe()` on 0.1.7, with 0.1.1's `get(ns)` tolerated.
+ * Minimal settings/credentials seam so tests can run against fakes. `mutate`
+ * is optional (a reduced composition, and the sidecar's degraded fallback, may
+ * lack it), so every caller checks before writing; the read face is
+ * `describe()` on 0.1.7, with 0.1.1's `get(ns)` tolerated.
  */
 export interface DshSeams {
   credentials: {

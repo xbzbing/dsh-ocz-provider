@@ -1,113 +1,46 @@
 /**
- * The anonymous free lane's gate tools — the GENUINE OpenCode definitions,
- * byte-exact from the official 2.1.4 client.
+ * The anonymous free lane's gate tools — the GENUINE OpenCode 2.1.4
+ * definitions, byte-exact from the official client (captured by pointing the
+ * installed `opencode-cli` at a loopback capture server,
+ * `docs/local/capture-214/probe.cjs`; a `permission: 'deny'` probe config
+ * yields NO `tools` key at all, so the definitions come from an
+ * open-permissions run). Of the client's 12 advertised tools (`edit`, `glob`,
+ * `grep`, `question`, `read`, `shell`, `skill`, `subagent`, `webfetch`,
+ * `websearch`, `write`, `execute`), `shell` and `read` are the two the gate
+ * names; the rest are ordinary extra tools the gate ignores.
  *
- * PROVENANCE (2026-10-24): captured from the installed Desktop 2.1.4
- * `opencode-cli` by pointing its provider baseURL at a loopback capture
- * server (`docs/local/capture-214/probe.cjs`, isolated `XDG_*` tree,
- * `OPENCODE_CONFIG_CONTENT` config) and driving one real
- * `run --standalone --auto` turn. The server logged every header and the RAW
- * request body; the two entries below are that body's `tools` payload
- * verbatim, in the client's own order (of its 12 advertised tools — `edit`,
- * `glob`, `grep`, `question`, `read`, `shell`, `skill`, `subagent`,
- * `webfetch`, `websearch`, `write`, `execute` — `shell` and `read` are the
- * two the gate names; the rest are ordinary extra tools the gate ignores).
+ * WHY VERBATIM: the gate validates tool CONTENT, not just names — the accepted
+ * shape is both names present, each description CONTAINING the genuine text
+ * (substring) and each `parameters` EQUAL to the genuine schema — so a stub, a
+ * truncated description or one edited property is a rejection risk.
+ * `isGenuineGateTool` applies exactly that check.
  *
- * One capture subtlety worth keeping: `permission: 'deny'` in the probe
- * config produced a request with NO `tools` key at all, because
- * `Tool.snapshot(permissions)` drops every definition under a deny-all
- * ruleset (`whollyDisabled`, packages/core/src/tool.ts). The captured
- * definitions below therefore come from an open-permissions run.
+ * The STRUCTURAL requirement on the wire today is a non-empty `tools` array
+ * carrying an entry NAMED `read`: `read` alone passes, `shell` without `read`
+ * is refused, and the previous-generation `bash`+`read` pair still passes.
+ * Content validation has been switched on and off upstream, so both
+ * generations ship as insurance.
  *
- * WHY VERBATIM: the gate validates tool CONTENT, not just names. Measured
- * 2026-10-14 against `POST /inference/v1/chat/completions` (ablation matrix,
- * every other field held at the captured client request): genuine pair -> 200;
- * placeholder stubs -> 403; a description truncated to 120 chars -> 403; a
- * description merely prefixed with `X` or suffixed " (copy)" -> 200;
- * parameters gaining one property, losing `required`, or emptied -> 403; the
- * genuine pair minus `bash` (or `bash` alone) -> 403. The check was: both
- * names present, each description CONTAINING the genuine text (substring),
- * each `parameters` EQUAL to the genuine schema.
+ * Reading status codes: 403 FreeTierError = the SHAPE was rejected (a body
+ * with no `tools` still gets it); 429 FreeUsageLimitError is NOT "quota
+ * spent" — it is what any non-official stack gets while the official client
+ * is served 200. The gate has THREE halves, and each missing one reads as
+ * that same 429:
+ *   (a) PAYLOAD — the system prompt must carry a non-empty `<env>` block
+ *       (adapter/env-block.ts);
+ *   (b) STACK — the request must leave through Bun; a Node fetch is refused on
+ *       the same body (src/relay/);
+ *   (c) SESSION-ID FRESHNESS — the `ses_*` 12-hex prefix decodes as
+ *       `~(unix_ms*0x1000+counter)` and must name a recent moment
+ *       (adapter/ids.ts mints it clock-based).
  *
- * RE-MEASURED 2026-10-24 with the 2.1.4 pair under the 2.1.4 header set, one
- * variable per request, through a pool exit where the gate answers BEFORE the
- * quota layer (so the status still discriminates with the anonymous quota
- * spent: 429 FreeUsageLimitError = gate PASSED, 403 FreeTierError = gate
- * REJECTED):
- *
- *   - the captured 12-tool payload               -> 429 (passed)
- *   - the captured `read` ALONE                  -> 429 (passed)
- *   - the captured `shell` ALONE (no `read`)     -> 403 (rejected)
- *   - the previous-generation `bash`+`read` pair -> 429 (passed)
- *   - `ses_short` session id (calibration)       -> 403 (rejected)
- *
- * So the only STRUCTURAL requirement on 2026-10-24 is a non-empty `tools`
- * array carrying an entry NAMED `read`; content validation is OFF again and
- * the old pair still passes. Both generations are kept as insurance — the
- * gate has flipped five times (09-16, 10-09, 10-13, 10-14, content-check off
- * since 10-19) and on 10-14 the stubs really were the rejection signal.
- *
- * RE-MEASURED 2026-10-25 — the discriminator itself moved. The anonymous
- * window reopened (the official `opencode-cli 2.1.4`, a Bun binary, answered
- * a real 200 from this machine, direct AND through pool exit
- * `127.0.0.1:30033`), yet a BYTE-IDENTICAL replay — the captured 16 headers,
- * the captured 22 KB body, the official family path — answered 429
- * FreeUsageLimitError from Node h1, Node h2, curl 8.7 h2, Python urllib and
- * Go net/http, from every egress tried (direct v4/v6, the CLI's own ULA
- * source address, all 7 pool exits). One variable at a time, all ruled out:
- * header set, body, route, `accept-encoding: …zstd`, HTTP/1.1 vs h2, source
- * IP. A second capture — this time over TLS to a local CA trusted via
- * `NODE_EXTRA_CA_CERTS`, so the genuine client hits a real https origin —
- * shows the live request still carries exactly those 16 headers, with no
- * signature and no cookie, and upstream sets no cookie. What is left is the
- * client's TLS/HTTP STACK fingerprint, which sits in front of the quota layer
- * and no payload edit can change (probes under `docs/local/capture-214/`).
- *
- * Reading status codes from now on: 403 FreeTierError still = the SHAPE was
- * rejected (a body with no `tools` still 403s on 2026-10-25); 429
- * FreeUsageLimitError no longer = "gate passed, quota spent" — it is what ANY
- * non-official stack gets while the official client is being served 200. The
- * matrix above still tells you which SHAPES pass (it was read as 403-vs-429),
- * but a run of 429s no longer tells you the request would have been SERVED.
- *
- * RESOLVED the same day: the gate has THREE halves, and all are now shipped.
- * Ablating the stack axis alone left two more discriminators hidden inside a
- * byte-identical body, and each one reads as the same 429 FreeUsageLimitError:
- *
- *   (a) PAYLOAD — the system prompt must carry a non-empty `<env>` block (the
- *       official prompt ends with one, index 7731 of 8368 chars). With Bun's
- *       stack held constant: empty `<env>` -> 429, the same lines without the
- *       tags -> 429, the official prefix truncated at 6000/7200/8000 chars
- *       (before the block) -> 429, `<env>` + ONE real line -> 200, block-only
- *       system prompt -> 200. adapter/env-block.ts, appended by
- *       `ensureFreeLaneShape`;
- *   (b) STACK — the request must leave through Bun. src/relay/ spawns a bun
- *       relay the adapter addresses, so bun's own fetch opens the upstream
- *       connection; a Node fetch is refused with the same 429 on the same body;
- *   (c) SESSION-ID FRESHNESS — the `ses_*` 12-hex prefix is decoded as
- *       `~(unix_ms*0x1000+counter)` and must describe a RECENT moment.
- *       Measured on an accepted body with Bun egress: now/-1h/-1d/-7d/-30d ->
- *       200, a future timestamp -> 429, a random one -> 429 (counters
- *       1/32/63/64/128/4095 pass; only 0 fails). The digest-derived prefix the
- *       PR #69/#70 port shipped is exactly a random timestamp, so it 429'd
- *       every request even after (a) and (b) were fixed; adapter/ids.ts mints
- *       a clock-based prefix again.
- *
- * Missing any ONE of the three still reads as 429 FreeUsageLimitError:
- * Bun + fresh id -> 200, Node + fresh id -> 429, Bun + stale id -> 429,
- * Bun + fresh id without the block -> 429. relay/oc2dsh-relay.mjs and
- * src/relay/supervisor.ts carry the stack matrix, adapter/ids.ts the session
- * one, adapter/env-block.ts the payload one; `docs/local/capture-214/` holds
- * the raw probes.
- *
- * RE-CAPTURE when the gate moves again: rerun `probe.cjs` (loopback only,
- * nothing leaves 127.0.0.1), take `shell` and `read` from the logged
- * `body.tools`, and replace the two entries below.
+ * RE-CAPTURE when the gate moves: rerun `probe.cjs` (loopback only, nothing
+ * leaves 127.0.0.1), take `shell` and `read` from the logged `body.tools`,
+ * and replace the two entries below.
  *
  * The 2.1.4 pair ships as ONE recipe with the 2.1.4 header set (four session
- * spellings, no `x-opencode-request`, 2.1.4 UA) — mixing generations inside
- * one request is the documented way this lane has broken (adapter/ids.ts
- * `disguiseHeaders`).
+ * spellings, no `x-opencode-request`, 2.1.4 UA): mixing generations inside one
+ * request is how this lane breaks (adapter/ids.ts `disguiseHeaders`).
  */
 
 /** Wire names of the injected pair, in the client's own precedence. */

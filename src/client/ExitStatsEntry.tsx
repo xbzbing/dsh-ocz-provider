@@ -1,17 +1,13 @@
 /**
- * Sidebar footer entry (bottom-left) + exit-stats modal.
- *
- * The trigger follows the usage-billing footer-card pattern: a headline
- * number (usable exits) with a request-count subline, click to open a
- * centered modal. The modal lists every pool exit sorted BY REQUEST COUNT —
- * the "which exit is actually being used" answer the settings card cannot
- * show at a glance — with per-exit tokens, latency, in-flight markers and
- * last-used stamps, plus pool-wide totals and the direct-fallback bucket.
- *
- * Data rides the plugin's own loopback bridge (the same /status POST the
- * settings card polls), so this entry works whether or not the settings card
- * is mounted and never touches host internals. Counters are process-lifetime:
- * they reset when the host restarts, and the modal says so.
+ * Sidebar footer entry (bottom-left) + exit-stats modal: a headline number
+ * (usable exits) with a request-count subline, click to open a centered modal
+ * that lists every pool exit sorted BY REQUEST COUNT — per-exit tokens,
+ * latency, in-flight markers and last-used stamps, plus pool-wide totals and
+ * the direct-fallback bucket. Data rides the plugin's own loopback bridge
+ * (the same /status POST the settings card polls), so the entry works whether
+ * or not the settings card is mounted and never touches host internals.
+ * Counters are process-lifetime: they reset when the host restarts, and the
+ * modal says so.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -29,12 +25,11 @@ import styles from './ip-pool.module.css'
 
 /**
  * The display total: input + output + cacheRead + cacheWrite. The tracker's
- * `totalTokens` is the net-new figure (input is normalized to exclude the
- * cache buckets upstream), which read ~3x smaller than the Agent's own
- * all-in count (live 2026-10-13) — the footer and the modal show the
- * all-in number so the two agree; the breakdown stays in the table notes.
- * (The number itself lives in usage-format.ts so the footer, modal and
- * usage panel render the same figure.)
+ * `totalTokens` is only input + output (net-new tokens), which reads ~3x
+ * smaller than the Agent's own all-in count, so the footer and the modal show
+ * the all-in number and the breakdown stays in the table notes.
+ * (The figure itself lives in usage-format.ts so the footer, modal and usage
+ * panel render the same number.)
  */
 
 /** Cache share of one bucket, for the per-row note (0 hides the note). */
@@ -47,8 +42,7 @@ export type ExitStatsEntryProps =
   & PropsLocale<'settings.ip-pool'>
 
 /**
- * The outcome toast's two clocks (live request 2026-10-14: the old note above
- * the table never disappeared on its own). HOLD is full-opacity reading time;
+ * The outcome toast's two clocks: HOLD is full-opacity reading time;
  * FADE matches the stylesheet's dismiss animation so the element unmounts
  * exactly when it stops being visible.
  */
@@ -61,9 +55,8 @@ function timeLabel(epoch: number, never: string): string {
   return new Date(epoch).toLocaleTimeString()
 }
 
-/** An exit is "usable" exactly where the pool's pick() would consider it:
- *  probed healthy and not cooling (bans are per-model, so they don't hide a
- *  whole row). */
+/** An exit row reads "usable" when it is probed healthy (state ok) and not
+ *  cooling; bans are per-model, so they never hide a whole row. */
 function isUsable(exit: PoolStatusView['exits'][number]): boolean {
   return exit.state === 'ok' && !exit.cooling
 }
@@ -75,10 +68,8 @@ type SortKey = 'requests' | 'input' | 'output' | 'cache' | 'latency'
  * One row action the modal can send. `pin-local` is the 本机 row's button:
  * the host owns the sentinel value, so the bundle names the intent, never the
  * spelling (mirrors SETTINGS_NAMESPACE's literal-only rule in client/index.ts).
- *
- * `rotate` was called `remove` until 2026-10-14, when the operator corrected
- * the vocabulary: nothing is deleted — the row is rotated (a reserve takes its
- * place, or it sinks to the pool tail).
+ * `rotate` deletes nothing: a reserve takes the row's place, or it sinks to
+ * the pool tail.
  */
 type ExitAction = 'pin' | 'pin-local' | 'unpin' | 'rotate'
 
@@ -115,11 +106,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   /** Which pane the modal shows: the exit table, or the traffic breakdown. */
   const [tab, setTab] = useState<'exits' | 'usage'>('exits')
   /**
-   * The pane's own scroll container (live request 2026-10-18: 按 tab 重新
-   * 制作 + 「点流量后出口 tab 不见了」). It is owned here rather than left to
-   * the primitives' `.body` for two reasons: the tab bar has to sit OUTSIDE
-   * the scrolling region, and a pane switch has to reset the offset — a pane
-   * is a new view, not a continuation of the previous one's scroll position.
+   * The pane's own scroll container: the tab bar sits OUTSIDE the scrolling
+   * region, and a pane switch resets the offset — a pane is a new view, not a
+   * continuation of the previous one's scroll position.
    */
   const paneRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -129,10 +118,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const [busy, setBusy] = useState('')
   /**
    * The last action's outcome, shown as a toast DOCKED at the modal's
-   * bottom-right corner (live request 2026-10-14). It used to be a note
-   * above the table that stayed until the next action — the green
-   * "操作成功" line never went away on its own. `seq` restarts the show
-   * cycle when the same text fires twice in a row.
+   * bottom-right corner and dismissed on its own clock. `seq` restarts the
+   * show cycle when the same text fires twice in a row.
    */
   const [note, setNote] = useState<{ text: string; warn: boolean; seq: number } | null>(null)
   const noteSeq = useRef(0)
@@ -170,8 +157,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     }
   }, [])
 
-  // The button carries live numbers too: poll gently while closed, tighter
-  // while the modal is open (mirrors the settings card's 3s cadence).
+  // The button carries live numbers too: poll gently while closed (10s),
+  // tighter while the modal is open (2s).
   useEffect(() => {
     void refresh()
     const interval = setInterval(() => void refresh(), open ? 2_000 : 10_000)
@@ -179,17 +166,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [open, refresh])
 
   /**
-   * One row action (固定 / 取消固定 / 轮换) over the bridge. The bridge owns the
-   * settings write, the live pin and the candidate refill, so this stays a
-   * POST plus a re-read — and it reports what actually happened, because
-   * "deleted" means two different things (a reserve took the slot, or the row
-   * sank to the tail).
-   */
-  /**
-   * Clear the usage ledger (live request 2026-10-14: 清空功能按钮). Same
-   * loopback route family as the row actions; the modal re-reads /status
-   * afterwards so the chips, the bar list and the footer all drop to zero
-   * together.
+   * Clear the usage ledger. Same loopback route family as the row actions;
+   * the modal re-reads /status afterwards so the chips, the bar list and the
+   * footer all drop to zero together.
    */
   const clearUsage = useCallback(async (): Promise<boolean> => {
     setNote(null)
@@ -213,6 +192,13 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     }
   }, [refresh, showNote, t])
 
+  /**
+   * One row action (固定 / 取消固定 / 轮换) over the bridge. The bridge owns the
+   * settings write, the live pin and the candidate refill, so this stays a
+   * POST plus a re-read — and it reports what actually happened, because a
+   * rotation has two outcomes (a reserve took the slot, or the row sank to
+   * the tail).
+   */
   const runExitAction = useCallback(async (action: ExitAction, exitId?: string): Promise<void> => {
     setBusy(`${action}:${exitId ?? ''}`)
     setNote(null)
@@ -262,21 +248,19 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     const tokens = exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
     const inFlight = exits.reduce((sum, exit) => sum + exit.inFlight, 0)
     // Pool-wide recent (3-min window) output speed, computed host-side from
-    // the process tracker's rolling ring (live request 2026-10-15: 口径改为
-    // 最近 3 分钟平均, replacing the all-time mean that never moved).
+    // the process tracker's rolling ring.
     const speed = status?.recentSpeed ?? 0
     return { requests, tokens, inFlight, speed }
   }, [status])
 
   /**
    * The footer's own numbers. Requests stay the ledger's ALL-TIME total and
-   * speed stays the recent-window gauge, but the token figure is TODAY's
-   * spend (live request 2026-10-18: 左下角的 tok 改为当天用量) — the day
-   * bucket the bridge already serves as `todayTokens`, never the scope the
-   * card's switch selected, so the footer means the same thing regardless of
-   * what the modal was last left on. Falls back to the live totals when the
-   * host serves no ledger (the bridge's todayTokens does the same, so both
-   * paths agree).
+   * speed stays the recent-window gauge; the token figure is TODAY's spend —
+   * the day bucket the bridge already serves as `todayTokens`, never the
+   * scope the card's switch selected, so the footer means the same thing
+   * regardless of what the modal was last left on. Falls back to the live
+   * totals when the host serves no ledger (the bridge's todayTokens does the
+   * same, so both paths agree).
    */
   const overview = useMemo(() => {
     if (status === null) return totals
@@ -287,7 +271,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
       tokens: status.todayTokens ?? 0,
       inFlight: totals.inFlight,
       // The footer's speed is the same recent-window gauge as the modal's —
-      // a live number, not a lifetime average (live request 2026-10-15).
+      // a live number, not a lifetime average.
       speed: status.recentSpeed ?? 0,
     }
   }, [status, totals])
@@ -296,17 +280,14 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const total = status?.total ?? 0
   /**
    * The pool being switched off means no traffic goes through an exit at all,
-   * so the exit table is not a view of anything in use — rendering it anyway
-   * is how "0/13 available" read as a broken pool instead of "you turned it
-   * off" (live 2026-10-13). Off lists the local row alone, exactly what the
-   * operator asked for.
+   * so the exit table is not a view of anything in use: off renders the local
+   * row alone, never a "0/13 available" table that reads as a broken pool.
    */
   const poolOff = status !== null && status.enabled === false
 
   // Sorted by the clicked column — request count descending is the home
   // position. An unprobed exit (latency 0) sinks to the bottom under every
   // latency direction: "unknown" is not "fastest".
-  //
   const rows = useMemo(() => {
     if (poolOff) return []
     const unknown = Number.POSITIVE_INFINITY
@@ -343,13 +324,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   )
 
   /**
-   * The two panes as PLATFORM tabs (live request 2026-10-18: 按 tab 重新制作):
-   * `SegmentedTabs` owns the chrome — equal widths, a sliding indicator,
-   * arrow-key navigation and a single tab stop — and links each tab to the
-   * panel id rendered below, so this is real tab UI rather than two buttons.
-   * The hand-rolled bar it replaces read as a button pair, and it lived
-   * INSIDE the scrolling pane, which is what made it (and the other tab's
-   * button) scroll out of the card together with tall content.
+   * The two panes as PLATFORM tabs: `SegmentedTabs` owns the chrome — equal
+   * widths, a sliding indicator, arrow-key navigation and a single tab stop —
+   * and links each tab to the panel id rendered below, so this is real tab UI
+   * rather than two buttons, and the bar sits OUTSIDE the scrolling pane.
    */
   const tabs: [SegmentedTab<'exits' | 'usage'>, SegmentedTab<'exits' | 'usage'>] = [
     { value: 'exits', label: t('tabExits'), id: 'oc2dsh-stats-tab-exits', panelId: 'oc2dsh-stats-panel-exits' },
@@ -382,29 +360,24 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               {t('footerRequests', { count: overview.requests.toLocaleString() })}
               {' · '}
               {compact(overview.tokens)} tok
-              {/* The pool's own decode speed (live request 2026-10-14). Hidden
-                  at 0 — nothing has streamed yet, and "0 tok/s" reads as a
-                  stall rather than an empty counter. */}
+              {/* The pool's own decode speed, hidden at 0 — nothing has
+                  streamed yet, and "0 tok/s" reads as a stall rather than an
+                  empty counter. */}
               {overview.speed > 0 && <>{' · '}{t('footerSpeed', { count: overview.speed.toLocaleString() })}</>}
             </span>
           </span>
         )}
         {/*
-          Two footer buttons share this row (another plugin's trigger sits on
-          the left), and a shared row leaves each button about half as wide —
-          the request/token pair stops fitting and the operator asked for just
-          the token count there (live 2026-10-13). Which variant is live is a
-          layout question, not a state question, so it is answered by the
+          Two footer buttons can share this row (another plugin's trigger sits
+          on the left), and a shared row leaves each button about half as
+          wide — the request/token pair stops fitting. Which variant is live is
+          a layout question, not a state question, so it is answered by the
           button's OWN width through a container query: the wide sidebar keeps
           both numbers when this button has the row to itself, and falls back
-          to the compact label the moment a second button squeezes it. The
-          rail (wide === false, 56px) always takes the single-line span.
-          Live 2026-10-15: the squeezed label became two lines — TODAY's
-          tokens on top (what this machine spent since midnight), the
-          recent-window tok/s underneath. Live 2026-10-18: that same
-          today-bucket number became THE footer token figure — the wide
-          sub-line and the rail no longer show the all-time total, so all
-          three variants render overview.tokens and never disagree.
+          to the compact label the moment a second button squeezes it (below
+          180px, see ip-pool.module.css). The rail (wide === false, ~56px)
+          always takes the single-line span. All three variants render
+          overview.tokens (today's spend) and never disagree.
         */}
         {wide ? (
           <span
@@ -443,13 +416,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         contentClassName={styles.statsContent}
       >
         {/* Two panes: the per-exit table, and the persisted traffic
-            breakdown (live request 2026-10-14; reworked 2026-10-18). The tab
-            bar is platform SegmentedTabs and sits OUTSIDE the scrolling pane
-            below — the old hand-rolled pair lived INSIDE it, so tall content
-            dragged it (and the other tab's button) out of the card, and a
-            pane switch kept the previous offset. The description follows the
-            active pane too: the chrome now spans both, and the single old
-            sentence described only the exit table. */}
+            breakdown. The tab bar is platform SegmentedTabs and sits OUTSIDE
+            the scrolling pane below, so tall content cannot drag it out of the
+            card, and a pane switch resets the pane's scroll offset. The
+            description follows the active pane (exit table vs ledger). */}
         <SegmentedTabs
           items={tabs}
           value={tab}
@@ -523,22 +493,18 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   return (
                     <tr key={exit.id} className={usableRow ? undefined : styles.statsRowMuted}>
                       {/* The location rides the IP cell as a tooltip instead of
-                          taking a column of its own (live request 2026-10-14):
-                          it is reference data you look up per row, and the table
-                          is dense enough that the column cost more than it gave. */}
+                          taking a column of its own: reference data, looked up
+                          per row, in a table that is already dense. */}
                       <td className={styles.mono} title={exit.exitLocation || undefined}>
-                        {/* An exit that was never verified has no exit IP. The
-                            local SOCKS5 endpoint used to be printed here as if
-                            it were one (live 2026-10-13: half the table read
-                            127.0.0.1:30xxx), so it now sits after an explicit
-                            dash, muted, as the debuggable handle it really is. */}
+                        {/* An exit that was never verified has no exit IP; its
+                            local endpoint (the row id) sits after an explicit
+                            dash, muted, as the debuggable handle it is. */}
                         {exit.exitIP !== '' ? exit.exitIP : t('statsNever')}
                         {exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}
                         {exit.exitIP === '' && <span className={styles.statsEndpoint}>{exit.id}</span>}
                       </td>
-                      {/* Region code, not the full "HK Central": that string is
-                          still one hover away on the IP cell (live request
-                          2026-10-14). */}
+                      {/* Region code, not the full "HK Central": that string
+                          is one hover away on the IP cell. */}
                       <td className={styles.statsRegion} title={exit.exitLocation || undefined}>
                         {regionCode(exit.exitLocation) || t('statsNever')}
                       </td>
@@ -562,12 +528,12 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         )}
                         {timeLabel(exit.lastUsedAt, t('statsNever'))}
                       </td>
-                      {/* Two ICON actions (live request 2026-10-14): 固定 pins
-                          the whole pool's traffic to this exit (the settings
-                          field, written through the bridge) and 轮换 hands the
-                          row to the candidate list — a reserve takes the slot,
-                          or the row sinks to the tail when there is none. The
-                          words live in the tooltip and the aria-label. */}
+                      {/* Two ICON actions: 固定 pins the whole pool's traffic to
+                          this exit (the settings field, written through the
+                          bridge); 轮换 hands the row to the candidate list — a
+                          reserve takes the slot, or the row sinks to the tail
+                          when there is none. The words live in the tooltip and
+                          the aria-label. */}
                       <td className={styles.statsActions}>
                         <span className={styles.actionGroup}>
                         {exit.pinned ? (
@@ -613,8 +579,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   <td>{t('statsNever')}</td>
                   <td>
                     {/* Green, like a usable exit: this machine IS a working
-                        egress, and the old grey dot read as a fault (live
-                        request 2026-10-14: "本机的状态也用绿色"). */}
+                        egress. */}
                     <span className={`${styles.statsDot} ${styles.statsDotOk}`} aria-hidden="true" />
                     {t('statsLocalState')}
                   </td>
@@ -671,9 +636,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         )}
         </div>
         {/*
-          The outcome toast (live request 2026-10-14): docks at the modal's
-          own bottom-right corner and dismisses itself — the old note above
-          the table stayed green until the next click. Absolute positioning
+          The outcome toast docks at the modal's own bottom-right corner and
+          dismisses itself on the hold/fade clock. Absolute positioning
           anchors to the dialog card (the nearest positioned ancestor), so it
           rides the modal even while the content region scrolls beneath it,
           and `key` restarts the show cycle when the same text fires twice.

@@ -10,11 +10,10 @@ import { DEFAULT_RELAY_UPSTREAM, RelaySupervisor, defaultRelayScript, findBun } 
 import { EGRESS_HEADER, hasRelayEgress, pickRelayEgress, setRelayEgressSeams, settleRelayEgress, statusOfFailure } from '../src/relay/egress.ts'
 
 /**
- * The relay is the half of the free-lane gate a payload cannot satisfy
- * (2026-10-25): a Node-side request is answered 429 whatever it says, while the
- * same bytes leaving Bun are served. These tests cover the lifecycle contract
- * the adapter depends on — a fake child stands in for bun, so nothing here
- * spawns a process or opens a socket.
+ * The relay is the connection-stack half of the free-lane gate, which no
+ * payload edit can satisfy: requests must leave through Bun. These tests cover
+ * the lifecycle contract the adapter depends on — a fake child stands in for
+ * bun, so nothing here spawns a process or opens a socket.
  */
 
 /** A fake relay child: emits the ready line on demand, like the real script. */
@@ -164,10 +163,8 @@ test('a crash clears the base URL and restarts the relay', async () => {
 })
 
 test('a relay that stays up gives the restart budget back', async () => {
-  // The budget must bound a crash LOOP, not a process lifetime. Live
-  // 2026-10-25: five isolated kills spent all five restarts, and the next exit
-  // would have answered "gave up … requests will go direct (429 expected)" on
-  // a machine whose relay had been healthy for hours.
+  // The budget bounds a crash LOOP, not a process lifetime: sustained uptime
+  // gives it back, so a healthy relay never degrades into a direct/429 path.
   const temp = await mkdtemp(join(tmpdir(), 'oc2dsh-bun-'))
   const bun = join(temp, 'bun')
   await writeFile(bun, '')

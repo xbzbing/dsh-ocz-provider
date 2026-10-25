@@ -1,7 +1,6 @@
 /**
- * The exit-stats modal's 流量 tab (live request 2026-10-14): what this machine
- * spent, broken down the way the operator asked for — per day, per session, and
- * rolled up per project.
+ * The exit-stats modal's 流量 tab: what this machine spent, broken down per
+ * day, per session, and rolled up per project.
  *
  * Everything here reads the persistent ledger through /status (see
  * pool/usage-store.ts); the scope chip says which population is on screen
@@ -9,7 +8,7 @@
  * chooses it lives on the settings card and the footer is pinned to 总览.
  *
  * Layout: a chip row (totals + tok/s), a bar list of the recent days, then the
- * top sessions and the project roll-up. Bars are plain divs scaled to the
+ * top sessions and the project roll-up. Bars are plain elements scaled to the
  * heaviest day in the window — no chart dependency, and the table stays
  * readable at the modal's width.
  */
@@ -36,10 +35,10 @@ export interface UsagePanelProps {
   usage: UsageView
   t: IpPoolCardLocale
   /**
-   * Clear the ledger (live request 2026-10-14: 清空功能按钮). The panel owns the
-   * two-step confirm — this is destructive and the button sits next to the
-   * numbers it deletes — and the caller owns the bridge call plus the status
-   * refresh. Resolves false when the host refused.
+   * Clear the ledger. The panel owns the two-step confirm — this is
+   * destructive and the button sits next to the numbers it deletes — and the
+   * caller owns the bridge call plus the status refresh. Resolves false when
+   * the host refused.
    */
   onClear: () => Promise<boolean>
   /** Days charted in the daily column chart (default 14). */
@@ -55,19 +54,16 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
   const [confirming, setConfirming] = useState(false)
   const [clearing, setClearing] = useState(false)
   /**
-   * Which breakdown is on screen (live request 2026-10-18): the Top 会话
-   * table and the 项目 roll-up are two views of the same ledger, so they
-   * became underline tabs (the host workspace's own 对话/轨迹 idiom) rather
-   * than two stacked sections. Default to sessions — the table is the
-   * one an operator scans first.
+   * Which breakdown is on screen: the Top 会话 table and the 项目 roll-up are
+   * two views of the same ledger, shown as underline tabs. Default to
+   * sessions — the table is the one an operator scans first.
    */
   const [breakdown, setBreakdown] = useState<'sessions' | 'projects'>('sessions')
   const days = usage.days.slice(-windowDays)
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
   // Recent (3-min window) speed: a live process-level gauge the host
-  // computes; same number under every scope, hidden at 0 (live request
-  // 2026-10-15, 纯替换口径).
+  // computes; same number under every scope, hidden at 0.
   const speed = usage.recentSpeed ?? 0
   const sessions = usage.sessions
   const projects = usage.projects
@@ -86,9 +82,9 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
         {speed > 0 && <span className={styles.statsChip}>{t('statsSummarySpeed', { count: speed.toLocaleString() })}</span>}
         <span className={styles.statsChip}>{t('usageSummarySessions', { count: sessions.length.toLocaleString() })}</span>
         <span className={styles.statsChip}>{t('usageSummaryDays', { count: usage.days.length.toLocaleString() })}</span>
-        {/* 清空 (live request 2026-10-14). Two steps, because it is
-            destructive and irreversible: the first click only arms it, and
-            the armed state names exactly what goes away. */}
+        {/* 清空: two steps, because it is destructive and irreversible — the
+            first click only arms it, and the armed state names exactly what
+            goes away. */}
         <span className={styles.usageClear}>
           {confirming ? (
             <>
@@ -160,9 +156,8 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
           )}
       </div>
 
-      {/* The two breakdowns as underline tabs (live request 2026-10-18: 用
-          dsh 工作区那种切换方式). The titles live in the tabs themselves, so
-          the old per-section headings are gone. */}
+      {/* The two breakdowns as underline tabs; the titles live in the tabs
+          themselves. */}
       <div className={styles.usageSection}>
         <div className={styles.usageTabs} role="tablist" aria-label={t('usageBreakdownTitle')}>
           {(['sessions', 'projects'] as const).map((key) => (
@@ -198,10 +193,9 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
                       <tr key={row.id}>
                         <td>
                           {/* The label is the HOST's session title when the host
-                              has one (the read-time join in /status; live request
-                              2026-10-14 — it used to show part of the prompt),
-                              falling back to the recorded first user turn. The
-                              full id rides the tooltip. */}
+                              has one (the read-time join in /status), falling
+                              back to the recorded first user turn. The full id
+                              rides the tooltip. */}
                           <span className={styles.sessionLabel} title={row.id}>
                             {row.label !== '' ? row.label : t('usageUnlabeled')}
                           </span>

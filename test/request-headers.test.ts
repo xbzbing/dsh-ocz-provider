@@ -47,8 +47,8 @@ test('the Config schema survives the settings form round trip (no transform node
   // (`new z(schema.toJSON())`) and the browser rehydrates THAT serialization.
   // A transform node keeps its callback through the first toJSON() but loses it
   // on the rebuild, so the rehydrated node throws "callback is not a function",
-  // decode() returns undefined and the settings card stays loading forever
-  // (live 2026-10-15). The schema must therefore contain no transform at all.
+  // decode() returns undefined and the settings card stays loading forever.
+  // The schema must therefore contain no transform at all.
   const serialized = JSON.parse(JSON.stringify(Config.toJSON()))
   assert.deepEqual(transformNodes(serialized), [], 'a transform callback cannot survive the form round trip')
 

@@ -109,11 +109,10 @@ test('dispatcher: non-pool hosts and loopback go direct; pool hosts route to pic
 })
 
 /**
- * Live 2026-10-13: one opencode.ai serves several lanes, and host-only
- * routing dragged all of them through the exits — 77 `/zen/go/v1/chat/
- * completions` calls in 6.3 minutes from the separate `opencode-go`
- * provider were counted as pool requests (with no tokens, since only our
- * adapter attributes usage) while every oc2dsh session was quiet.
+ * One opencode.ai serves several lanes: host-only routing would drag all of
+ * them through the exits, counting a foreign provider's `/inference/go/...`
+ * traffic as pool requests (no tokens are attributed — only our adapter books
+ * usage). The path scope keeps every other lane on the host.
  */
 test('dispatcher: the path scope keeps other lanes on the host out of the pool', () => {
   const pool = new ExitPool()
@@ -158,8 +157,7 @@ test('dispatcher: the path scope keeps other lanes on the host out of the pool',
   assert.equal(proxied().length, 3, "'/' puts the whole host back in scope")
 
   // A caller that exposes no path stays IN scope: guessing "out" would
-  // silently disable routing, the failure class this layer has already been
-  // bitten by twice.
+  // silently disable routing.
   routingContext.run({ model: 'm', session: 'bare' }, () => {
     router.dispatch({ origin: 'https://opencode.ai' } as never, {} as never)
   })
@@ -216,11 +214,10 @@ test('dispatcher: ALS context selects the exit by model (two-tier health routing
 })
 
 /**
- * 本地出口兜底 (live request 2026-10-18). The pool exists so this machine's IP
- * stays off the wire (the free lane 403s the CN egress behind this host), so
- * the DEFAULT is now fail-closed; the settings switch opts back into the old
- * fail-open behaviour. An explicit 固定本机 pin is the operator asking for
- * local egress and works either way.
+ * 本地出口兜底 — the pool exists so this machine's IP stays off the wire (the
+ * free lane refuses this host's CN egress), so the DEFAULT is fail-closed; the
+ * settings switch opts back into fail-open. An explicit 固定本机 pin is the
+ * operator asking for local egress and works either way.
  */
 test('dispatcher: an empty pool fails closed by default — no local egress', () => {
   const pool = new ExitPool()
@@ -324,9 +321,8 @@ test('installer: install/disable swaps the global dispatcher and restores the pr
   const originalDispatcher = { tag: 'original' }
   let current: unknown = originalDispatcher
   // Faithful undici 8.x slot: the getter and setter share ONE cell, and the
-  // setter returns void — it does NOT hand back the replaced dispatcher. The
-  // previous fixture returned `previous` here, which is the exact fiction that
-  // let the "restore never happens" bug pass this suite.
+  // setter returns void — it does NOT hand back the replaced dispatcher, so
+  // only a getter read can prove the restore.
   const recordingSeam = {
     ...seam,
     getGlobalDispatcher: () => current,
@@ -419,7 +415,7 @@ test('end-to-end: builtin fetch routes through a real local proxy via the instal
   await new Promise<void>((resolve) => server.close(() => resolve()))
 })
 
-// -- passive signals (docs §4.2/4.3; IP-6): the handler wrapper observes the
+// -- passive signals (docs §4.2/4.3): the handler wrapper observes the
 // real request's outcome and writes the two-tier health -------------------------
 
 /** Fake seam whose agents synchronously answer with a scripted status code. */
@@ -461,7 +457,7 @@ test('dispatcher passive signal: 2xx marks the exit ok; 429 cools it and reroute
   assert.equal(pool.isUsable('a:1', 'm'), true)
   assert.deepEqual(pool.passiveStats('a:1'), { ok: 1, limited: 0, refused: 0, dead: 0, transport: 0 })
 
-  // now the exit answers 429: cooldown lands and the sticky session is dropped
+  // the exit answers 429: cooldown lands and the sticky session is dropped
   const hot = respondingSeam(() => 429)
   const router2 = new PoolRoutingDispatcher({ pool, undici: hot.seam as never, proxyHosts: ['opencode.ai'] })
   routingContext.run({ model: 'm', session: 's' }, () => {
@@ -546,10 +542,9 @@ test('installer defers to a foreign dispatcher and recovers when the slot frees'
   installer.disable()
 })
 
-// -- response-silence sentinel (docs §4.3; the muse "Connection error" case):
-// undici fires NO handler callback when a proxy CONNECT dies at the
-// connection stage, so the passive signal was blind exactly where a dead
-// exit needed eviction. The sentinel records a transport strike when a
+// -- response-silence sentinel (docs §4.3): undici fires NO handler callback
+// when a proxy CONNECT dies at the connection stage, so the passive signal
+// never sees that death; the sentinel records a transport strike when a
 // dispatched request stays totally mute past its deadline. --------------------
 
 test('dispatcher sentinel: a mute connection records transport and reroutes the session', async () => {
@@ -583,10 +578,9 @@ test('dispatcher sentinel: a mute connection records transport and reroutes the 
 })
 
 test('dispatcher sentinel: a wired judge gets the cut instead of an immediate strike', async () => {
-  // The dispatcher used to decide on its own that a cut means dead. Once the
-  // runtime wires pool/transport.ts, the cut is a QUESTION (a mislabelled
-  // listener answers nothing and is not a dead line — live 2026-10-25), so the
-  // observer must hand it over rather than strike.
+  // The cut is a QUESTION for pool/transport.ts, not a verdict: a mislabelled
+  // listener answers nothing and is not a dead line, so the observer hands it
+  // over (`onTransportCut`) rather than striking.
   const pool = new ExitPool()
   pool.add(node({ id: 'mute:1', exitIP: '1.1.1.1' }))
   pool.markOk('mute:1')
@@ -632,11 +626,11 @@ test('dispatcher sentinel: any handler callback disarms it (a live exit is never
 })
 
 test('dispatcher sentinel: tunnel-established silence aborts the dispatch (the muse 70-minute hang)', async () => {
-  // Live-observed (2026-09-07): after onRequestStart (tunnel stands) a
-  // dead-behind-the-tunnel exit sends no response headers and no error —
-  // fetch waits forever, the turn never finishes. The sentinel must re-arm
-  // at onRequestStart and ABORT the live controller when the headers window
-  // lapses, so fetch rejects and the adapter's rotate loop takes over.
+  // After onRequestStart (tunnel stands) a dead-behind-the-tunnel exit sends
+  // no response headers and no error — fetch would wait forever and the turn
+  // never finishes. The sentinel re-arms at onRequestStart and ABORTS the
+  // live controller when the headers window lapses, so fetch rejects and the
+  // adapter's rotate loop takes over.
   const pool = new ExitPool()
   pool.add(node({ id: 'mute:1', exitIP: '1.1.1.1' }))
   pool.markOk('mute:1')
@@ -706,10 +700,10 @@ test('dispatcher sentinel: response headers disarm the second window (slow bodie
 })
 
 test('dispatcher sentinel: window (b) is looser than (a) — a slow LLM TTFB behind a live tunnel is never struck', async () => {
-  // Live-observed 2026-09-09 (mihomo 7897 -> SJ exit -> zen): onRequestStart
-  // fires ~0.9s in, headers ~2.7s in. A single 2s window would abort the
-  // dispatch mid-flight and strike a HEALTHY exit dead; window (b) must
-  // carry the upstream-composition wait on its own budget.
+  // onRequestStart can fire ~0.9s in with headers ~2.7s behind it (measured);
+  // a single window would abort the dispatch mid-flight and strike a HEALTHY
+  // exit dead, so window (b) carries the upstream-composition wait on its own
+  // budget.
   const pool = new ExitPool()
   pool.add(node({ id: 'ttfb:1', exitIP: '1.1.1.1' }))
   pool.markOk('ttfb:1')
@@ -744,9 +738,9 @@ test('dispatcher sentinel: window (b) is looser than (a) — a slow LLM TTFB beh
 
 test('dispatcher: 本机 traffic rides the local-egress agent the family setting builds', () => {
   // The family setting exists because the free lane refuses this host's IPv4
-  // and accepts its IPv6 (live 2026-10-18, identical bytes). Only the LOCAL
-  // egress may move: #direct still carries loopback, out-of-pool hosts and
-  // other lanes, and flipping those is not what 本机使用 IPv4 还是 IPv6 means.
+  // and accepts its IPv6 on identical bytes. Only the LOCAL egress may move:
+  // #direct still carries loopback, out-of-pool hosts and other lanes — those
+  // are not what 本机出口协议族 selects.
   const pool = new ExitPool()
   const built: Array<{ options: unknown; tag: string }> = []
   const hops: string[] = []

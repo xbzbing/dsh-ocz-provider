@@ -1,7 +1,7 @@
 /**
- * Live proof of the three routing behaviors the user asked about:
- *   1. Automatic routing — every request exits through the pool's pick()
- *   2. Session stickiness — one session keeps one exit IP (anti-429 shape)
+ * Proof of the three routing behaviours:
+ *   1. automatic routing — every request exits through the pool's pick()
+ *   2. session stickiness — one session keeps one exit IP (anti-429 shape)
  *   3. 429 auto-recovery — a limited exit loses the session, next request
  *      rides a different exit
  *

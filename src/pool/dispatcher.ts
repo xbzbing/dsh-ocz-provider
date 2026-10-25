@@ -37,11 +37,10 @@ export interface UndiciSeam {
   getGlobalDispatcher(): Dispatcher
   /**
    * The module's own fetch (honors THIS module's global-dispatcher state).
-   * Live-observed 2026-09-09 (docs/ip-pool.md R2): Node's built-in fetch
-   * reads a SEPARATE built-in undici instance's dispatcher slot —
-   * setGlobalDispatcher on the npm module never reaches it, and the OpenAI
-   * SDK inside pi-ai captures globalThis.fetch at call time, so without
-   * this swap the pool's routing silently never applies to model traffic.
+   * Node's built-in fetch reads a SEPARATE built-in undici instance's
+   * dispatcher slot, which npm undici's setGlobalDispatcher never reaches, and
+   * the OpenAI SDK inside pi-ai captures globalThis.fetch at call time — so
+   * without this swap the pool's routing never applies to model traffic.
    * Typed loosely on purpose: npm undici's Request/Response element types
    * never structurally match Node's built-ins across versions.
    */
@@ -54,11 +53,10 @@ export interface RoutingContext {
   /** Inbound session id (stickiness key, 3.3). */
   session?: string
   /**
-   * Session id the usage ledger files this response under (live request
-   * 2026-10-14: 按会话/项目记录流量). Separate from {@link session}: that one is
-   * the routing stickiness key, while this one prefers the HOST's session id
-   * (the adapter's own digest id is a fallback), which is the id the workspace
-   * registry can resolve back to a project.
+   * Session id the usage ledger files this response under. Separate from
+   * {@link session}: that one is the routing stickiness key, while this one
+   * prefers the HOST's session id (the adapter's own digest id is a fallback),
+   * which is the id the workspace registry can resolve back to a project.
    */
   usageSession?: string
   /** Readable label for that session (its first user turn, truncated). */
@@ -94,7 +92,7 @@ export interface PoolRoutingOptions {
   sentinelMs?: number
   /** Sentinel window (b): tunnel established -> response headers. The tunnel
    *  standing proves exit liveness; the rest of the wait is the LLM upstream
-   *  composing the first token (measured 1.7-2.7s live), so this window is
+   *  composing the first token (1.7-2.7s measured), so this window is
    *  far looser than (a). Default 10s, test-injectable. */
   headersMs?: number
   /**
@@ -102,19 +100,19 @@ export interface PoolRoutingOptions {
    * no proxy agent for one) still egress from this machine?
    *
    * Default FALSE — fail closed, because the whole point of an exit pool is
-   * that the operator's own IP does not reach the upstream (the live case:
-   * the free lane 403s the CN egress this machine sits behind). The settings
-   * switch `localFallback` opts back into the older fail-open behaviour.
-   * An EXPLICIT 固定本机 pin is honoured either way: that is the operator
-   * asking for local egress, not the pool falling back to it.
+   * that the operator's own IP does not reach the upstream (the free lane
+   * 403s this machine's CN egress). The settings switch
+   * `localFallback` opts into fail-open instead. An EXPLICIT 固定本机 pin is
+   * honoured either way: that is the operator asking for local egress, not the
+   * pool falling back to it.
    */
   localFallback?: boolean
   /**
-   * 本机出口协议族 (live request 2026-10-18): which family the LOCAL egress
-   * agent dials with. `auto` (default) prefers IPv6 when this machine has a
-   * routable one — the free lane refuses this host's IPv4 and accepts its
-   * IPv6, and the official client reaches the AAAA records — while `ipv4` /
-   * `ipv6` pin the family outright. See local-family.ts for the measurements.
+   * 本机出口协议族: which family the LOCAL egress agent dials with.
+   * `auto` (default) prefers IPv6 when this machine has a routable one — the
+   * free lane refuses this host's IPv4 and accepts its IPv6, and the official
+   * client reaches the AAAA records — while `ipv4` / `ipv6` pin the family
+   * outright. See local-family.ts for the measurements.
    */
   localIpFamily?: LocalIpFamily
   /**
@@ -125,8 +123,8 @@ export interface PoolRoutingOptions {
   listInterfaces?: InterfaceReader
   /**
    * Judge one transport cut (pool/transport.ts). The runtime wires it so both
-   * routing seams share one policy; a caller that leaves it unset keeps the old
-   * "a cut is a strike" behaviour.
+   * routing seams share one policy; a caller that leaves it unset treats a cut
+   * as a strike.
    */
   onTransportCut?: (exitId: string) => void
   /** Log sink for routing decisions (diagnostics). */
@@ -148,26 +146,19 @@ const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
  *
  * Host matching alone is too coarse to mean "our traffic": one opencode.ai
  * serves the free lane this plugin's adapter calls, the paid/go lane (driven
- * by the separate `opencode-go` provider) and the usage-billing plugin's
- * usage poll. Live 2026-10-13 with host-only routing: 77 `POST
- * /zen/go/v1/chat/completions` in 6.3 minutes (≈12/min) were proxied through
- * the airport exits and counted as requests with zero tokens (tokens are
- * attributed only for traffic that flows through our adapter), so "I stopped
- * using oc2dsh models" and "the request count keeps climbing" were both
- * true — and paid-lane traffic was egressing through free airport exits by
- * accident.
+ * by the separate `opencode-go` provider) and the usage-billing plugin's usage
+ * poll — with host-only routing, foreign lane traffic rides the airport exits
+ * and lands in this pool's request counters as zero-token requests.
  *
- * The lane moved on 2026-10-14: the adapter now calls
- * `https://opencode.ai/inference/v1` (adapter/catalog.ts `ZEN_BASE_URL`) and
- * the go lane sits at `/inference/go/v1`, so the default follows the adapter —
- * `/inference/v1` does not take `/inference/go/v1` (segment-aware match
- * below), which keeps the isolation this constant exists for. An operator whose
- * profile still stores the old `/zen/v1` keeps their explicit value; the
- * settings card shows it, and `/inference/v1` must be added there for the pool
- * to carry the lane again.
+ * The default follows the adapter's `https://opencode.ai/inference/v1`
+ * (adapter/catalog.ts `ZEN_BASE_URL`), and the segment-aware match below keeps
+ * `/inference/v1` from taking `/inference/go/v1` — that isolation is what this
+ * constant exists for. An operator whose profile still stores `/zen/v1` keeps
+ * that explicit value and must add `/inference/v1` for the pool to carry the
+ * lane again.
  *
- * Empty means "every path on the proxied hosts" (the old behaviour), which
- * stays reachable for anyone who wants the pool to carry the whole host.
+ * Empty means "every path on the proxied hosts", which stays reachable for
+ * anyone who wants the pool to carry the whole host.
  */
 export const DEFAULT_PROXY_PATH_PREFIXES = ['/inference/v1']
 
@@ -176,7 +167,7 @@ export const DEFAULT_PROXY_PATH_PREFIXES = ['/inference/v1']
  * Same empty-equals-absent rule as {@link resolveProxyHosts}, and for the
  * same reason: the settings schema hands the runtime `[]` when the user never
  * touched the field, and an empty list read literally would exclude every
- * path — the mirror image of the empty-host-list bug below.
+ * path — the mirror image of the empty-host-list rule below.
  */
 export function resolveProxyPathPrefixes(prefixes?: readonly string[] | null): string[] {
   const normalized = (prefixes ?? [])
@@ -226,13 +217,11 @@ export function dispatchRequestPath(options: Dispatcher.DispatchOptions): string
 /**
  * The effective proxied-host set: an absent OR EMPTY list means the default.
  *
- * Empty must fall back exactly like absent. Live-observed 2026-10-13: the
- * settings layer hands the runtime `proxyHosts: []` (that schema's own
- * default), and the old `?? DEFAULT_PROXY_HOSTS` guard waved it straight
- * through as an EMPTY host set — so every model call took the direct branch
- * while the settings card kept displaying `opencode.ai` (its display
- * fallback), i.e. the pool reported itself enabled and healthy and silently
- * routed nothing.
+ * Empty must fall back exactly like absent: the settings layer hands the
+ * runtime `proxyHosts: []` (that schema's own default), and an empty host set
+ * read literally sends every model call down the direct branch while the
+ * settings card keeps displaying its `opencode.ai` fallback — the pool would
+ * report itself enabled and healthy and silently route nothing.
  */
 export function resolveProxyHosts(hosts?: readonly string[] | null): string[] {
   const normalized = (hosts ?? [])
@@ -294,7 +283,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /**
    * Who judges a transport cut. Wired by the runtime to pool/transport.ts,
    * which can tell a mislabelled listener from a dead line; unset means "a cut
-   * is a strike", which is what every caller did before 2026-10-25.
+   * is a strike".
    */
   #onTransportCut?: (exitId: string) => void
   #logger?: { warn(message: string): void }
@@ -324,9 +313,8 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     // Window (b) must stay looser than the ADAPTER's own first-event budget,
     // not just looser than window (a): the adapter tolerates a slow first
     // token up to its configured first-event window (~30s), so a tighter
-    // dispatcher deadline retires exits for turns the adapter would happily
-    // have waited out. Measured on a live profile: exits that answer Zen in
-    // 1.3-2.0s via curl were all struck dead by this path.
+    // dispatcher deadline would retire exits that answer Zen in 1.3-2.0s —
+    // turns the adapter would happily have waited out.
     this.#headersMs = options.headersMs ?? 30_000
     // Fail closed unless the caller opts in: a pool exists to keep this
     // machine's IP off the wire, so "no exit" must not silently mean "this
@@ -411,10 +399,8 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
    *
    * An EMPTY path means the caller never exposed one (a raw dispatch, a future
    * undici shape): that counts as IN scope. Guessing "out" there would
-   * silently disable routing — the failure class this file has already been
-   * bitten by twice (empty host list, deferred dispatcher) — while guessing
-   * "in" at worst sends one extra request through an exit on a host the user
-   * explicitly opted into.
+   * silently disable routing, while guessing "in" at worst sends one extra
+   * request through an exit on a host the user explicitly opted into.
    */
   #inScope(path: string): boolean {
     if (path === '') return true
@@ -514,10 +500,9 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     }
     if (!this.#proxyHosts.has(host)) {
       // Outside the pool by configuration. Model traffic still reaches this
-      // branch when the host list does not cover the API host (the empty
-      // list bug, live 2026-10-13), so stamp the 本机 bucket: the adapter
-      // then attributes that response's tokens to "egressed locally"
-      // instead of dropping them into an invisible void.
+      // branch when the host list does not cover the API host, so stamp the
+      // 本机 bucket: the adapter then attributes that response's tokens to
+      // "egressed locally" instead of dropping them into an invisible void.
       const context = routingContext.getStore()
       if (context !== undefined) context.exitId = LOCAL_EXIT_ID
       return this.#direct.dispatch(options, handler)
@@ -525,7 +510,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     if (!this.#inScope(dispatchRequestPath(options))) {
       // Right host, wrong lane: /inference/go/* (the separate opencode-go
       // provider and its usage poll) shares this host with our own
-      // /inference/v1 traffic, and host-only routing used to drag all of it
+      // /inference/v1 traffic, and host-only routing would drag all of it
       // through the airport exits and into the request counters. Deliberately
       // NOT stamped as 本机 — this traffic is not ours to account — and not a
       // blind spot either: were a path change to exclude OUR calls, the
@@ -564,23 +549,22 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
    * quota on. Body bytes stream through untouched; only the response start
    * line and terminal transport errors are read.
    *
-   * Forwarding discipline (measured against undici 8.10 on this host): the
-   * fetch handler's methods live on a prototype with private state, so a
-   * spread would strip them and Object.create delegation would re-enter
-   * them with the wrong `this`. The wrapper is a fresh plain object that
-   * forwards every DispatchHandler callback to the original with the
-   * original as `this` — the same shape undici's own wrappers use.
+   * Forwarding discipline (measured against undici 8.10): the fetch handler's
+   * methods live on a prototype with private state, so a spread would strip
+   * them and Object.create delegation would re-enter them with the wrong
+   * `this`. The wrapper is a fresh plain object that forwards every
+   * DispatchHandler callback to the original with the original as `this` —
+   * the same shape undici's own wrappers use.
    *
    * Response-silence sentinel: undici's Pool fires NONE of the handler
    * callbacks (not even onResponseError) when a proxy CONNECT fails at the
    * connection stage — the failure surfaces only as a fetch rejection (and
    * an APIConnectionError/"Connection error." upstream). Without a fallback
-   * the passive signal is blind exactly when a dead exit needs to be evicted
-   * (live repro: 10.255.255.1:9999 blackhole, seen:[] callbacks). So the
-   * wrapper arms a timer at dispatch time; any handler callback disarms it,
-   * and silence past the deadline counts as a transport failure (dead strike
-   * + session reroute). The sentinel never aborts the request itself — fetch
-   * and pi-ai own their own timeouts.
+   * the passive signal is blind exactly when a dead exit needs to be evicted.
+   * So the wrapper arms a timer at dispatch time; any handler callback
+   * disarms it, and silence past the deadline counts as a transport failure
+   * (dead strike + session reroute). The sentinel never aborts the request
+   * itself — fetch and pi-ai own their own timeouts.
    */
   #observe(exitId: string, model: string, session: string, handler: Dispatcher.DispatchHandler): Dispatcher.DispatchHandler {
     const pool = this.#pool
@@ -613,50 +597,44 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       classified = true
       // The cut goes to the runtime's judge when one is wired (pool/transport.ts
       // decides between a mislabelled listener, a transient cut and a dead
-      // line); with no judge, a cut is a strike, which is the pre-2026-10-25
-      // behaviour.
+      // line); with no judge, a cut is a strike.
       if (this.#onTransportCut !== undefined) this.#onTransportCut(exitId)
       else pool.recordPassiveTransport(exitId)
       pool.rerouteSession(session)
       end()
       // A strike retires the exit (`markDeadStrike`) and `isUsable()` hides it
-      // from pick(). With the periodic probe gone (2026-10-23) liveness is
-      // judged by real requests only: it leaves through the strike threshold
-      // (free), the reserve swap (subscription), the card's 探测 action, or the
+      // from pick(). With no periodic probe, liveness is judged by real
+      // requests only: a struck row leaves through the strike threshold (free),
+      // the reserve swap (subscription), the card's 探测 action, or the
       // diagnosis above when the row was never measured (manual/pinned). Log
       // WHY: the two silence windows and a real transport error mean very
-      // different things, and without this line the three are
-      // indistinguishable after the fact — a live profile lost all 14 exits and
-      // nothing said why.
+      // different things, and without this line the three are indistinguishable
+      // after the fact.
       this.#logger?.warn(`oc2dsh: exit ${exitId} transport cut (${why})`)
-      // Live-observed (2026-09-07, muse via 7897): after the tunnel stands a
-      // dead-behind-the-tunnel exit answers NOTHING — no headers, no
-      // onResponseError — and neither fetch nor pi-ai owns a body-silence
-      // timeout, so the request hangs forever (the turn never finished; the
-      // stop button's abort never reached it). The sentinel therefore does
-      // more than bookkeeping: it tears the dispatch down BOTH ways — abort
-      // the controller when we have one, and when the blackhole path never
-      // handed us a single callback (no controller exists) synthesize the
-      // response-error the handler owes, so fetch rejects at once, pi-ai
-      // turns that into an error event, and the adapter's rotate loop gets
-      // to move the session to a live exit.
+      // After the tunnel stands, a dead-behind-the-tunnel exit answers NOTHING
+      // — no headers, no onResponseError — and neither fetch nor pi-ai owns a
+      // body-silence timeout, so the request hangs forever. The sentinel
+      // therefore does more than bookkeeping: it tears the dispatch down BOTH
+      // ways — abort the controller when we have one, and when the blackhole
+      // path never handed us a single callback (no controller exists)
+      // synthesize the response-error the handler owes, so fetch rejects at
+      // once, pi-ai turns that into an error event, and the adapter's rotate
+      // loop gets to move the session to a live exit.
       const reason = new Error('oc2dsh: exit response silence')
       if (typeof handler.onResponseError === 'function') {
         ;(handler.onResponseError as (c: unknown, e: Error) => void).call(handler, liveController ?? ({} as never), reason)
       }
       liveController?.abort?.(reason)
     }
-    // Silence deadline, in two windows: (a) dispatch -> first callback (dead
-    // CONNECT fires NONE, undici 8.10 measured); (b) tunnel established ->
-    // response headers (onRequestStart disarms window (a) only). Window (b)
-    // must be MUCH looser than (a): the tunnel standing proves the exit is
-    // alive, and the remaining wait is the LLM upstream composing the first
-    // token — measured live 2026-09-09 (mihomo 7897 -> SJ exit -> zen):
-    // headers landed 1.7-2.7s after onRequestStart, so a 2s window (b) kills
-    // healthy streams (live repro: status 200 with TTFB 2.66s struck dead
-    // at 2s). Body pacing stays uncovered (a live stream disarms at
-    // onResponseStart); (a) keeps sitting under the host's 1-5s retry
-    // cadence and the coarse-screen latency gate (3s).
+    // Silence deadline, in two windows: (a) dispatch -> first callback (a dead
+    // CONNECT fires NONE of the handler callbacks, undici 8.10 measured); (b)
+    // tunnel established -> response headers (onRequestStart disarms window
+    // (a) only). Window (b) must be MUCH looser than (a): the tunnel standing
+    // proves the exit is alive, and the remaining wait is the LLM upstream
+    // composing the first token (1.7-2.7s measured), so a 2s window (b) kills
+    // healthy streams. Body pacing stays uncovered (a live stream disarms at
+    // onResponseStart); (a) keeps sitting under the host's 1-5s retry cadence
+    // and the coarse-screen latency gate (3s).
     const armSentinel = (): void => {
       clearTimeout(sentinel)
       const window = sawRequestStart ? this.#headersMs : this.#sentinelMs

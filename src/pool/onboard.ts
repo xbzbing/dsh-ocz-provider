@@ -1,29 +1,24 @@
 /**
- * Pool onboarding — which exits actually go online (live request 2026-10-13;
- * pipeline revised 2026-10-24).
+ * Pool onboarding — which exits actually go online (docs/ip-pool.md §4.7).
  *
- * The problem this answers: a 44-node airport used to convert into 44 local
- * SOCKS listeners and put every one of them in the pool. The operator wants a
- * bounded pool ("池子默认 20 个") and, more to the point, does not want the
- * plugin opening dozens of local connections. So the pipeline is:
+ * The pipeline is bounded so a subscription never turns into dozens of local
+ * listeners and a pool of `poolSize`:
  *
  *   1. SPEED — measure every converted candidate through its own tunnel
  *      (latency + exit IP + geo, the documented coarse screen). This is the
  *      only measurement that can rank these nodes at all: the airport fronts
  *      many distinct nodes on ONE edge host:port and separates them by TLS
  *      SNI, so every candidate answers a bare TCP handshake identically.
- *      Per operator decision 2026-10-24 (添加订阅后，不对 OpenCode 进行任何
- *      主动探测，只显示测速的延迟) this speed pass is the ONLY probe the
- *      subscription flow runs — the previous step-4 OpenCode connectivity
- *      test (models list + 1-token smoke) is gone, and so is the smoke that
- *      used to run on every reserve promotion. Whatever OpenCode thinks of an
- *      exit's IP is answered passively by real traffic (pool.recordPassive /
- *      recordPassiveTransport at the routing layer — the standing 2026-10-23
- *      liveness model), never by an active request from this flow.
+ *      This speed pass is the ONLY probe the subscription flow runs — no
+ *      step-4 OpenCode test (models list + 1-token smoke), and none on
+ *      reserve promotion. Whatever OpenCode thinks of an exit's IP is answered
+ *      passively by real traffic (pool.recordPassive /
+ *      recordPassiveTransport at the routing layer, docs §4.3), never by an
+ *      active request from this flow.
  *   2. SELECT — keep the fastest `pool.poolSize`, in speed order.
  *   3. SHRINK — re-run the conversion with only those slots, which is what
- *      actually caps the local listeners (44 inbounds -> 20). The ports are
- *      slot-stable, so nothing that stays selected is repointed.
+ *      actually caps the local listeners. The ports are slot-stable, so
+ *      nothing that stays selected is repointed.
  *   4. ADMIT — put the selection in the pool from its speed facts: measured
  *      rows claim `ok` with the speed-test latency/grade they displayed,
  *      unmeasured ones (blocked echo endpoint) are kept at the tail
@@ -35,7 +30,7 @@
  *      anything. With the reserve exhausted the refused exit is KEPT but
  *      demoted to the tail, so the pool holds its size instead of draining
  *      to nothing (docs §4.5's "never evict a paid line over one probe
- *      failure", now with a rank instead of an implicit first-place tie).
+ *      failure").
  *
  * What still probes OpenCode: the settings card's 探测/批量探活 actions and
  * the free-source refill — explicit user actions or a different source class,
@@ -187,12 +182,12 @@ export class Onboarder {
     }
     /**
      * Nothing answered the speed pass at all — a blocked echo endpoint (the
-     * documented dedicated-line case) or a transient outage, not 44 dead nodes.
-     * Draining a paid subscription to zero over a MEASUREMENT failure is the
-     * failure class this pool has been bitten by before, so fall back to
-     * unranked candidates in subscription order: they are parked unverified at
-     * the tail (docs §4.5), never dropped, and real traffic is what will ever
-     * prove them — this flow probes nothing.
+     * documented dedicated-line case) or a transient outage, not dead nodes.
+     * Draining a paid subscription to zero over a MEASUREMENT failure is
+     * never acceptable, so fall back to unranked candidates in subscription
+     * order: they are parked unverified at the tail (docs §4.5), never
+     * dropped, and real traffic is what will ever prove them — this flow
+     * probes nothing.
      */
     let ranked = measured
     if (ranked.length === 0 && exits.length > 0) {
@@ -225,9 +220,9 @@ export class Onboarder {
     }
 
     // 4. Admit the selection straight from its speed facts — no probe of any
-    //    kind: the subscription flow never asks OpenCode anything (operator
-    //    decision 2026-10-24). An unmeasured candidate (the blocked-echo
-    //    fallback above) is parked unverified at the tail instead.
+    //    kind: the subscription flow never asks OpenCode anything (docs §4.5).
+    //    An unmeasured candidate (the blocked-echo fallback above) is parked
+    //    unverified at the tail instead.
     for (const candidate of selected) {
       if (candidate.facts === null) {
         // Unmeasured (blocked echo endpoint): parked unverified at the tail —
@@ -255,9 +250,7 @@ export class Onboarder {
    * node list retires ports while the pool keeps the old addresses. Dialling a
    * retired port fails at CONNECT ("Connection error."), which the pool reads
    * as an exit-shaped failure: it rotates, strikes the exit dead, re-admits it
-   * as an unverified trusted line, and does it all again. Live 2026-10-19: one
-   * retired port absorbed 48 consecutive connect failures and a pin on it made
-   * every request fail for as long as the operator kept it pinned.
+   * as an unverified trusted line, and does it all again (docs §3.2).
    *
    * Only addresses THIS onboarder produced are considered, so a manual proxy a
    * human added by hand is never touched. remove() also clears a pin that
@@ -283,10 +276,8 @@ export class Onboarder {
    * Converge a live pool to a LOWERED capacity: drop the worst unpinned exits
    * down to `pool.poolSize` and rebuild the config with only the survivors, so
    * their listeners close with them. Without this, lowering `poolSize` from the
-   * settings card only bound the NEXT onboarding — the pool kept serving its old
-   * size and kept the extra ports open (the same "capacity that lies" failure as
-   * an orphaned listener, just in the other direction; live 2026-10-14: 16 exits
-   * against a freshly-set capacity of 10).
+   * settings card only binds the NEXT onboarding — the pool keeps serving its
+   * old size and keeps the extra ports open (docs §4.7 容量下调要收敛).
    *
    * Returns how many exits were dropped. No-op for a pool at or under capacity,
    * and for a pool this onboarder does not own (no candidate list ⇒ nothing to
@@ -362,9 +353,9 @@ export class Onboarder {
 
   /**
    * Swap a refused exit for the next reserve — from the reserve's CACHED speed
-   * facts, never with a probe (operator decision 2026-10-24: the subscription
-   * flow asks OpenCode nothing; a reserve was already speed-tested at
-   * onboarding, and OpenCode's opinion of an exit IP comes from real traffic).
+   * facts, never with a probe (docs §4.5: the subscription flow asks OpenCode
+   * nothing; a reserve was already speed-tested at onboarding, and OpenCode's
+   * opinion of an exit IP comes from real traffic).
    *
    * A promotion therefore always lands on the first candidate — only the
    * sing-box rebuild can fail it. When the reserve is exhausted the refused
@@ -379,11 +370,10 @@ export class Onboarder {
       this.#deps.logger?.warn(`oc2dsh: exit ${refused.address} refused upstream and no reserve is left; kept at the pool tail`)
       return
     }
-    // Build the NEXT selection and hand exactly that to the rebuild. Passing
-    // `selected + next` before the swap (the pre-2026-10-14 shape) left the
-    // refused slot in the config: the pool dropped the exit while sing-box
-    // kept listening on its port — measured live as 21 local listeners for 16
-    // pool exits, i.e. five orphaned ports.
+    // Build the NEXT selection and hand exactly that to the rebuild: the
+    // refused slot must be REMOVED before the reserve is added, or the pool
+    // drops the exit while sing-box keeps listening on its port — one local
+    // listener more than the pool has exits (docs §4.7 端口与选择集).
     const nextSelection = new Set(this.#selected)
     nextSelection.delete(refused.slot)
     nextSelection.add(next.slot)
@@ -415,13 +405,13 @@ export class Onboarder {
 
   /**
    * Admit one speed-measured candidate: the row carries the speed test's
-   * latency/grade (the ONLY measurement the subscription flow takes — operator
-   * decision 2026-10-24), and `markOk` claims exactly what the speed pass
-   * proved: this tunnel carries HTTP with a known exit IP. What OpenCode
-   * thinks of that IP is left entirely to passive verdicts from real traffic
-   * (recordPassive / recordPassiveTransport), which is the standing liveness
-   * model since 2026-10-23. Called only for rows NOT yet in the table (the
-   * `fresh` slice), so it never clears an existing row's bench or bans.
+   * latency/grade (the ONLY measurement the subscription flow takes, docs
+   * §4.5), and `markOk` claims exactly what the speed pass proved: this tunnel
+   * carries HTTP with a known exit IP. What OpenCode thinks of that IP is left
+   * entirely to passive verdicts from real traffic (recordPassive /
+   * recordPassiveTransport), the standing liveness model (docs §4.3). Called
+   * only for rows NOT yet in the table (the `fresh` slice), so it never clears
+   * an existing row's bench or bans.
    */
   #admit(candidate: Candidate): void {
     const { pool } = this.#deps

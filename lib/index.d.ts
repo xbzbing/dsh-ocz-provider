@@ -60,29 +60,21 @@ type UsageScopeSetting = 'total' | 'run';
 //#endregion
 //#region src/model-context.d.ts
 /**
- * Per-model context-window overrides for the Zen lane (settings → 模型上下文).
- *
- * The Zen catalog and models.dev do not always agree with what the endpoint
- * actually serves: models.dev declares `limit.context: 200000` for ids whose
- * card (and live behaviour) is 1M — `mimo-v2.6-flash-free` is the original
- * case, covered by a built-in override in adapter/catalog.ts. This module is
- * the operator-facing knob for every other id: `model-id = <tokens>`.
- *
- * Like request-headers.ts this file is SHARED by the Host and the browser
- * halves, so it must stay dependency-free (no node imports). Validation lives
- * at both boundaries instead of the schema (AGENTS.md: a callback-bearing
- * `Config` node breaks the settings form round trip):
- *   - the editor calls {@link normalizeModelContextWindows} (strict: a bad
- *     draft is refused with a message);
- *   - every catalog read calls {@link sanitizeModelContextWindows} (lenient: a
- *     hand-edited profile patch cannot inject an invalid window, and a bad
- *     entry never breaks a request or a model lookup).
+ * Per-model context-window overrides for the Zen lane (settings → 模型上下文),
+ * one `model-id = <tokens>` entry per id whose models.dev `limit.context`
+ * understates what the endpoint serves (the mimo case is covered by a built-in
+ * override in adapter/catalog.ts). Like request-headers.ts this file is SHARED
+ * by the Host and the browser halves, so it must stay dependency-free (no node
+ * imports); validation lives at both boundaries instead of the schema (a
+ * callback-bearing `Config` node breaks the settings round trip): the editor
+ * calls {@link normalizeModelContextWindows} (strict), and every catalog read
+ * calls {@link sanitizeModelContextWindows} (lenient — a hand-edited profile
+ * patch can neither arm an invalid window nor fail a model lookup).
  */
 /** Model id -> context window in tokens. */
 type ModelContextWindows = Record<string, number>;
 //#endregion
 //#region src/relay/supervisor.d.ts
-
 /** Config the supervisor reads (subset of the plugin's `relay` node). */
 interface RelayConfig {
   enabled?: boolean;
@@ -115,9 +107,9 @@ interface RelaySupervisorOptions {
   /** Restart backoff ceiling (attempts beyond this give up for this process). */
   maxRestarts?: number;
   /**
-   * Continuous uptime after which the restart budget is given back. A crash
-   * loop still exhausts it; isolated crashes spread over hours no longer add
-   * up to a permanent "gave up, requests go direct" state.
+   * Continuous uptime after which the restart budget is given back: the budget
+   * bounds a crash loop, not a process lifetime, and a child that dies before
+   * the window keeps its strikes.
    */
   healthyResetMs?: number;
 }
@@ -161,15 +153,9 @@ declare class RelaySupervisor {
   status(): RelayStatus;
   /**
    * Fire-and-forget warm-up for the paths that precede traffic (the host's
-   * registration-time model list, and every prepareCall).
-   *
-   * `apply()` deliberately does NOT do this at load time: a plugin that forks a
-   * process merely by being loaded is rude to hosts that never use this
-   * provider, and it broke a real harness — a test process with mocked clocks
-   * that only wants to exercise the adapter had a live bun child inside it and
-   * misread the result (live 2026-10-25, test/watchdog-config.test.ts). Warming
-   * on the two calls the host makes right before a turn costs nothing and keeps
-   * the first request off the direct (429) path in practice.
+   * registration-time model list, and every prepareCall). `apply()` does not do
+   * this at load time: loading the plugin must not fork a process for a host
+   * that never uses this provider.
    */
   warm(): void;
   /**
@@ -238,14 +224,14 @@ interface Opencode2dshConfig {
   /**
    * The User-Agent sent on every Zen request (adapter mode): chat, the model
    * catalog refresh and the pool's admission probes. Empty = the built-in
-   * current-client shape (`opencode/latest/2.1.3/<client>`, where `<client>`
+   * current-client shape (`opencode/latest/2.1.4/<client>`, where `<client>`
    * mirrors the effective `x-opencode-client`).
    *
    * The anonymous lane accepts a FINGERPRINT, not one string: this header
    * travels with the session/project/request id shapes and the tool
    * definitions, and mixing two generations answers 403. Change it only to a
    * UA whose generation you can keep coherent (adapter/ids.ts
-   * `disguiseHeaders` holds the live-probed recipes).
+   * `disguiseHeaders` holds the probe recipes).
    */
   userAgent?: string;
   /** Live Zen-only header overrides. Override userAgent when User-Agent is present. */
@@ -259,22 +245,16 @@ interface Opencode2dshConfig {
   modelContextWindows?: ModelContextWindows;
   /**
    * The Bun upstream relay (src/relay/): the process that makes this plugin's
-   * requests leave on the official client's connection stack.
-   *
-   * WHY IT IS NOT OPTIONAL IN PRACTICE (live 2026-10-25): the free lane gates on
-   * the client's TLS/HTTP fingerprint. A byte-identical official request is
-   * answered 429 by Node h1/h2, curl, Python and Go from every egress, and 200
-   * when the same bytes leave through Bun (relay/supervisor.ts records the
-   * matrix). Payload fixes cannot reach that layer, so the adapter addresses
-   * its requests at a loopback relay that re-originates them with bun's own
-   * fetch. `enabled: false` restores the pre-fix behaviour exactly (direct
-   * Node requests, 429 on the free lane) — useful for probing, not for use.
+   * requests leave on the official client's connection stack, which the free
+   * lane gates on — a payload edit cannot reach that layer. Started lazily by
+   * `listModels`/`prepareCall`/the catalog refresh; `enabled: false` sends
+   * direct (the lane answers 429), which is what a probe wants.
    */
   relay?: RelayConfig;
   /**
-   * IP-pool exit routing (docs/ip-pool.md). Everything below is pure plugin
-   * config; the settings page (IP-6) will own these live, this object is
-   * the cordis.patch.yml seam.
+   * IP-pool exit routing (docs/ip-pool.md). Everything below is plain plugin
+   * config; the settings page owns these live through the volatile `ipPool`
+   * node, and this object is the cordis.patch.yml seam.
    */
   ipPool?: IpPoolConfig;
 }
@@ -326,9 +306,9 @@ interface IpPoolConfig {
   maxConcurrentProbes?: number;
   /**
    * Whole-pool capacity: how many exits stay online at once, any source
-   * (default 20). The onboarding speed-tests candidates, keeps the fastest
-   * `poolSize` and shrinks the sing-box config to them, so it also bounds the
-   * number of local SOCKS listeners.
+   * (settings schema default 10). The onboarding speed-tests candidates, keeps
+   * the fastest `poolSize` and shrinks the sing-box config to them, so it also
+   * bounds the number of local SOCKS listeners.
    */
   poolSize?: number;
   /** sing-box conversion core for encrypted nodes (docs 1.2.2, IP-4). */
@@ -711,12 +691,10 @@ interface ProviderTarget {
 }
 declare function providerBaseURL(port: number): string;
 /**
- * Minimal settings/credentials seam so tests can run against fakes.
- *
- * `mutate` is optional because DSH 0.1.7's `SettingsForms` always has it while
- * a reduced composition (and the sidecar's degraded fallback) may not; every
- * caller checks before writing rather than throwing on a missing writer.
- * The read face is `describe()` on 0.1.7, with 0.1.1's `get(ns)` tolerated.
+ * Minimal settings/credentials seam so tests can run against fakes. `mutate`
+ * is optional (a reduced composition, and the sidecar's degraded fallback, may
+ * lack it), so every caller checks before writing; the read face is
+ * `describe()` on 0.1.7, with 0.1.1's `get(ns)` tolerated.
  */
 interface DshSeams {
   credentials: {
@@ -753,19 +731,16 @@ declare function registerProvider(seams: DshSeams, target: ProviderTarget, token
 //#endregion
 //#region src/index.d.ts
 /**
- * oc2dsh DSH cordis plugin entry.
- *
- * Two modes (config.mode, default `adapter`):
+ * oc2dsh DSH cordis plugin entry. Two modes (config.mode, default `adapter`):
  *  - adapter: register a DSH LlmAdapter streaming directly from the Zen
  *    anonymous lane (marketplace shape: no child process, no binary).
- *  - sidecar (legacy/dev): prepare data dir + token + agent-config.json,
+ *  - sidecar (not bundled): prepare data dir + token + agent-config.json,
  *    spawn the Go agent, wait for READY, register the llm-pi-ai provider
  *    route, schedule model refresh.
  *
- * Settings: the editable surface is the `ipPool` field of {@link Config},
- * marked volatile. DSH 0.1.7 serves it under this entry's Loader id and
- * commits saves into the same reference, announcing them with
- * `loader/volatile-update`; there is no `ctx.settings.register()`.
+ * Settings: the editable surface is exported as `Config` (`ipPool` volatile,
+ * plus the `requestHeaders` / `modelContextWindows` dictionaries), served
+ * under this entry's Loader id; there is no `ctx.settings.register()`.
  *
  * dispose(): stop timers/catalog, terminate the agent tree (sidecar mode).
  * The cordis fiber disposal guarantees this runs on plugin reload/unload and
@@ -783,12 +758,6 @@ interface PluginContext {
   credentials?: {
     set(ref: string, value: string): Promise<void>;
   };
-  /**
-   * DSH 0.1.7 `SettingsForms` (dsh-settings). Read face for the sidecar's
-   * namespace writes; `configure` is how a plugin claims its own settings
-   * page instead of letting the domain auto-generate one. The 0.1.1
-   * `register()/watch()` scope seam is gone and deliberately not re-declared.
-   */
   /**
    * The host's workspace registry (`@deepseek-ai/dsh-workspace`), requested on
    * demand: it is the authority on which project a session belongs to, and the
@@ -819,6 +788,12 @@ interface PluginContext {
       } | undefined;
     }>>;
   };
+  /**
+   * DSH 0.1.7 `SettingsForms` (dsh-settings). Read face for the sidecar's
+   * namespace writes; `configure` is how a plugin claims its own settings
+   * page instead of letting the domain auto-generate one. The 0.1.1
+   * `register()/watch()` scope seam is gone and deliberately not re-declared.
+   */
   settings?: {
     describe?(options?: {
       redactSecrets?: boolean;
@@ -851,11 +826,11 @@ declare const name = "oc2dsh";
  * Only `llm` gates this fiber, because adapter mode (the shipped default) uses
  * nothing else: the Zen lane's credential is the literal `'public'`, and the
  * ip-pool settings ride the `Config` volatile reference. DSH 0.1.7 composes
- * `ctx.settings` as `SettingsForms`, which itself injects
+ * `ctx.settings` as `SettingsForms`, which injects
  * `['configEditor', 'profileContext']` and ships disabled wherever no
- * `profileContext` exists (headless/CLI) — demanding it here kept the whole
- * fiber from ever activating, and with it the provider route. Sidecar mode and
- * the `configure({ auto: false })` page claim ask for the extra seams through
+ * `profileContext` exists (headless/CLI) — demanding it here would keep the
+ * fiber (and the provider route) from activating. Sidecar mode and the
+ * `configure({ auto: false })` page claim ask for the extra seams through
  * `ctx.inject` instead.
  */
 declare const inject: readonly ["llm"];

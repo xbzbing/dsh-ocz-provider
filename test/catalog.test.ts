@@ -32,8 +32,7 @@ test('decide gives ready metadata verdicts priority over the name', () => {
     source: 'name_free',
     known: false,
   })
-  // ready, known, and paid: a "free" name no longer resurrects it (the
-  // deepseek-v4-flash-free regression)
+  // ready, known, and paid: a "free" name does not resurrect it
   assert.deepEqual(decide('x-free', new Map([['x-free', price(1, 1)]]), true), {
     allowed: false,
     source: 'metadata_paid',
@@ -103,7 +102,7 @@ test('decodeModelsDev extracts the reasoning flag and declared effort ladders', 
   const payload = {
     opencode: {
       models: {
-        // live shape (2026-09-18): effort entries carry the selectable ladder
+        // models.dev shape: effort entries carry the selectable ladder
         'muse-free': {
           cost: { input: 0, output: 0 },
           reasoning: true,
@@ -285,7 +284,7 @@ function fakeFetch(routes: Record<string, unknown>, capture: { url?: string; ini
 }
 
 const zenBody = { data: [{ id: 'qwen-free' }, { id: 'paid-model' }, { id: 'ghost-free' }, { id: 'legacy-free' }] }
-/** The pending-catalog bootstrap list: S3 minus the issue #56 blocklist. */
+/** The pending-catalog bootstrap list: staticFreeModels minus FREE_LANE_BLOCKLIST. */
 const bootstrapList = staticFreeModels.filter((id) => !FREE_LANE_BLOCKLIST.has(id))
 const metadataBody = {
   opencode: {
@@ -341,7 +340,7 @@ test('ModelCatalog intersects the live catalog with free decisions', async () =>
   try {
     await catalog.refreshOnce()
     // ghost-free (paid metadata) and legacy-free (deprecated metadata) are both
-    // filtered out; the cataloged-but-deprecated id no longer leaks through
+    // filtered out; the cataloged-but-deprecated id must not leak through
     assert.deepEqual(catalog.list(), ['qwen-free'], 'paid and deprecated models are filtered out')
     assert.equal(catalog.decision('paid-model').allowed, false)
     assert.equal(catalog.decision('legacy-free').source, 'metadata_deprecated')
@@ -447,8 +446,8 @@ test('warm() is bounded: a dead network answers with the static list, a slow one
 })
 
 test('S3 vouch survives a stale deprecated flag but not a paid verdict', async () => {
-  // hy3-free regression: models.dev flags it deprecated while it still works
-  // upstream — a compile-time verified id keeps its vouch until delisted.
+  // models.dev's deprecation flag can be stale (the model still works
+  // upstream) — a compile-time verified id keeps its vouch until delisted.
   const deprecatedFlagged = new ModelCatalog({
     fetchImpl: fakeFetch({
       'https://opencode.ai/inference/v1/models': { data: [{ id: 'mimo-v2.5-free' }] },
@@ -570,8 +569,8 @@ test('stale-while-revalidate: a fresh disk cache serves capability reads while t
   }
   await writeFile(cachePath, JSON.stringify(cacheBody), 'utf8')
 
-  // the online fetch takes 23s (live-observed): far beyond warm()'s window.
-  // The gate never releases within the test, exactly like the slow fetch.
+  // the online fetch can far outlast warm()'s window (23s measured): the gate
+  // never releases within the test, exactly like that slow fetch.
   let releaseFetch: (() => void) | undefined
   const slow = new Promise<void>((resolve) => { releaseFetch = resolve })
   const fetchImpl = (async (url: string | URL) => {

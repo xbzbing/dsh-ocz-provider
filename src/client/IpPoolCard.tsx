@@ -5,10 +5,9 @@
  * pre-0.2 `plugins.item` slot lists it as an official-plugin page. Either
  * way, configuration rides the settings provider's own ConfigForm (a
  * `ConfigFormSnapshot` plus `mutate`), so dsh-llm-proxy's loopback fallback
- * compat layer is deliberately absent (docs/ip-pool.md §5, 2026-09-05
- * revision). Runtime state and probe actions ride the plugin's own bridge
- * (/status, /models, /probe). Every setting applies live on save — no
- * restart (docs/ip-pool.md §5).
+ * compat layer is deliberately absent (docs/ip-pool.md §5). Runtime state and
+ * probe actions ride the plugin's own bridge (/status, /models, /probe). Every
+ * setting applies live on save — no restart (docs/ip-pool.md §5).
  *
  * Pool edits use `['ipPool', <field>]`; Zen header overrides use the separate
  * `['requestHeaders']` volatile dictionary, and per-model context windows the
@@ -105,7 +104,7 @@ export interface IpPoolSettingsValue {
   /** Probe-content pool; empty = the Host default ('hello'). */
   probeContents: string[]
   maxConcurrentProbes: number
-  /** Whole-pool capacity: exits kept online at once (default 20). */
+  /** Whole-pool capacity: exits kept online at once (default 10). */
   poolSize: number
   manual: string[]
   subscription: { urls: string[]; refreshMs: number; userAgent: string }
@@ -145,7 +144,7 @@ export interface PoolStatusView {
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
   targetSize: number
-  /** Whole-pool capacity in force (settings `poolSize`, default 20). */
+  /** Whole-pool capacity in force (settings `poolSize`, default 10). */
   poolSize: number
   /** The pin in force. `local` marks the 本机 sentinel (no exit at all);
    *  optional so a bundle can still read a host snapshot from before the
@@ -183,7 +182,7 @@ export interface PoolStatusView {
     demoted?: boolean
     tokens: TokenTotalsView
     /** Recent (3-min window) output speed in tok/s; 0 = hidden. Optional so
-     *  an older host snapshot still parses (live request 2026-10-15). */
+     *  an older host snapshot still parses. */
     speed?: number
   }>
   prober: { queued: number; inFlight: number; enqueued: number; completed: number }
@@ -199,7 +198,7 @@ export interface PoolStatusView {
   /** Pool-wide recent (3-min window) output speed in tok/s; 0 = hidden. */
   recentSpeed?: number
   /** Today's all-in token figure (ledger day bucket): THE footer's token
-   *  figure in every variant (2026-10-18). Optional for older host snapshots. */
+   *  figure in every variant. Optional for older host snapshots. */
   todayTokens?: number
   /** 本地出口兜底 in force on the router (docs §3.3). Optional for older
    *  host snapshots. */
@@ -567,11 +566,11 @@ function ListEditor(props: {
 }
 
 /**
- * 本机出口协议族 picker (live request 2026-10-18): which IP family the LOCAL
- * egress dials with. `auto` mirrors the official client — prefer IPv6 where
- * this machine has a routable address and keep Node's happy-eyeballs fallback
- * to IPv4 — while `ipv4`/`ipv6` pin the family. The free lane refuses this
- * host's IPv4 address and accepts its IPv6 (src/pool/local-family.ts).
+ * 本机出口协议族 picker: which IP family the LOCAL egress dials with. `auto`
+ * mirrors the official client — prefer IPv6 where this machine has a routable
+ * address and keep Node's happy-eyeballs fallback to IPv4 — while `ipv4`/
+ * `ipv6` pin the family. The free lane refuses this host's IPv4 address and
+ * accepts its IPv6 (src/pool/local-family.ts).
  */
 function LocalFamilyPicker(props: {
   value: LocalIpFamilyView
@@ -710,18 +709,16 @@ function ModelPicker(props: {
 function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps['t'] }): ReactNode {
   const { status, t } = props
   if (status === null) return null
-  /* No state badge up front (live request 2026-10-18: "8/8 为什么是枯竭"):
-     the headline `state` follows the FREE-lane subset (stateBasis 'free'),
-     while the number beside it counts the WHOLE pool — a drained free lane
-     read 枯竭 next to a healthy 池可用 8/8. The counts carry the meaning now. */
+  /* No state badge up front: the headline `state` follows the FREE-lane subset
+     (stateBasis 'free') while the number beside it counts the WHOLE pool, so
+     the two can disagree — the counts carry the meaning. */
   return (
     <div className={styles.overviewBar} data-testid="ip-pool-overview">
       {status.deferredReason !== '' && (
         <Tag tone="danger">{t('deferredNotice').replace('{reason}', status.deferredReason)}</Tag>
       )}
-      {/* The headline number is the WHOLE pool's usable count (the free-source
-          subset was dropped from the copy when the page stopped configuring
-          free sources — d388ffa). */}
+      {/* The headline number is the WHOLE pool's usable count, not the
+          free-source subset. */}
       <span>{t('poolAvailable')
         .replace('{available}', String(status.availableTotal))
         .replace('{total}', String(status.total))
@@ -734,15 +731,15 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
       {status.pinned !== null && (
         <Tag tone="info">
           {/* A pin to the 本机 sentinel has no exit address to show, so the
-              badge says what it does instead (2026-10-14). */}
+              badge says what it does instead. */}
           {status.pinned.local === true ? t('pinnedBadgeLocal') : t('pinnedBadge')}
           {status.pinned.strict && status.pinned.local !== true ? ' (' + t('pinnedStrict') + ')' : ''}
         </Tag>
       )}
-      {/* The pin above stays on screen while the row is out of service, so the
-          strip has to say the requests are NOT going through it — otherwise the
-          badge reads as "your pin is carrying traffic" while the rotation is
-          quietly using another exit (live 2026-10-25). */}
+      {/* The pin badge stays on screen while the row is out of service, so the
+          strip must also say the requests are NOT going through it — without
+          the skip tag the badge reads as "your pin is carrying traffic" while
+          the rotation quietly uses another exit. */}
       {status.pinned !== null && status.pinned.local !== true && status.pinnedSkip != null && (
         <Tag tone="danger">
           {t(status.pinnedSkip === 'dead' ? 'pinnedSkipDead' : 'pinnedSkipCooling')
@@ -808,10 +805,10 @@ function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t
                 </td>
                 <td>
                   <Button variant="outline" size="sm" disabled={busy} onClick={() => onProbe(exit.id)}>{t('exitProbe')}</Button>
-                  {/* Icon actions, the same pair the stats modal carries
-                      (2026-10-14): 固定 (padlock) and 轮换 (circular arrow).
-                      The word 删除 was wrong — nothing is deleted: a reserve
-                      takes the slot, or the row sinks to the tail. */}
+                  {/* Icon actions, the same pair the stats modal carries:
+                      固定 (padlock) and 轮换 (circular arrow). Nothing is
+                      deleted: a reserve takes the slot, or the row sinks to
+                      the tail. */}
                   <span className={styles.actionGroup}>
                     {!exit.pinned && (
                       <button
@@ -1042,7 +1039,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     // Deliberately NOT gated on form.enabled: the usage ledger answers "what
     // did this machine spend", which stays true with the pool switched off
     // (every request then lands in the 本机 bucket), and the 用量统计 section
-    // below needs it either way (live request 2026-10-14).
+    // below needs it either way.
     if (snapshot?.status !== 'ready' || !hydratedRef.current) return
     void refreshStatus()
     const interval = setInterval(() => void refreshStatus(), probing ? 1_000 : 3_000)
@@ -1293,13 +1290,13 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       </div>
       <OverviewBar status={form.enabled ? status : null} t={t} />
 
-      {/* 本地出口兜底 (live request 2026-10-18): what a pool MISS means — no
-          pickable exit (empty at boot, all cooling, or an exit whose proxy
-          agent could not be built). Off (the default) fails the request,
-          which is the point of an exit pool: this machine's IP does not reach
-          the upstream. On restores the older fail-open behaviour and lights up
-          the modal's 直连兜底 row. An explicit 固定本机 pin is honoured either
-          way — that is the operator choosing this machine, not a fallback. */}
+      {/* 本地出口兜底: what a pool MISS means — no pickable exit (empty at
+          boot, all cooling, or an exit whose proxy agent could not be built).
+          Off (the default) fails the request, so this machine's IP never
+          reaches the upstream; On falls back to a direct connection and lights
+          up the modal's 直连兜底 row. An explicit 固定本机 pin is honoured
+          either way — that is the operator choosing this machine, not a
+          fallback. */}
       <div className={styles.settingRow}>
         <span className={styles.settingRowControl} data-testid="field-localFallback">
           <Switch
@@ -1315,10 +1312,10 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         </div>
       </div>
 
-      {/* 本机出口协议族 (live request 2026-10-18): the family the LOCAL egress
-          — a 固定本机 pin, or 本地出口兜底 after a pool miss — dials with.
-          'auto' is the shipped default and reproduces what the official
-          client does on this machine (IPv6 first, IPv4 as the fallback). */}
+      {/* 本机出口协议族: the family the LOCAL egress — a 固定本机 pin, or
+          本地出口兜底 after a pool miss — dials with. 'auto' is the shipped
+          default and reproduces what the official client does on this machine
+          (IPv6 first, IPv4 as the fallback). */}
       <div className={styles.settingRow}>
         <span className={styles.settingRowControl} data-testid="field-localIpFamily">
           <LocalFamilyPicker
@@ -1478,8 +1475,8 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           t={t}
           onChange={(next) => { setSaved(false); setForm({ ...form, probeModels: next }) }}
         />
-        {/* The smoke's user turn (live request 2026-10-14): a pool of
-            one-liners, one picked at random per probe; empty = 'hello'. */}
+        {/* The smoke's user turn: a pool of one-liners, one picked at random
+            per probe; empty = 'hello'. */}
         <ListEditor
           label={t('probeContents')}
           hint={t('probeContentsHint')}
@@ -1543,9 +1540,8 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       >
         <div data-testid="usage-section">
           {/* Flex-column so the scope hint wraps to its own line under the
-              control instead of flowing inline beside it (which spilled the
-              tail onto a second row). Same label-above/hint-below rhythm as
-              the other fields via .field. */}
+              control instead of flowing inline beside it; .field keeps the
+              label-above / hint-below rhythm of the other fields. */}
           <div className={styles.field}>
             <span data-testid="usage-scope">
               <SegmentedControl<UsageScopeView>

@@ -41,7 +41,7 @@ test('schema fills every default from an empty section', () => {
   assert.equal((value.singbox as Record<string, unknown>).path, 'sing-box')
   assert.equal(value.pinnedExitId, '')
   assert.equal(value.pinnedStrict, false)
-  // 本地出口兜底 ships OFF (live request 2026-10-18): a pool miss must fail,
+  // 本地出口兜底 ships OFF: a pool miss must fail,
   // not egress from this machine.
   assert.equal(value.localFallback, false, 'the local-egress fallback defaults to off')
 })
@@ -67,14 +67,12 @@ test('schema rejects out-of-range probe concurrency', () => {
 })
 
 test('a schema-resolved value keeps its nested subscription urls (legacy [] must not shadow them)', () => {
-  // Regression (live 2026-10-12): the settings page saved a subscription URL,
-  // the Host persisted it, and the pool still assembled with zero subscription
-  // URLs — `/status` reported `subscriptions: null`, so no fetcher was ever
-  // created and the card's subscription count stayed 0. `Schema.array()` hands
-  // an absent array an implicit `[]`, so the resolved value ALWAYS carries the
-  // legacy flat key, and `raw.subscriptions ?? raw.subscription?.urls` resolved
-  // to that empty array. The value must be fed through the schema here: a raw
-  // hand-written section (no flat key at all) cannot reproduce it.
+  // `Schema.array()` hands an absent array an implicit `[]`, so a resolved
+  // value ALWAYS carries the legacy flat key and `raw.subscriptions ??
+  // raw.subscription?.urls` resolves to that empty array — the nested urls
+  // would be shadowed and the pool assembles with zero subscription URLs.
+  // The fixture must be schema-resolved: a raw hand-written section (no flat
+  // key at all) cannot reproduce it.
   const resolved = IpPoolConfigSchema({
     subscription: { urls: ['https://sub.example.com/token'], refreshMs: 1800000 },
   } as never)
@@ -119,7 +117,8 @@ test('resolveProbeModels defaults to S3 first and dedupes user entries', () => {
 })
 
 test('resolveProbeContents defaults to hello and cleans up a hand-typed pool', () => {
-  // Live request 2026-10-14: 默认 content 修改为 hello，允许多条、随机选择.
+  // The default probe content is hello; a hand-typed pool may carry several
+  // entries and one is chosen at random.
   assert.deepEqual(resolveProbeContents([]), ['hello'])
   assert.deepEqual(resolveProbeContents(['   ']), ['hello'])
   assert.deepEqual(resolveProbeContents([' hello ', 'hi', 'hi', '']), ['hello', 'hi'])
@@ -209,16 +208,16 @@ test('status view projects the four-state machine, exits, bans and prober progre
   const view = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
   assert.equal(view.enabled, true)
   // The routing scope is part of the answer to "what is this pool carrying?",
-  // so /status must carry both halves of the rule (live 2026-10-13: host-only
-  // routing silently proxied another provider's go lane).
+  // so /status must carry both halves of the rule (host-only routing would
+  // otherwise proxy another provider's lane).
   assert.deepEqual(view.proxyHosts, ['opencode.ai'])
   assert.deepEqual(view.proxyPathPrefixes, ['/inference/v1'], 'the path scope defaults to this plugin lane')
   assert.equal(view.state, 'warning')
   assert.equal(view.total, 2)
   assert.equal(view.availableFree, 1)
-  // The whole-pool usable count must count across sources. A live profile
-  // rendered the free-source subset bare as "可用 0/20" while every usable
-  // exit was a subscription one, which read as "nothing is usable".
+  // The whole-pool usable count must count across sources: the free-source
+  // subset alone renders "可用 0/20" on a subscription-only profile whose
+  // exits are all healthy, which reads as "nothing is usable".
   assert.equal(view.availableTotal, 2, 'both healthy exits count, whatever their source')
   assert.equal(view.pinned?.id, 'http://10.0.0.1:3128')
   assert.equal(view.pinned?.strict, true)
@@ -244,9 +243,9 @@ test('status view projects the four-state machine, exits, bans and prober progre
 })
 
 test('status view: a pin that is not carrying traffic says so', () => {
-  // Live 2026-10-25: the card showed the pinned row as 固定 while it was dead
-  // and every request was riding other exits. Falling through is correct
-  // (主力+备胎), but silence read as "the pin works".
+  // A pin that is not carrying traffic must say so: falling through to the
+  // rotation is correct (主力+备胎), but silence reads as "the pin works" while
+  // the row is dead and every request rides other exits.
   const dead = buildStatusView(fakeRuntime({}, {
     list: () => [{
       id: 'http://10.0.0.1:3128', source: 'manual', protocol: 'http', pinned: true,
@@ -312,9 +311,9 @@ test('status view: per-exit tokens, direct and 本机 ride the bridge', () => {
 })
 
 test('status view: recent 3-min speed rides the bridge for exits, 本机 and the pool', () => {
-  // Live request 2026-10-15: tok/s 口径改为最近 3 分钟平均（纯替换）。The
-  // bridge reads the process tracker's rolling ring — never the lifetime
-  // ledger — because the recent window only lives in this process.
+  // The displayed tok/s is the last-3-minute average; the bridge reads the
+  // process tracker's rolling ring — never the lifetime ledger — because the
+  // recent window only lives in this process.
   usageTracker.record('http://10.0.0.1:3128', { outputTokens: 120, durationMs: 400 }) // 300 tok/s
   usageTracker.record(DIRECT_EXIT_ID, { outputTokens: 20, durationMs: 100 }) // under the floor
   try {
@@ -345,9 +344,9 @@ test('usage view: the recent speed comes from the process ring in every scope', 
 })
 
 test('status view: todayTokens counts today’s ledger bucket, falling back to the run scope', () => {
-  // Live request 2026-10-15: the footer's compact two-line mode shows TODAY's
-  // tokens on its first line. The day bucket comes from the ledger; a
-  // composition without one reports the process tracker's own totals.
+  // The footer's compact two-line mode shows TODAY's tokens on its first
+  // line. The day bucket comes from the ledger; a composition without one
+  // reports the process tracker's own totals.
   const dir = mkdtempSync(join(tmpdir(), 'usage-today-'))
   try {
     const now = new Date('2026-10-15T10:00:00').getTime()
@@ -383,9 +382,9 @@ test('status view: 本地出口兜底 reports the router, the setting stands in 
 })
 
 test('status view: with the free source off the badge follows the whole pool', () => {
-  // Regression (live 2026-10-12): the badge came from the free-source machine
-  // unconditionally, so a subscription-only profile (free disabled, 12 healthy
-  // exits) read "emergency" forever — 0 free nodes against a target of 20.
+  // With the free source off the badge follows the whole pool: the
+  // free-source machine (0 free nodes against a target of 20) would read
+  // "emergency" forever on a subscription-only profile.
   const view = buildStatusView(fakeRuntime() as never, false, [], { freeEnabled: false })
   assert.equal(view.stateBasis, 'pool')
   assert.equal(view.state, 'healthy', '2 of 2 exits are usable')
@@ -433,10 +432,9 @@ test('probe handlers: scope all/refill/exit/subscription dispatch and reject unk
   assert.deepEqual(one, { ok: true, value: { queued: 1 } })
   const refill = await handlers.probe({ scope: 'refill' })
   assert.deepEqual(refill, { ok: true, value: { refilled: true } })
-  // Regression (live 2026-10-12): the card's 订阅「立即刷新」 button sent
-  // 'refill' (free sources) and no scope reached refreshSubscriptions(), so a
-  // subscription could never be re-pulled on demand — filling singbox.path
-  // then appeared to do nothing.
+  // The card's 订阅「立即刷新」 button needs a scope of its own: without one,
+  // no scope reaches refreshSubscriptions() and a subscription can never be
+  // re-pulled on demand — filling singbox.path then appears to do nothing.
   const subscription = await handlers.probe({ scope: 'subscription' })
   assert.deepEqual(subscription, { ok: true, value: { refreshed: true } })
   assert.equal(refreshed.length, 1, 'the subscription refresh must be the one that ran')
@@ -455,8 +453,8 @@ test('probe handlers: pool-disabled refusal when no runtime', async () => {
 })
 
 test('usage handler clears the ledger through the bridge, with the pool off', async () => {
-  // Live request 2026-10-14: 增加一个清空的功能按钮. It must not need a running
-  // pool: the ledger records every request with the pool off (docs §5.6).
+  // The 清空 button must not need a running pool:
+  // the ledger records every request with the pool off (docs §5.6).
   const dir = mkdtempSync(join(tmpdir(), 'usage-clear-'))
   const path = join(dir, 'usage.json')
   try {
@@ -619,7 +617,7 @@ test('guard-rejected requests get 403 and never reach the handler', async () => 
   assert.deepEqual(written.body, { error: 'forbidden' })
 })
 
-// -- bridge: the exit tables' row actions (固定 / 删除) ------------------------------
+// -- bridge: the exit tables' row actions (固定 / 轮换) ------------------------------
 
 /** One exit node for the row-action tests. */
 function exitNode(overrides: Partial<ExitNode> = {}): ExitNode {
@@ -714,9 +712,9 @@ test('exit handler: a read-only profile still pins live, and says it did not per
 })
 
 test('exit handler: a mislabelled row is relabelled before the pin lands', async () => {
-  // Live 2026-10-25: `127.0.0.1:30035` was a manual row labelled `http` on a
-  // sing-box SOCKS inbound. Pinning it answered 502 relay_error ECONNRESET on
-  // every request in 6 ms. The pin now asks the listener first.
+  // A pin asks the listener first: a manual row labelled `http` behind a
+  // SOCKS inbound would answer 502 relay_error ECONNRESET on every request,
+  // so pinning probes and relabels (`corrected` in the reply).
   const manual = exitNode({ id: '127.0.0.1:30035', protocol: 'http', source: 'manual', exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C' })
   const { runtime, pool } = rowActionRuntime({ exits: [manual], replaceExit: undefined })
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }), {
@@ -734,9 +732,9 @@ test('exit handler: a mislabelled row is relabelled before the pin lands', async
 
 test('exit handler: pinning a row struck dead on a bad label revives it', async () => {
   // The dead mark outlives its cause: a row struck for a mislabelled protocol
-  // stayed dead after the label was corrected, so a pin on it was a pin
-  // `pick()` skipped — live 2026-10-25, every request was silently carried by
-  // another exit. Pinning proves the listener answers, so the sentence lifts.
+  // stays dead even after the label is corrected, so a pin on it would be a
+  // pin `pick()` skips. Pinning proves the listener answers, so the sentence
+  // lifts.
   const manual = exitNode({ id: '127.0.0.1:30035', protocol: 'http', source: 'manual', exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C' })
   const { runtime, pool } = rowActionRuntime({ exits: [manual], replaceExit: undefined })
   pool.markDeadStrike('127.0.0.1:30035')
@@ -907,9 +905,8 @@ test('usage view: sessions are joined to projects at read time', () => {
 })
 
 test('usage view: session rows prefer the host session title over the recorded prompt label', () => {
-  // Live request 2026-10-14: the Top 会话 names read like "part of the
-  // prompt" — the ledger records the first user turn, but the session's real
-  // name is the host's title. The join happens at read time, so the same
+  // Top 会话 names come from the host's session title rather than the
+  // recorded first user turn; the join happens at read time, so the same
   // ledger serves both spellings.
   const store = ledger()
   store.record('a:1', { inputTokens: 100, outputTokens: 50 }, { session: 'ses_1', label: '帮我修一下弹窗的那个 bug 吧' })
@@ -985,8 +982,8 @@ test('usage view: the scope switch changes the scoped numbers, never the all-tim
 })
 
 test('status view: per-exit usage numbers follow the scope, and the footer figure does not', () => {
-  // A ledger written by an EARLIER process (this is the restart story): the
-  // file has the exit's bucket, the fresh store's run scope is empty.
+  // A ledger written by an EARLIER process: the file carries the exit's
+  // bucket while the fresh store's run scope is empty (the restart case).
   const dir = mkdtempSync(join(tmpdir(), 'usage-scope-'))
   try {
     const path = join(dir, 'usage.json')

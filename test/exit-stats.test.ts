@@ -1,8 +1,8 @@
 /**
- * Exit-stats surface tests (2026-10-13): per-exit activity (which exit is
- * being used right now), request-lifecycle bookkeeping in the routing
- * dispatcher, the direct-fallback bucket, and token attribution from the
- * adapter's `usage` chunks to the exit stamped into the ALS routing context.
+ * Exit-stats surface tests: per-exit activity (which exit is being used right
+ * now), request-lifecycle bookkeeping in the routing dispatcher, the
+ * direct-fallback bucket, and token attribution from the adapter's `usage`
+ * chunks to the exit stamped into the ALS routing context.
  *
  * The load-bearing invariant: the dispatcher stamps contextStore.exitId at
  * pick(), and attributeUsage() records every usage chunk against exactly that
@@ -141,13 +141,13 @@ test('dispatcher: direct bias stamps the direct bucket; foreign hosts stamp 本�
   assert.equal(loopback.exitId, undefined, 'loopback is the host talking to itself — never counted')
 })
 
-// -- proxy-host resolution (live regression, 2026-10-13) ---------------------------
+// -- proxy-host resolution -------------------------------------------------------
 
 test('proxy hosts: an empty list means the default, never an empty routing set', () => {
-  // The live bug: the settings schema default is [], and the old
-  // `options.proxyHosts ?? DEFAULT_PROXY_HOSTS` guard waved that through as
-  // an EMPTY set — every request took the direct branch while /status kept
-  // displaying opencode.ai, so the pool looked enabled and routed nothing.
+  // The settings default is []: without empty→default resolution an empty
+  // list becomes an EMPTY routing set — every request takes the direct branch
+  // while /status keeps displaying opencode.ai, so the pool looks enabled and
+  // routes nothing.
   assert.deepEqual(resolveProxyHosts([]), ['opencode.ai'])
   assert.deepEqual(resolveProxyHosts(undefined), ['opencode.ai'])
   assert.deepEqual(resolveProxyHosts(['']), ['opencode.ai'], 'blank entries are not hosts')
@@ -237,9 +237,9 @@ test('UsageTracker accumulates per exit, keeps cache buckets separate, resets cl
 })
 
 test('UsageTracker recent window: 3-minute weighted tok/s with a display floor', () => {
-  // Live request 2026-10-15: tok/s 口径改为最近 3 分钟平均（纯替换）。The
-  // lifetime totals stay untouched for the ledger; the DISPLAY number comes
-  // from a rolling ring of timed samples.
+  // Displayed tok/s is the weighted average over the last 3 minutes
+  // (RECENT_WINDOW_MS); the lifetime totals stay untouched for the ledger and
+  // the display number comes from a rolling ring of timed samples.
   let now = 1_000_000
   const tracker = new UsageTracker({ now: () => now })
   assert.equal(tracker.speed('e:1'), 0, 'nothing timed yet')

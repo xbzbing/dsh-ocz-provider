@@ -41,7 +41,7 @@ legacy/         the ported Go agent (`cmd/agent` + `internal/`, module
 scripts/        build.mjs (canonical build), lib-manifest.mjs (freshness stamp),
                 smoke-dsh-compat.mjs (loads the real installed host)
 docs/           design.md (architecture + porting record), ip-pool.md (exit
-                routing design)
+                routing design), relay.md (Bun upstream relay contract)
 ```
 
 ## Commands
@@ -102,7 +102,7 @@ argument itself.
 | Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.1.4/<client>`, whose last segment mirrors the effective `x-opencode-client` (so Desktop mode sends `/desktop`); it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep Node's happy-eyeballs fallback. Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts |
 | Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
-| Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Crashes restart with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
+| Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Crashes restart with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr; the component contract (env vars, readiness handshake, timeouts, egress seam) is `docs/relay.md` | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
 | Config schema nodes must stay plain | NEVER put `.transform()` (or any callback-bearing node) in `Config`. dsh-settings rebuilds the served form from `Config.toJSON()` (`plainSchema`) and serializes it a SECOND time for the browser; a transform's `callback` survives the first `toJSON()` but is dropped on that rebuild, so the browser rehydrates a callback-less node, `ConfigFormController.decode()` throws `callback is not a function`, and the whole configuration card stays loading forever — invisible (live 2026-10-15, introduced with the Zen 请求头 field). Validate at the editor and request boundaries instead | src/config.ts, test/request-headers.test.ts, test/model-context.test.ts, scripts/smoke-dsh-compat.mjs |
 
@@ -121,9 +121,10 @@ simply not starting (live 2026-10-15, after the dsh 0.2.1-alpha.3 upgrade).
 ## The upstream free-lane gate (why wire code looks the way it does)
 
 The anonymous lane fingerprints the client; the gate is **fingerprint
-coherence**, not an allow-list. The full picture, each point live-probed, lives
-in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
-`src/adapter/ids.ts`. Headlines:
+coherence**, not an allow-list. This section is the record of the probe
+evidence; `src/adapter/messages.ts` (`ensureFreeLaneShape`), `src/adapter/ids.ts`
+and `src/adapter/gate-tools.ts` carry only the contract a request must satisfy.
+Headlines:
 
 - one recipe, two origins: `/inference` (primary) and `/zen` (fallback) both
   accept this fingerprint, walked as a ladder on an origin-shaped failure
@@ -172,7 +173,8 @@ in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
   every plugin request since 10-24 books 0 tokens while the official client
   books 200s.
 - the gate has THREE halves, ALL now shipped (resolved 2026-10-25):
-  1. **payload** — the system prompt must carry a non-empty `<env>` block.
+  1. **payload** — the system prompt must carry a non-empty `<env>` block (the
+     official 2.1.4 prompt is 8368 chars, the block starting at index 7731).
      Bun stack held constant, one variable per request: empty `<env>` -> 429,
      the same lines without the tags -> 429, the official prefix truncated at
      6000/7200/8000 chars (before the block) -> 429, `<env>` plus ONE real line
@@ -274,7 +276,8 @@ new failure mode. `relay.enabled: false` reproduces it deliberately.
 
 Changing any single header/tool/ID shape in isolation is how this lane has
 broken three times; re-probe the live endpoint one variable at a time before
-and after any such change, and record the results in the code comments.
+and after any such change, and record the results HERE (or in `docs/`) — code
+comments carry only the contract the request must satisfy.
 
 ## Install / upgrade on this machine
 

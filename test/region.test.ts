@@ -1,7 +1,7 @@
 /**
- * The 地区 column's code mapping (live request 2026-10-14). Input is the
- * `exitLocation` admission.ts builds from the ip-api echo, whose first token
- * is the ISO alpha-2 country code.
+ * The 地区 column's code mapping. Input is the `exitLocation` admission.ts
+ * builds from the ip-api echo, whose first token is the ISO alpha-2 country
+ * code.
  */
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,7 +15,7 @@ test('region codes use the operator\'s own anchors', () => {
 })
 
 test('every live location shape from this host maps to a code', () => {
-  // Measured on the live pool 2026-10-14 (10 exits).
+  // Real location shapes observed on this host's pool (10 exits).
   assert.deepEqual(
     [
       'HK Central',

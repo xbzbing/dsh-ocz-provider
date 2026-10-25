@@ -120,7 +120,7 @@ test('assistant history replays text, thinking and tool calls with parsed argume
   const assistant = expectAssistant(context.messages[0])
   assert.deepEqual(assistant.content, [
     { type: 'text', text: 'thinking out loud' },
-    // #97: the streamed signature rides back so pi-ai sends the thinking as
+    // the streamed signature rides back so pi-ai sends the thinking as
     // reasoning_content — DeepSeek's thinking mode rejects its absence.
     { type: 'thinking', thinking: 'internal scratch', thinkingSignature: 'reasoning_content' },
     { type: 'toolCall', id: 't1', name: 'calc', arguments: { a: 1 } },
@@ -292,7 +292,7 @@ test('an empty tool result without images falls back to (no output)', async () =
 })
 
 test('message-level tool results (DSH >= 0.2 role:tool shape) emit toolResult, never a user message', async () => {
-  // Regression for issue #50: DSH 0.2 delivers tool results as
+  // DSH 0.2 delivers tool results as
   // { role: 'tool', toolCallId, content: ContentBlock[], isError } — no
   // 'tool-result' wrapper block. The adapter must not leak the output text
   // in as a phantom user message.
@@ -462,14 +462,14 @@ test('ensureFreeLaneShape injects the genuine gate tools into toolless chat bodi
   assert.deepEqual(messages[1], payload.messages[0])
   const tools = next.tools as Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
   // What gets injected is the genuine 2.1.4 OpenCode definition
-  // (adapter/gate-tools.ts, byte-captured 2026-10-24), not a paraphrase: the
-  // gate has validated content before (measured 403 on 2026-10-14).
+  // (adapter/gate-tools.ts), not a paraphrase: a paraphrased description has
+  // 403'd at the gate.
   assert.deepEqual(tools.map((t) => t.function.name).sort(), ['read', 'shell'])
   for (const tool of tools) {
     const genuine = GENUINE_GATE_TOOLS[tool.function.name as 'shell' | 'read']
     assert.deepEqual(tool.function, genuine.function)
   }
-  // `tool_choice: 'none'` is a 403 of its own now, so nothing may set it
+  // `tool_choice: 'none'` is rejected with 403, so nothing may set it
   assert.equal(next.tool_choice, undefined)
 })
 
@@ -525,8 +525,9 @@ test('ensureFreeLaneShape replaces host-shaped gate tools and leaves genuine one
   assert.deepEqual(tools.find((t) => t.function.name === 'webfetch')!.function.parameters, {}, 'unrelated tools untouched')
 
   // an already-genuine payload needs no rewrite at all (pi-ai keeps the
-  // original). The system slot carries the `<env>` block, which is now part of
-  // "already shaped": without it this body would be rewritten (and 429'd live).
+  // original). The system slot carries the `<env>` block, which is part of
+  // "already shaped": without it this body would be rewritten (and 429'd at
+  // the gate).
   const genuine = {
     model: 'm',
     messages: [{ role: 'system', content: withEnvBlock('be helpful') }],
@@ -558,7 +559,7 @@ test('assistant history preserves the Responses API for muse-spark models', asyn
 
 test('Responses free-lane bodies carry flat gate tools and supported tool choice', () => {
   // A shaped system slot (the `<env>` block, env-block.ts) is part of "already
-  // shaped" now: with it the input array is passed through by reference.
+  // shaped": with it the input array is passed through by reference.
   const body = {
     input: [
       { role: 'system', content: [{ type: 'input_text', text: withEnvBlock('be brief') }] },
