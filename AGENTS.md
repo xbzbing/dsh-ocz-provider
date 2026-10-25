@@ -138,6 +138,23 @@ in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
 - `x-opencode-project` is prefix-less (`global` — the workspace dimension is
   deliberately NOT simulated: no login, no 40-hex directory hash);
 - `tool_choice: 'none'` is rejected.
+- status codes, re-read 2026-10-25: `403 FreeTierError` still means the SHAPE
+  was rejected (a body without `tools` still 403s that day), but `429
+  FreeUsageLimitError` no longer means "gate passed, anonymous quota spent".
+  With the window open — the official `opencode-cli 2.1.4` (a Bun binary)
+  answers a real 200 from this machine, direct AND through pool exit
+  `127.0.0.1:30033` — a BYTE-IDENTICAL replay (the captured 16 headers, the
+  captured body, the official family path) answers 429 from Node h1, Node h2,
+  curl 8.7 h2, Python urllib and Go net/http, on every egress tried (direct
+  v4/v6, the client's own ULA source address, all 7 pool exits). Header set,
+  body, route, `accept-encoding`, HTTP version and source IP are each ruled
+  out one variable at a time, and a local-CA TLS capture of the genuine
+  client shows no extra live-only header or cookie: a CONNECTION-STACK gate
+  (the client's TLS/HTTP fingerprint) now sits in front of the quota layer,
+  and no payload edit reaches it. Probe scripts and raw results live under
+  `docs/local/capture-214/` (gitignored); this machine's own ledger agrees —
+  every plugin request since 10-24 books 0 tokens while the official client
+  books 200s.
 
 Changing any single header/tool/ID shape in isolation is how this lane has
 broken three times; re-probe the live endpoint one variable at a time before

@@ -403,7 +403,22 @@ export function opencodeUserAgent(): string {
  *     live rejection signals were a malformed session id and a `tools` array
  *     without a `read` entry (adapter/gate-tools.ts) — but the RECIPE is
  *     still shipped whole, because that is what has stayed green while the
- *     gate flipped five times.
+ *     gate flipped five times;
+ *   - 2026-10-25: the window reopened and the DISCRIMINATOR moved with it.
+ *     The official `opencode-cli 2.1.4` (Bun) answered a real 200 from this
+ *     machine — direct AND through pool exit `127.0.0.1:30033` — while a
+ *     byte-identical replay (these 16 captured headers, the captured body,
+ *     the official family path) answered 429 FreeUsageLimitError from Node
+ *     h1, Node h2, curl 8.7 h2, Python urllib and Go net/http, on every
+ *     egress tried (direct v4/v6, the CLI's own ULA source address, 7 pool
+ *     exits). Header set, body, route, `accept-encoding`, HTTP version and
+ *     source IP are each ruled out one variable at a time, and a local-CA TLS
+ *     capture shows the live https request carries no extra header or cookie.
+ *     So 403 still reads as SHAPE REJECTED, but 429 no longer reads as
+ *     QUOTA SPENT: a CONNECTION-STACK gate (the client's TLS/HTTP
+ *     fingerprint) now sits in front of the quota layer, and no payload edit
+ *     reaches it (matrix in adapter/gate-tools.ts; probes under
+ *     `docs/local/capture-214/`).
  *
  * The OTel pair (`b3`/`traceparent`) is deliberately NOT fabricated: the
  * client mints it per request from its tracer, the gate ignores it (this set

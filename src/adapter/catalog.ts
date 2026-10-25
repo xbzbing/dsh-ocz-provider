@@ -46,7 +46,9 @@ import { sanitizeModelContextWindows, type ModelContextWindows } from '../model-
  * `opencode` provider — the FAMILY path with an `/openai` segment — and the
  * installed 2.1.4 CLI really posts there. Both were probed on the same exit,
  * one variable at a time: the family chat path answers exactly like the flat
- * one (429 = gate passed with the anonymous quota spent, on both), but
+ * one (the same 429 on both in 2026-10-24, read that day as gate-passed with
+ * the quota spent; re-read 2026-10-25 — a 429 can also be the connection-stack
+ * gate, adapter/gate-tools.ts), but
  * `/inference/openai/v1/models` 404s while `/inference/v1/models` answers 200.
  * Since the catalog, the settings card's `/status` and the pool's admission
  * probe all share this base, the flat spelling stays: it is the one path that

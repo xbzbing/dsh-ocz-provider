@@ -387,7 +387,17 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  *      `read` ALONE 429, `shell` alone 403, the previous `bash`+`read` pair
  *      429. Content validation is OFF again; the genuine 2.1.4 `shell`+`read`
  *      pair is injected as insurance (gate-tools.ts);
- *   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass).
+ *   6. `tool_choice` is never `'none'` (403; omitted and `'auto'` both pass);
+ *   7. status codes RE-READ 2026-10-25: 403 FreeTierError still means the
+ *      SHAPE was rejected (a body with no `tools` still 403s that day), but
+ *      429 FreeUsageLimitError no longer means "gate passed, quota spent" —
+ *      with the anonymous window open the official Bun client answered a real
+ *      200 while a byte-identical replay from Node h1/h2, curl, Python and Go
+ *      answered 429 from every egress (direct v4/v6, the client's own source
+ *      address, 7 pool exits). A connection-stack gate (TLS/HTTP client
+ *      fingerprint) now sits in front of the quota layer; the ablation above
+ *      still ranks SHAPES, but a 429 no longer means the request would have
+ *      been served (adapter/gate-tools.ts).
  *
  * NOT gates, measured live: `Bearer public`, `max_tokens`, `temperature`, and
  * the system prompt's content (the client's title prompt must not ride WITH
