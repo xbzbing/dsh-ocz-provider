@@ -699,3 +699,95 @@ test('pick records the sticky binding on the pin path too', () => {
   p.breakStickySession('ses-A')
   assert.equal(p.exitOfSession('ses-A'), null)
 })
+
+// -- revive / transport signal / pin skip (2026-10-25) -------------------------
+
+/**
+ * A dead mark is permanent until something proves the row alive, and the two
+ * proofs (a real 2xx, the card's 探测) are both unavailable to a row that was
+ * struck for a mislabelled protocol. `revive` is the missing third door: it
+ * clears the sentence without claiming health.
+ */
+test('revive clears a dead strike but never claims the row is verified', () => {
+  const p = pool()
+  p.add(node({ id: 'manual:1', source: 'manual', exitIP: '' }))
+  p.markOk('manual:1')
+  p.recordPassiveTransport('manual:1')
+  assert.equal(p.list()[0]!.health.state, 'dead')
+  assert.equal(p.isUsable('manual:1', 'm'), false)
+
+  assert.equal(p.revive('manual:1'), true)
+  const health = p.list()[0]!.health
+  assert.equal(health.state, 'unknown', 'usable again, but not in the verified tier')
+  assert.equal(health.deadStrikes, 0, 'the strike counter restarts with the outage')
+  assert.equal(health.deadAt, 0)
+  assert.equal(p.isUsable('manual:1', 'm'), true)
+
+  // A live row is untouched: revive is not a general health reset.
+  p.markOk('manual:1')
+  p.markLimited('manual:1')
+  const cooldown = p.list()[0]!.health.cooldownUntil
+  assert.equal(p.revive('manual:1'), true)
+  assert.equal(p.list()[0]!.health.state, 'ok')
+  assert.equal(p.list()[0]!.health.cooldownUntil, cooldown, 'a cooldown survives: it is not a strike')
+
+  assert.equal(p.revive('gone:1'), false, 'a row that left the table cannot be revived')
+})
+
+test('recordTransportSignal counts a cut without judging the row', () => {
+  // pool/transport.ts may still be asking what a cut means; the counter has to
+  // be able to say "this row dropped a request" before the verdict lands.
+  const p = pool()
+  p.add(node({ id: 'manual:1', source: 'manual', exitIP: '' }))
+  p.markOk('manual:1')
+  p.recordTransportSignal('manual:1')
+  assert.equal(p.list()[0]!.health.state, 'ok', 'no strike')
+  assert.equal(p.passiveStats('manual:1').transport, 1)
+  p.recordTransportSignal('gone:1')
+  assert.deepEqual(p.passiveStats('gone:1'), { ok: 0, limited: 0, refused: 0, dead: 0, transport: 0 })
+})
+
+/**
+ * Live 2026-10-25: a pinned row sat dead while the session kept working — the
+ * rotation had silently moved to other exits, and nothing said so. The pin
+ * itself stays a preference (that is what 主力+备胎 promises), so the fix is to
+ * SAY it, from the one place every routing seam passes through.
+ */
+test('pick reports a pin it had to skip, and never when the pin serves', () => {
+  const p = pool()
+  p.add(node({ id: 'pin:1', source: 'manual', exitIP: '' }))
+  p.add(node({ id: 'other:1', source: 'manual', exitIP: '2.2.2.2' }))
+  const skips: Array<[string, string]> = []
+  p.onPinnedSkip((pinned, used) => { skips.push([pinned, used]) })
+
+  p.pin('pin:1')
+  assert.equal(p.pick('ses-1', 'm'), 'pin:1')
+  assert.deepEqual(skips, [], 'the pin is serving: nothing to report')
+
+  p.markDeadStrike('pin:1')
+  assert.equal(p.pick('ses-2', 'm'), 'other:1')
+  assert.deepEqual(skips, [['pin:1', 'other:1']], 'the fall-through is announced')
+
+  p.revive('pin:1')
+  assert.equal(p.pick('ses-3', 'm'), 'pin:1', 'a revived pin wins again')
+  assert.equal(skips.length, 1, 'and the report is not repeated for the same outage')
+})
+
+test('pick reports a pin skipped in favour of the session\'s sticky exit', () => {
+  // The sticky branch returns before the rotation sort, so it needs the same
+  // report — otherwise the most common fall-through (a session that already
+  // moved) would be the one case nobody hears about.
+  const p = pool()
+  p.add(node({ id: 'pin:1', source: 'manual', exitIP: '' }))
+  p.add(node({ id: 'sticky:1', source: 'manual', exitIP: '3.3.3.3' }))
+  p.pin('pin:1')
+  p.breakStickySession('ses-1')
+  p.markDeadStrike('pin:1')
+  // Learn the sticky exit through a plain pick, then pin again.
+  const first = p.pick('ses-1', 'm')
+  assert.equal(first, 'sticky:1')
+  const skips: Array<[string, string]> = []
+  p.onPinnedSkip((pinned, used) => { skips.push([pinned, used]) })
+  assert.equal(p.pick('ses-1', 'm'), 'sticky:1')
+  assert.deepEqual(skips, [['pin:1', 'sticky:1']])
+})

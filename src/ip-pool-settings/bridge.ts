@@ -210,6 +210,14 @@ export interface PoolStatusView {
    * renders 取消固定 on the local row from this flag alone.
    */
   pinned: { id: string; strict: boolean; local: boolean } | null
+  /**
+   * Why the pin above is not carrying traffic right now (null = it is, or
+   * nothing is pinned). The rotation deliberately falls through to another exit
+   * when the pinned row is unusable — that is what 主力+备胎 means — but doing it
+   * silently made a dead pin look healthy (live 2026-10-25: the card showed the
+   * row as 固定 + dead while the session was actually riding other exits).
+   */
+  pinnedSkip: 'dead' | 'cooling' | null
   proxyHosts: string[]
   /** Path prefixes on those hosts the pool carries (default `/inference/v1`);
    *  this is the scope that decides WHICH opencode.ai traffic the exits serve. */
@@ -374,6 +382,20 @@ export function buildStatusView(
    */
   const availableTotal = exits.filter((exit) => exit.state === 'ok').length
   const stateBasis: 'free' | 'pool' = freeEnabled ? 'free' : 'pool'
+  /**
+   * Is the pin actually carrying traffic? Only the two states that stop
+   * `isUsable()` on their own are reported: dead and a live cooldown. A
+   * (exit, model) ban cannot be answered here — it depends on the model the
+   * next request picks — and inventing an answer would be worse than silence.
+   */
+  const pinnedRow = snapshot.pinned !== '' && snapshot.pinned !== LOCAL_EXIT_ID
+    ? exits.find((exit) => exit.id === snapshot.pinned)
+    : undefined
+  const pinnedSkip: PoolStatusView['pinnedSkip'] = pinnedRow === undefined
+    ? null
+    : pinnedRow.state === 'dead'
+      ? 'dead'
+      : pinnedRow.cooling ? 'cooling' : null
   return {
     enabled: runtime !== null && runtime.installer.enabled,
     deferredReason: runtime !== null && !runtime.installer.enabled
@@ -390,6 +412,7 @@ export function buildStatusView(
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict, local: snapshot.pinned === LOCAL_EXIT_ID }
       : null,
+    pinnedSkip,
     proxyHosts,
     proxyPathPrefixes,
     exits,
@@ -852,6 +875,11 @@ export function makeBridgeHandlers(
               rt.pool.refresh(raw, { protocol: found })
               corrected = found
             }
+            // Pinning a row that was struck dead on a bad label has to revive
+            // it: the operator just proved the listener answers, and a pin on a
+            // dead row is a pin `pick()` skips (2026-10-25 — a live pin sat dead
+            // and every request was silently carried by another exit).
+            rt.pool.revive(raw)
           }
         }
         // Persist first, then apply: the settings commit lands on the same

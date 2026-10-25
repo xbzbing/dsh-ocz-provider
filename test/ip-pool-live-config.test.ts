@@ -118,7 +118,7 @@ test('syncManualExits: pinning an admitted exit keeps the row and its source', (
   assert.equal(pool.get('127.0.0.1:30005')?.pinned, true)
 })
 
-test('relay transport failure relabels a manual row the listener disagrees with', async () => {
+test('relay transport failure relabels and revives a manual row the listener disagrees with', async () => {
   // Live 2026-10-25: manual row `127.0.0.1:30035` said `http`, sing-box served
   // SOCKS5 there, and every request through the relay died in 6 ms with
   // `502 relay_error ECONNRESET`. A transport cut is indistinguishable from a
@@ -144,11 +144,18 @@ test('relay transport failure relabels a manual row the listener disagrees with'
 
   assert.equal(probes, 1)
   assert.equal(runtime.pool.get('127.0.0.1:30035')?.protocol, 'socks5', 'the row now matches the listener')
+  // Correcting the label has to lift the sentence too: the row is pickable
+  // again, otherwise the heal only fixes the reason and keeps the corpse.
+  const healed = runtime.pool.list().find((entry) => entry.id === '127.0.0.1:30035')
+  assert.notEqual(healed?.health.state, 'dead', 'the mislabelled row is not left dead')
+  assert.equal(runtime.pool.isUsable('127.0.0.1:30035', 'mimo-v2.6-flash-free'), true)
 
-  // A second failure inside the coalescing window must not re-probe.
+  // The free diagnosis is spent with that correction: a second cut inside the
+  // window strikes the row and spends no probe on it.
   settleRelayEgress(pick as RelayEgressPick, { transport: true })
   await new Promise((resolve) => setTimeout(resolve, 50))
   assert.equal(probes, 1, 'probes are coalesced per row')
+  assert.equal(runtime.pool.list().find((entry) => entry.id === '127.0.0.1:30035')?.health.state, 'dead')
   await runtime.dispose()
 })
 
@@ -175,6 +182,7 @@ test('relay transport failure never relabels a row that has measured facts', asy
 
   assert.equal(probes, 0, 'a measured row is not re-examined')
   assert.equal(runtime.pool.get('127.0.0.1:30033')?.protocol, 'socks5')
+  assert.equal(runtime.pool.list().find((entry) => entry.id === '127.0.0.1:30033')?.health.state, 'dead', 'the cut is the verdict')
   await runtime.dispose()
 })
 

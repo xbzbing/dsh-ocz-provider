@@ -24,7 +24,8 @@ src/adapter/    zen-adapter (dsh-llm adapter), catalog, messages (body shaping),
                 routing (which API shape a model takes), ids
 src/pool/       exit pool: admission (free-lane probing), dispatcher (routing),
                 installer, onboarding, sing-box conversion, subscription fetch,
-                usage-store (the ~/.dsh/oc2dsh/usage.json ledger)
+                transport (what one transport cut means), usage-store (the
+                ~/.dsh/oc2dsh/usage.json ledger)
 src/ip-pool-settings/  namespace (schema), bridge (loopback HTTP), apply (wiring)
 src/relay/      the Bun upstream relay: supervisor (spawn/health/restart) and
                 the egress seam between the adapter and the exit pool
@@ -219,10 +220,8 @@ subscription converter, and nothing used to check it against the listener. Live
 SOCKS5 on that port, so the relay sent HTTP CONNECT into a SOCKS server, the
 server dropped the socket, and EVERY request failed in 6 ms with
 `502 relay_error ECONNRESET` — the same port answers 200 through `socks5://`.
-Nothing strikes such a row out either: a transport cut is what a dead exit
-looks like, so the pool kept picking it (6 requests / 0 tokens in the ledger).
 
-Three behaviours cover it, all live-measured:
+Four behaviours cover it, all live-measured:
 
 - `src/pool/protocol.ts` decides what a listener actually speaks (a SOCKS5
   greeting, then an HTTP CONNECT to an RFC 5737 address — nothing is dialled).
@@ -232,9 +231,23 @@ Three behaviours cover it, all live-measured:
   reply), a port with nothing behind it is REFUSED (`exit-unreachable`) instead
   of silencing the lane for a whole session. Rows with measured facts skip the
   probe.
-- after a transport failure the pool re-examines manual/unverified rows once
-  (coalesced, 30 s) and relabels a mismatch, so a pre-existing bad row heals
-  without editing settings (`healProtocol` in src/ip-pool.ts).
+- a transport cut goes to `src/pool/transport.ts`, never straight to a strike.
+  A row with NO measured facts gets one free diagnosis per 30 s window: nothing
+  answering -> struck dead; the other scheme -> relabelled AND revived; the
+  right scheme -> the row stays pickable in the 'unknown' tier and the next cut
+  inside the window is the strike. A row with measured facts still strikes
+  immediately — its label came from real traffic, so the cut IS the verdict.
+- `revive()` is why a corrected label actually restores service: a dead mark
+  outlives its cause otherwise, because `pick()` skips dead rows and the only
+  other proofs (a real 2xx, the card's 探测) are unavailable to a row nothing
+  routes to. Pinning a dead row revives it through the same door.
+
+A pin that is set but unusable still falls through to the rotation (that is
+what 主力+备胎 promises), and the fall-through is now LOUD: the pool's
+`onPinnedSkip` warns once per outage, and `/status` carries `pinnedSkip`
+(`'dead'` / `'cooling'`) so the card can say the requests are using another
+exit. Live 2026-10-25: the badge said 固定主力 while the row was dead and the
+session was riding other exits, which read as "the pin is working".
 
 The relay also retries one failed proxied connect on the other scheme and
 remembers the correction per host:port (`PROTO-FIX` in its log), which rescues
@@ -243,7 +256,8 @@ bridge has a 3 s handshake timeout and answers `502` instead of dropping the
 socket — a silent peer used to hang a request with no status line — and the
 rescue retry is bounded at 8 s for the same reason. `test/relay-script.test.ts`
 runs the real script against real listeners (skipped without `bun`);
-`test/protocol.test.ts` covers the detector.
+`test/protocol.test.ts` covers the detector, `test/transport.test.ts` the
+verdicts.
 
 A machine without `bun` still works: the supervisor resolves null, the adapter
 sends directly, and the lane answers 429 — the exact pre-fix behaviour, not a

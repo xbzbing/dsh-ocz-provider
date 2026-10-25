@@ -154,8 +154,10 @@ test('toIpPoolConfig maps the settings value onto the plugin config shape', () =
 
 // -- bridge: status view -------------------------------------------------------
 
-/** Minimal fake runtime face buildStatusView/probe handlers consume. */
-function fakeRuntime(overrides: Record<string, unknown> = {}): unknown {
+/** Minimal fake runtime face buildStatusView/probe handlers consume.
+ *  `poolOverrides` patches individual pool methods so one test can restate a
+ *  row's health without re-declaring the whole table. */
+function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Record<string, unknown> = {}): unknown {
   const pool = {
     snapshot: () => ({ state: 'warning', total: 2, bySource: { free: 1, manual: 1, subscription: 0, goproxy: 0 }, availableFree: 1, pinned: 'http://10.0.0.1:3128' }),
     targetSize: 20,
@@ -182,6 +184,7 @@ function fakeRuntime(overrides: Record<string, unknown> = {}): unknown {
       : { lastUsedAt: 0, inFlight: 0 },
     directRequests: 7,
     rerouteSession: () => {},
+    ...poolOverrides,
   }
   return {
     pool,
@@ -238,6 +241,39 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.equal(view.exits[0]?.inFlight, 2)
   assert.equal(view.exits[1]?.lastUsedAt, 0, 'an exit never dispatched reads 0, not NaN')
   assert.equal(view.direct.requests, 7)
+})
+
+test('status view: a pin that is not carrying traffic says so', () => {
+  // Live 2026-10-25: the card showed the pinned row as 固定 while it was dead
+  // and every request was riding other exits. Falling through is correct
+  // (主力+备胎), but silence read as "the pin works".
+  const dead = buildStatusView(fakeRuntime({}, {
+    list: () => [{
+      id: 'http://10.0.0.1:3128', source: 'manual', protocol: 'http', pinned: true,
+      exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C',
+      health: { state: 'dead', cooldownUntil: 0, consecutiveLimited: 1 },
+      bans: [],
+    }],
+  }) as never, true, ['opencode.ai'])
+  assert.equal(dead.pinnedSkip, 'dead')
+  assert.equal(dead.pinned?.id, 'http://10.0.0.1:3128', 'the pin itself is still reported')
+
+  const cooling = buildStatusView(fakeRuntime({}, {
+    list: () => [{
+      id: 'http://10.0.0.1:3128', source: 'manual', protocol: 'http', pinned: true,
+      exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C',
+      health: { state: 'ok', cooldownUntil: Date.now() + 30_000, consecutiveLimited: 2 },
+      bans: [],
+    }],
+  }) as never, true, ['opencode.ai'])
+  assert.equal(cooling.pinnedSkip, 'cooling')
+
+  // A serving pin says nothing, and neither does a pin to the 本机 sentinel
+  // (there is no exit row to be out of service).
+  assert.equal(buildStatusView(fakeRuntime() as never, true, ['opencode.ai']).pinnedSkip, null)
+  assert.equal(buildStatusView(fakeRuntime({
+    pool: { ...((fakeRuntime() as { pool: object }).pool), snapshot: () => ({ state: 'healthy', total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 }, availableFree: 0, pinned: 'local' }) },
+  }) as never, true, ['opencode.ai']).pinnedSkip, null)
 })
 
 test('status view: per-exit tokens, direct and 本机 ride the bridge', () => {
@@ -694,6 +730,25 @@ test('exit handler: a mislabelled row is relabelled before the pin lands', async
   })
   assert.equal(pool.get('127.0.0.1:30035')?.protocol, 'socks5', 'the row now matches the listener')
   assert.equal(pool.pinnedId, '127.0.0.1:30035')
+})
+
+test('exit handler: pinning a row struck dead on a bad label revives it', async () => {
+  // The dead mark outlives its cause: a row struck for a mislabelled protocol
+  // stayed dead after the label was corrected, so a pin on it was a pin
+  // `pick()` skipped — live 2026-10-25, every request was silently carried by
+  // another exit. Pinning proves the listener answers, so the sentence lifts.
+  const manual = exitNode({ id: '127.0.0.1:30035', protocol: 'http', source: 'manual', exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C' })
+  const { runtime, pool } = rowActionRuntime({ exits: [manual], replaceExit: undefined })
+  pool.markDeadStrike('127.0.0.1:30035')
+  assert.equal(pool.isUsable('127.0.0.1:30035', 'm'), false)
+  const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }), {
+    writePin: async () => true,
+    detectProtocol: async () => 'socks5',
+  })
+  await handlers.exit({ action: 'pin', exitId: '127.0.0.1:30035' })
+  assert.equal(pool.list().find((entry) => entry.id === '127.0.0.1:30035')?.health.state, 'unknown')
+  assert.equal(pool.isUsable('127.0.0.1:30035', 'm'), true, 'and now it can actually carry the pin')
+  assert.equal(pool.pick('ses', 'm'), '127.0.0.1:30035')
 })
 
 test('exit handler: a pin to a port with nothing behind it is refused, not applied', async () => {

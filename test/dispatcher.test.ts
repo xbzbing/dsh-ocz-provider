@@ -582,6 +582,41 @@ test('dispatcher sentinel: a mute connection records transport and reroutes the 
   assert.equal(pool.isUsable('dead:1', 'm'), false, 'dead strike landed')
 })
 
+test('dispatcher sentinel: a wired judge gets the cut instead of an immediate strike', async () => {
+  // The dispatcher used to decide on its own that a cut means dead. Once the
+  // runtime wires pool/transport.ts, the cut is a QUESTION (a mislabelled
+  // listener answers nothing and is not a dead line — live 2026-10-25), so the
+  // observer must hand it over rather than strike.
+  const pool = new ExitPool()
+  pool.add(node({ id: 'mute:1', exitIP: '1.1.1.1' }))
+  pool.markOk('mute:1')
+  const cuts: string[] = []
+  const mute = {
+    Agent: class { constructor() { return { dispatch: () => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() } } },
+    ProxyAgent: class {
+      constructor() {
+        return { dispatch: (): boolean => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() }
+      }
+    },
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => ({ dispatch: () => true }),
+  }
+  const router = new PoolRoutingDispatcher({
+    pool,
+    undici: mute as never,
+    proxyHosts: ['opencode.ai'],
+    sentinelMs: 60,
+    onTransportCut: (exitId) => { cuts.push(exitId) },
+  })
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never)
+  })
+  await new Promise((r) => setTimeout(r, 140))
+  assert.deepEqual(cuts, ['mute:1'], 'the judge saw exactly one cut')
+  assert.equal(pool.isUsable('mute:1', 'm'), true, 'the dispatcher no longer strikes on its own')
+  assert.deepEqual(pool.passiveStats('mute:1'), { ok: 0, limited: 0, refused: 0, dead: 0, transport: 0 }, 'and does not double-count it')
+})
+
 test('dispatcher sentinel: any handler callback disarms it (a live exit is never falsely struck)', async () => {
   const pool = new ExitPool()
   pool.add(node({ id: 'live:1', exitIP: '1.1.1.1' }))

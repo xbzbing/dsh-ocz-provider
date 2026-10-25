@@ -123,6 +123,12 @@ export interface PoolRoutingOptions {
    * can decide whether "this machine has IPv6" without touching the host.
    */
   listInterfaces?: InterfaceReader
+  /**
+   * Judge one transport cut (pool/transport.ts). The runtime wires it so both
+   * routing seams share one policy; a caller that leaves it unset keeps the old
+   * "a cut is a strike" behaviour.
+   */
+  onTransportCut?: (exitId: string) => void
   /** Log sink for routing decisions (diagnostics). */
   logger?: { warn(message: string): void }
 }
@@ -285,6 +291,12 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   #localFamily: LocalIpFamily
   /** Interface-table seam for `auto`; undefined = the real interface table. */
   #listInterfaces?: InterfaceReader
+  /**
+   * Who judges a transport cut. Wired by the runtime to pool/transport.ts,
+   * which can tell a mislabelled listener from a dead line; unset means "a cut
+   * is a strike", which is what every caller did before 2026-10-25.
+   */
+  #onTransportCut?: (exitId: string) => void
   #logger?: { warn(message: string): void }
   /** Direct path for non-pool hosts and loopback. */
   #direct: Dispatcher
@@ -322,6 +334,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     this.#localFallback = options.localFallback === true
     this.#localFamily = resolveLocalIpFamily(options.localIpFamily ?? DEFAULT_LOCAL_IP_FAMILY)
     this.#listInterfaces = options.listInterfaces
+    this.#onTransportCut = options.onTransportCut
     this.#logger = options.logger
     this.#direct = new options.undici.Agent()
     this.#localEgress = new options.undici.Agent({ connect: this.#localConnectOptions(this.#localFamily) })
@@ -598,18 +611,24 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     const classifyTransport = (why: string): void => {
       if (classified) return
       classified = true
-      pool.recordPassiveTransport(exitId)
+      // The cut goes to the runtime's judge when one is wired (pool/transport.ts
+      // decides between a mislabelled listener, a transient cut and a dead
+      // line); with no judge, a cut is a strike, which is the pre-2026-10-25
+      // behaviour.
+      if (this.#onTransportCut !== undefined) this.#onTransportCut(exitId)
+      else pool.recordPassiveTransport(exitId)
       pool.rerouteSession(session)
       end()
-      // One strike retires the exit (`markDeadStrike`) and `isUsable()` hides
-      // it from pick(). With the periodic probe gone (2026-10-23) liveness is
-      // judged by real requests only, so a dead row never self-heals: it
-      // leaves through the strike threshold (free), the reserve swap
-      // (subscription) or the card's 探测 action (manual/pinned). Log WHY: the
-      // two silence windows and a real transport error mean very different
-      // things, and without this line the three are indistinguishable after
-      // the fact — a live profile lost all 14 exits and nothing said why.
-      this.#logger?.warn(`oc2dsh: exit ${exitId} marked dead (${why})`)
+      // A strike retires the exit (`markDeadStrike`) and `isUsable()` hides it
+      // from pick(). With the periodic probe gone (2026-10-23) liveness is
+      // judged by real requests only: it leaves through the strike threshold
+      // (free), the reserve swap (subscription), the card's 探测 action, or the
+      // diagnosis above when the row was never measured (manual/pinned). Log
+      // WHY: the two silence windows and a real transport error mean very
+      // different things, and without this line the three are
+      // indistinguishable after the fact — a live profile lost all 14 exits and
+      // nothing said why.
+      this.#logger?.warn(`oc2dsh: exit ${exitId} transport cut (${why})`)
       // Live-observed (2026-09-07, muse via 7897): after the tunnel stands a
       // dead-behind-the-tunnel exit answers NOTHING — no headers, no
       // onResponseError — and neither fetch nor pi-ai owns a body-silence

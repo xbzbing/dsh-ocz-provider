@@ -21,6 +21,7 @@ import { LOCAL_EXIT_ID } from './pool/usage.ts'
 import { NO_EXIT_MESSAGE, exitProxyUri, type UndiciSeam } from './pool/dispatcher.ts'
 import { setRelayEgressSeams } from './relay/egress.ts'
 import { detectProxyProtocol, type ProxyProtocol } from './pool/protocol.ts'
+import { TransportVerdicts } from './pool/transport.ts'
 import { resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts'
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
@@ -40,13 +41,14 @@ function dataDir(): string {
 /**
  * Liveness is judged by REAL requests, not a timer (operator decision
  * 2026-10-23, replacing docs/ip-pool.md §4.3 周期 probing): the routing layer's
- * passive verdicts (pool.recordPassive / recordPassiveTransport) already write
- * the same two-tier health a probe would, so the periodic due-probe tick spent
+ * passive verdicts (pool.recordPassive / pool/transport.ts) already write the
+ * same two-tier health a probe would, so the periodic due-probe tick spent
  * zen quota re-confirming exits that real traffic confirms for free. What the
  * tick owned — reviving dead exits — now rests with the real-request path:
  * a 2xx revives (markOk), repeated transport strikes evict free rows for the
  * refill loop to replace, subscription rows swap for reserves (onDead), and a
- * manual/pinned row waits for the settings card's 探测 action.
+ * manual/pinned row is DIAGNOSED on its first cut (pool/transport.ts: relabel +
+ * revive when the listener answers, strike only when nothing does).
  */
 
 /** Parse one manual proxy string into an exit id + protocol, or null. */
@@ -283,6 +285,18 @@ export async function startIpPool(
     }
   }
 
+  /**
+   * The one judge of a transport cut, shared by both routing seams below (the
+   * dispatcher's observer and the relay's settle callback). `cut` is
+   * synchronous and answers later through the pool, so a teardown never waits
+   * on a socket probe; see pool/transport.ts for what the four verdicts mean.
+   */
+  const transportVerdicts = new TransportVerdicts({
+    pool,
+    detect: deps.detectProtocol ?? detectProxyProtocol,
+    logger,
+  })
+
   const installerDeps: InstallerDeps = {
     pool,
     undici,
@@ -294,6 +308,9 @@ export async function startIpPool(
     // 本机出口协议族 defaults to 'auto' (IPv6 where this machine has one):
     // the free lane refuses this host's IPv4 and accepts its IPv6.
     localIpFamily: resolveLocalIpFamily(ipPool.localIpFamily),
+    // Both routing seams judge a cut the same way (pool/transport.ts): the
+    // dispatcher carries requests the pool routes, the relay carries the rest.
+    onTransportCut: (exitId) => { transportVerdicts.cut(exitId) },
     logger,
   }
   const installer: IpPoolRuntime['installer'] = deps.makeInstaller !== undefined
@@ -573,7 +590,8 @@ export async function startIpPool(
    *            upstream sees anything.
    *   settle-> the verdict table the dispatcher's observer applies to a real
    *            status code: a bad status degrades the exit and breaks the
-   *            session binding, a transport cut strikes it.
+   *            session binding, a transport cut goes to pool/transport.ts,
+   *            which can tell a mislabelled listener from a dead line.
    *
    * An empty pool keeps its documented meaning: 本地出口兜底 decides between a
    * direct egress and a refusal, and a refusal is returned as `fail` so the
@@ -581,42 +599,32 @@ export async function startIpPool(
    * quietly putting this machine's address on the wire.
    */
   /**
-   * Relabel a row whose protocol the listener disagrees with, after a real
-   * transport failure (live 2026-10-25).
+   * A pin the rotation had to skip, said out loud — once per outage.
    *
-   * The failure that motivated it: a manual row `127.0.0.1:30035` labelled
-   * `http` on a sing-box SOCKS inbound. Every request died in 6 ms with
-   * `502 relay_error ECONNRESET`, and nothing corrected the row because a
-   * transport cut is indistinguishable, to the pool, from a dead exit — so it
-   * kept striking a row that was alive all along.
-   *
-   * Only rows with NO measured facts are re-examined (`source === 'manual'` or
-   * never admitted): a subscription exit's protocol came from a real request
-   * and a relabel there would be guessing. Probing is coalesced (one in flight
-   * per row, at most one per 30 s) because the adapter's rotation can report
-   * several transport failures for the same row in a second, and it is
-   * fire-and-forget: a verdict that never arrives must not stall a request.
+   * Falling through is CORRECT (a pin is a preference: `pinnedStrict` is the
+   * card's promise about rotating on failure, and this is that failure), but it
+   * was silent, which is how a live profile read "the pinned row is still
+   * working fine" while every request was carried by another exit (2026-10-25).
+   * One line per outage, and the row's own reason, so the log answers
+   * "why is my pin not being used" without a status dump.
    */
-  const protocolProbes = new Map<string, number>()
-  const healProtocol = (exitId: string): void => {
-    const node = pool.get(exitId)
-    if (node === undefined) return
-    if (node.source !== 'manual' && node.exitIP !== '') return
-    const now = Date.now()
-    if (now - (protocolProbes.get(exitId) ?? 0) < 30_000) return
-    protocolProbes.set(exitId, now)
-    void (deps.detectProtocol ?? detectProxyProtocol)(exitId)
-      .then((found) => {
-        if (found === null) return
-        const current = pool.get(exitId)
-        if (current === undefined || current.protocol === found) return
-        if (!pool.refresh(exitId, { protocol: found })) return
-        logger.warn(`oc2dsh: 出口 ${exitId} 标的是 ${current.protocol}，实测是 ${found}（已纠正；下一次请求就走对了）`)
-      })
-      .catch(() => {
-        // a probe that cannot answer leaves the row exactly as it was
-      })
-  }
+  const pinSkips = new Set<string>()
+  pool.onPinnedSkip((pinned, used) => {
+    if (pinSkips.has(pinned)) return
+    const row = pool.list().find((entry) => entry.id === pinned)
+    if (row === undefined) return
+    const health = row.health
+    const waitMs = Math.max(0, health.cooldownUntil - Date.now())
+    const why = health.state === 'dead'
+      ? '已判 dead'
+      : waitMs > 0
+        ? `冷却中（还有 ${Math.ceil(waitMs / 1000)}s）`
+        : health.note === 'abusive'
+          ? `被上游按 IP 拒绝（${health.note}）`
+          : '当前不可用'
+    pinSkips.add(pinned)
+    logger.warn(`oc2dsh: 固定出口 ${pinned} ${why}；本次请求改走 ${used}（修好或重新固定后自动回到它）`)
+  })
 
   setRelayEgressSeams({
     pick: ({ model, session }) => {
@@ -629,15 +637,16 @@ export async function startIpPool(
       if (exit === undefined) {
         return config.ipPool?.localFallback === true || pool.pinnedLocal ? null : { fail: NO_EXIT_MESSAGE }
       }
+      // The pin is serving again: re-arm the warning for the NEXT outage.
+      pinSkips.delete(exitId)
       pool.beginRequest(exitId)
       return { exitId, model, session, url: exitProxyUri(exit.id, exit.protocol) }
     },
     settle: (pick, outcome) => {
       try {
         if (outcome.transport === true) {
-          pool.recordPassiveTransport(pick.exitId)
+          transportVerdicts.cut(pick.exitId)
           pool.rerouteSession(pick.session)
-          healProtocol(pick.exitId)
         } else if (outcome.status !== undefined) {
           const verdict = pool.recordPassive(pick.exitId, outcome.status, pick.model)
           if (verdict !== 'ok') pool.rerouteSession(pick.session)

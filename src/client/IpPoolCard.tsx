@@ -151,6 +151,10 @@ export interface PoolStatusView {
    *  optional so a bundle can still read a host snapshot from before the
    *  field existed. */
   pinned: { id: string; strict: boolean; local?: boolean } | null
+  /** Why the pin is not carrying traffic right now ('dead' / 'cooling').
+   *  Optional so a bundle can read a host snapshot from before the field
+   *  existed; null = the pin is in use, or nothing is pinned. */
+  pinnedSkip?: 'dead' | 'cooling' | null
   proxyHosts: string[]
   exits: Array<{
     id: string
@@ -733,6 +737,16 @@ function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps[
               badge says what it does instead (2026-10-14). */}
           {status.pinned.local === true ? t('pinnedBadgeLocal') : t('pinnedBadge')}
           {status.pinned.strict && status.pinned.local !== true ? ' (' + t('pinnedStrict') + ')' : ''}
+        </Tag>
+      )}
+      {/* The pin above stays on screen while the row is out of service, so the
+          strip has to say the requests are NOT going through it — otherwise the
+          badge reads as "your pin is carrying traffic" while the rotation is
+          quietly using another exit (live 2026-10-25). */}
+      {status.pinned !== null && status.pinned.local !== true && status.pinnedSkip != null && (
+        <Tag tone="danger">
+          {t(status.pinnedSkip === 'dead' ? 'pinnedSkipDead' : 'pinnedSkipCooling')
+            .replace('{id}', status.pinned.id)}
         </Tag>
       )}
     </div>

@@ -35,6 +35,8 @@ export interface InstallerDeps {
   localIpFamily?: LocalIpFamily
   /** Interface-table seam for the `auto` position (tests; see dispatcher.ts). */
   listInterfaces?: InterfaceReader
+  /** Judge one transport cut (pool/transport.ts); unset = a cut is a strike. */
+  onTransportCut?: (exitId: string) => void
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
@@ -169,6 +171,7 @@ export class RoutingInstaller {
       localFallback: this.#deps.localFallback === true,
       localIpFamily: resolveLocalIpFamily(this.#deps.localIpFamily),
       listInterfaces: this.#deps.listInterfaces,
+      onTransportCut: this.#deps.onTransportCut,
       logger: this.#deps.logger,
     })
     // Read BEFORE swapping: undici's `setGlobalDispatcher` returns void (not

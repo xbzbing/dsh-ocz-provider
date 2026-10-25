@@ -148,6 +148,8 @@ export class ExitPool {
   #admittedCallbacks: Array<() => void> = []
   /** Fired when an exit transitions to dead — see onDead(). */
   #deadCallbacks: Array<(id: string) => void> = []
+  /** Fired when a set pin is skipped by the rotation — see onPinnedSkip(). */
+  #pinSkipCallbacks: Array<(pinned: string, used: string) => void> = []
   /**
    * Exits rejected by the upstream lane (a failed OpenCode smoke, or a 401/403
    * verdict) with no reserve left to promote: they stay in the pool as the last
@@ -433,6 +435,36 @@ export class ExitPool {
   }
 
   /**
+   * Put one struck-dead row back into service, WITHOUT claiming it is healthy.
+   *
+   * Why this has to exist (live 2026-10-25): a `dead` mark is permanent until
+   * something proves the row alive, and the only two proofs were a real 2xx
+   * through it — impossible, `pick()` skips dead rows — or the card's 探测
+   * action. That made ONE strike a life sentence for a row whose only fault
+   * was a mislabelled protocol: correcting the label fixed the cause and left
+   * the sentence behind, so a pinned row that had been healed still read dead
+   * and still never carried a request.
+   *
+   * The revived row lands in 'unknown', not 'ok': a corrected label is evidence
+   * about the LISTENER, not about the lane, so it re-enters the rotation below
+   * the measured tier — and a pinned row is picked again immediately, which is
+   * the point. `deadStrikes` resets with it: the grace is per outage.
+   *
+   * Returns false when the row is no longer in the table (a rotation may have
+   * taken it while the diagnosis ran).
+   */
+  revive(id: string): boolean {
+    const health = this.#health.get(id)
+    if (health === undefined) return false
+    if (health.state === 'dead') {
+      health.state = 'unknown'
+      health.deadStrikes = 0
+      health.deadAt = 0
+    }
+    return true
+  }
+
+  /**
    * OpenCode refused this exit's IP on reputation grounds (…abusive traffic
    * from this IP address…, live 2026-10-19): bench it for the long haul and
    * record why. Rotating back onto the same address inside the flag's lifetime
@@ -650,6 +682,21 @@ export class ExitPool {
     this.#countPassive(id, 'transport')
   }
 
+  /**
+   * Count a transport-level failure WITHOUT deciding the row's fate.
+   *
+   * Cuts reach this table through pool/transport.ts, which may still be
+   * finding out what one means: a listener whose scheme is mislabelled
+   * answers nothing at all, and that is not a dead line (live 2026-10-25).
+   * The counters are diagnostics — `passive.transport` has to say how often an
+   * exit dropped a request either way — so counting is separable from
+   * striking.
+   */
+  recordTransportSignal(id: string): void {
+    if (!this.#nodes.has(id)) return
+    this.#countPassive(id, 'transport')
+  }
+
   /** Drop the session's sticky exit when its exit degraded (§3.3). */
   rerouteSession(session: string): void {
     this.#sessionExit.delete(session)
@@ -728,20 +775,34 @@ export class ExitPool {
    * means every request egresses from this machine, so falling through to the
    * pool would silently ignore the operator's click. Null is the dispatcher's
    * documented direct path (3.3), not an error.
+   *
+   * A pin that IS set but unusable falls through to the rotation — and says so
+   * through the pin-skip callback. The fall-through is correct (a pin is a
+   * preference, see `pinnedStrict`), but it used to be invisible, which is how
+   * a live profile read "the pinned row is working" while every request was
+   * carried by another exit (2026-10-25).
    */
   pick(session: string, model: string): string | null {
     if (this.pinnedId === LOCAL_EXIT_ID) return null
-    if (this.pinnedId !== '' && this.isUsable(this.pinnedId, model)) {
+    const pinned = this.pinnedId
+    if (pinned !== '' && this.isUsable(pinned, model)) {
       // Record the binding even on the pin path: the verdicts that arrive
       // AFTER the response (the adapter's 403 accounting — exitOfSession) need
       // to know which exit answered, and while a pin is set that is always the
       // pinned one. Without this, an IP-reputation refusal or a RegionError
       // landed with no exit to blame, so the row was never benched — live
       // 2026-10-19, a pin on a flagged exit kept failing with nothing recorded.
-      this.#sessionExit.set(session, this.pinnedId)
-      return this.pinnedId
+      this.#sessionExit.set(session, pinned)
+      return pinned
     }
 
+    const chosen = this.#rotate(session, model)
+    if (chosen !== null && pinned !== '') this.#notifyPinSkip(pinned, chosen)
+    return chosen
+  }
+
+  /** Sticky-else-sorted selection over the usable rows (pick's second half). */
+  #rotate(session: string, model: string): string | null {
     const last = this.#sessionExit.get(session)
     if (last !== undefined && this.isUsable(last, model)) return last
 
@@ -771,6 +832,26 @@ export class ExitPool {
     if (chosen === undefined) return null
     this.#sessionExit.set(session, chosen)
     return chosen
+  }
+
+  /**
+   * Register a callback fired when a set pin could not be used and another exit
+   * carried the request. Fired on EVERY such pick; the runtime decides how
+   * often to speak (it warns once per outage).
+   */
+  onPinnedSkip(callback: (pinned: string, used: string) => void): void {
+    this.#pinSkipCallbacks.push(callback)
+  }
+
+  /** A watcher's failure must never fail a pick. */
+  #notifyPinSkip(pinned: string, used: string): void {
+    for (const callback of this.#pinSkipCallbacks) {
+      try {
+        callback(pinned, used)
+      } catch {
+        /* swallowed on purpose: routing is not the watcher's */
+      }
+    }
   }
 
   /** Drop the session's sticky exit (cooldown/dead/ban broke it). */
