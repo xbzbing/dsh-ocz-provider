@@ -75,6 +75,15 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
   inventory, a test/gate recap, or an AI attribution. Chinese appears only as
   literal UI copy (`清空`, `流量`, `本机`, …) or a real code identifier.
 
+## Comments
+
+Comments describe the code's FINAL behaviour and the invariant that would
+break without it — one or two lines, no timeline, no bug-hunt retelling, no
+`live 2026-10-xx` dates. Decisions (why a width, a gate rule, a retry budget
+is what it is) belong in `docs/design.md`, `docs/ip-pool.md` or this file, not
+in a comment; a comment may point at the doc in one clause, never carry the
+argument itself.
+
 ## Project-specific settings (do not guess these)
 
 | Setting | Value | Where |

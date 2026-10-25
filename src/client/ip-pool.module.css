@@ -975,30 +975,30 @@
   font-size: 12px;
 }
 
-/* Column budget (sums to 100%): 10 columns — IP, region, state, requests,
-   input, output (which also carries the "N tok/s" note), cache, latency,
-   last-used, actions. The `#` slot column was dropped and the location column
-   became a tooltip on the IP cell (2026-10-14); the 地区 code column and the
-   actions column (固定 / 轮换) were added back the same day on request. Keep
-   this block in step with the header: a leftover rule silently squeezes the
-   first column (measured 2026-10-14: IP at 4% after `#` was removed but its
-   width rules stayed). */
-.statsTable th:nth-child(1) { width: 22%; }
+/* Column budget (sums to 100%): IP, region, state, requests, input, output,
+   cache, latency, last-used, actions — 10 rules, one per <th>, and they must
+   stay in step with the header, because an extra rule silently squeezes the
+   first column. 输出 (13%) is the widest numeric column: it holds the count and
+   the "N tok/s" note on one line, so it needs room for both. */
+.statsTable th:nth-child(1) { width: 20%; }
 .statsTable th:nth-child(2) { width: 7%; }
 .statsTable th:nth-child(3) { width: 9%; }
 .statsTable th:nth-child(4) { width: 8%; }
 .statsTable th:nth-child(5) { width: 7%; }
-.statsTable th:nth-child(6) { width: 10%; }
-.statsTable th:nth-child(7) { width: 7%; }
+.statsTable th:nth-child(6) { width: 13%; }
+.statsTable th:nth-child(7) { width: 6%; }
 .statsTable th:nth-child(8) { width: 7%; }
 .statsTable th:nth-child(9) { width: 11%; }
 .statsTable th:nth-child(10) { width: 12%; }
 
+/* Side gutters are 6px everywhere: ten columns of 8px padding cost 160px of
+   the card, and the numeric run (输入 / 输出 / 缓存) is what the tighter gutter
+   buys room for. */
 .statsTable th {
   text-align: left;
   font-weight: 600;
   color: var(--dsw-alias-label-tertiary, #6b7280);
-  padding: 6px 8px;
+  padding: 6px;
   border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
   white-space: normal;
 }
@@ -1034,12 +1034,21 @@
   text-align: center;
 }
 
+/* Side gutters match the header (6px). */
 .statsTable td {
-  padding: 6px 8px;
+  padding: 6px;
   border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
   color: var(--dsw-alias-label-primary, #1f2329);
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+/* The 输出 cell keeps the count and the "N tok/s" note on ONE line; the generic
+   cell rules above would break them apart at the space. The column is sized to
+   fit the pair, so nothing is truncated here. */
+.statsOutputCell {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .statsRowMuted td {
@@ -1070,11 +1079,11 @@
 /* The local SOCKS5 endpoint of an exit that was never verified: a debugging
    handle, never an exit IP, so it stays muted and out of the way. */
 .statsEndpoint {
-  margin-left: 6px;
+  margin-left: 4px;
   color: var(--dsw-alias-label-tertiary, #6b7280);
   font-size: 0.86em;
-  /* "37 tok/s" must not break between the number and its unit: a wrapped
-     "tok/s" reads as a second value in a dense numeric cell (live 2026-10-14). */
+  /* The speed never breaks between its number and its unit: a lone "tok/s" on
+     a second line reads as a separate value in a dense numeric cell. */
   white-space: nowrap;
 }
 

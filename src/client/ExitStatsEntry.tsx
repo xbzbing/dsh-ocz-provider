@@ -548,7 +548,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                       </td>
                       <td>{exit.requests.toLocaleString()}</td>
                       <td>{compact(exit.tokens.inputTokens)}</td>
-                      <td>
+                      <td className={styles.statsOutputCell}>
                         {compact(exit.tokens.outputTokens)}
                         {(exit.speed ?? 0) > 0 && (
                           <span className={styles.statsEndpoint}>{t('statsSpeedNote', { count: (exit.speed ?? 0).toLocaleString() })}</span>
@@ -620,7 +620,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   </td>
                   <td>{(status?.local?.requests ?? 0).toLocaleString()}</td>
                   <td>{status?.local === undefined ? t('statsNever') : compact(status.local.tokens.inputTokens)}</td>
-                  <td>
+                  <td className={styles.statsOutputCell}>
                     {status?.local === undefined ? t('statsNever') : (
                       <>
                         {compact(status.local.tokens.outputTokens)}
