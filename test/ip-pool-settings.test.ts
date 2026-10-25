@@ -677,6 +677,55 @@ test('exit handler: a read-only profile still pins live, and says it did not per
   assert.equal(pool.pinnedId, '127.0.0.1:30001', 'the click is honest about being volatile, not silently dropped')
 })
 
+test('exit handler: a mislabelled row is relabelled before the pin lands', async () => {
+  // Live 2026-10-25: `127.0.0.1:30035` was a manual row labelled `http` on a
+  // sing-box SOCKS inbound. Pinning it answered 502 relay_error ECONNRESET on
+  // every request in 6 ms. The pin now asks the listener first.
+  const manual = exitNode({ id: '127.0.0.1:30035', protocol: 'http', source: 'manual', exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C' })
+  const { runtime, pool } = rowActionRuntime({ exits: [manual], replaceExit: undefined })
+  const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }), {
+    writePin: async () => true,
+    detectProtocol: async () => 'socks5',
+  })
+  const result = await handlers.exit({ action: 'pin', exitId: '127.0.0.1:30035' })
+  assert.deepEqual(result, {
+    ok: true,
+    value: { pinned: '127.0.0.1:30035', local: false, persisted: true, corrected: 'socks5' },
+  })
+  assert.equal(pool.get('127.0.0.1:30035')?.protocol, 'socks5', 'the row now matches the listener')
+  assert.equal(pool.pinnedId, '127.0.0.1:30035')
+})
+
+test('exit handler: a pin to a port with nothing behind it is refused, not applied', async () => {
+  const manual = exitNode({ id: '127.0.0.1:30035', protocol: 'http', source: 'manual', exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C' })
+  const { runtime, pool } = rowActionRuntime({ exits: [manual] })
+  const writes: string[] = []
+  const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }), {
+    writePin: async (value) => { writes.push(value); return true },
+    detectProtocol: async () => null,
+  })
+  const result = await handlers.exit({ action: 'pin', exitId: '127.0.0.1:30035' })
+  assert.equal(result.ok, false)
+  assert.equal((result as { code: string }).code, 'exit-unreachable')
+  assert.match((result as { message: string }).message, /127\.0\.0\.1:30035/)
+  assert.deepEqual(writes, [], 'a refused pin must not be persisted')
+  assert.equal(pool.pinnedId, '', 'and must not silently pin anyway')
+})
+
+test('exit handler: a measured exit is pinned without a probe', async () => {
+  // A verified subscription row already proved its protocol with real traffic;
+  // probing it on every click would only add a second of latency.
+  const { runtime } = rowActionRuntime()
+  let probed = 0
+  const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }), {
+    writePin: async () => true,
+    detectProtocol: async () => { probed += 1; return 'http' },
+  })
+  const result = await handlers.exit({ action: 'pin', exitId: '127.0.0.1:30002' })
+  assert.equal(result.ok, true)
+  assert.equal(probed, 0, 'no probe for a row that already has measured facts')
+})
+
 test('exit handler: 轮换 promotes a reserve through the subscription layer', async () => {
   const { runtime, replaced, demoted } = rowActionRuntime({ replaceExit: async () => true })
   const handlers = makeBridgeHandlers(() => runtime as never, () => ({ pinnedStrict: false, proxyHosts: [] }))

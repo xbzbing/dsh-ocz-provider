@@ -62,6 +62,12 @@ export interface RelaySupervisorOptions {
   readyTimeoutMs?: number
   /** Restart backoff ceiling (attempts beyond this give up for this process). */
   maxRestarts?: number
+  /**
+   * Continuous uptime after which the restart budget is given back. A crash
+   * loop still exhausts it; isolated crashes spread over hours no longer add
+   * up to a permanent "gave up, requests go direct" state.
+   */
+  healthyResetMs?: number
 }
 
 export interface RelayStatus {
@@ -171,6 +177,7 @@ export class RelaySupervisor {
   readonly #healthFetch: (url: string, signal: AbortSignal) => Promise<unknown>
   readonly #readyTimeoutMs: number
   readonly #maxRestarts: number
+  readonly #healthyResetMs: number
   #child: ChildProcessWithoutNullStreams | null = null
   #baseUrl: string | null = null
   #bunPath: string | null = null
@@ -187,6 +194,7 @@ export class RelaySupervisor {
     this.#healthFetch = options.healthFetch ?? defaultHealthFetch
     this.#readyTimeoutMs = options.readyTimeoutMs ?? 15_000
     this.#maxRestarts = options.maxRestarts ?? 5
+    this.#healthyResetMs = options.healthyResetMs ?? 60_000
   }
 
   get upstream(): string {
@@ -349,6 +357,7 @@ export class RelaySupervisor {
             this.#probe(health)
               .then(() => {
                 this.#detach(child)
+                this.#armBudgetReset(child)
                 resolve(port)
               })
               .catch((err: unknown) => {
@@ -386,6 +395,26 @@ export class RelaySupervisor {
         this.#onExit(code, signal)
       })
     })
+  }
+
+  /**
+   * Give the restart budget back once a relay has stayed up.
+   *
+   * The budget exists to stop a crash LOOP; it must not be a lifetime
+   * allowance. Live 2026-10-25: five independent kills (my own `pkill` while
+   * probing, not a crash) spent the whole allowance, after which the next exit
+   * would have answered "gave up after 5 restarts; requests will go direct
+   * (429 expected)" — a silent degradation on a host that had been healthy for
+   * hours. So the counter resets after {@link #healthyResetMs} of continuous
+   * uptime, and a child that dies before that keeps its strikes.
+   */
+  #armBudgetReset(child: ChildProcessWithoutNullStreams): void {
+    const timer = setTimeout(() => {
+      if (this.#stopping) return
+      if (this.#child !== child || this.#baseUrl === null) return
+      this.#restarts = 0
+    }, this.#healthyResetMs)
+    timer.unref?.()
   }
 
   /**

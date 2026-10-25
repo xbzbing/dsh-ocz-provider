@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 
 import { ExitPool, type ExitNode } from '../src/pool/pool.ts'
 import { buildPoolFromConfig, startIpPool, syncManualExits, applyProbeVerdict } from '../src/ip-pool.ts'
+import { pickRelayEgress, settleRelayEgress, type RelayEgressPick } from '../src/relay/egress.ts'
 
 const quiet = { info: () => {}, warn: () => {} }
 
@@ -115,6 +116,66 @@ test('syncManualExits: pinning an admitted exit keeps the row and its source', (
   assert.equal(pool.get('127.0.0.1:30005')?.source, 'subscription', 'pinning must not re-label the row manual')
   assert.equal(pool.pinnedId, '127.0.0.1:30005')
   assert.equal(pool.get('127.0.0.1:30005')?.pinned, true)
+})
+
+test('relay transport failure relabels a manual row the listener disagrees with', async () => {
+  // Live 2026-10-25: manual row `127.0.0.1:30035` said `http`, sing-box served
+  // SOCKS5 there, and every request through the relay died in 6 ms with
+  // `502 relay_error ECONNRESET`. A transport cut is indistinguishable from a
+  // dead exit to the pool, so it kept striking a row that was alive — the row
+  // has to be re-examined, and only rows with NO measured facts may be.
+  let probes = 0
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, free: { enabled: false }, manual: ['127.0.0.1:30035'] } },
+    quiet,
+    {
+      makeInstaller: () => fakeInstaller(),
+      detectProtocol: async () => { probes += 1; return 'socks5' },
+    },
+  )
+  assert.ok(runtime !== null)
+  const row = runtime.pool.get('127.0.0.1:30035')
+  assert.equal(row?.protocol, 'http', 'the row starts as the operator spelled it')
+
+  const pick = pickRelayEgress({ model: 'mimo-v2.6-flash-free', session: 'ses_abc' })
+  assert.ok(pick !== null && !('fail' in pick))
+  settleRelayEgress(pick as RelayEgressPick, { transport: true })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  assert.equal(probes, 1)
+  assert.equal(runtime.pool.get('127.0.0.1:30035')?.protocol, 'socks5', 'the row now matches the listener')
+
+  // A second failure inside the coalescing window must not re-probe.
+  settleRelayEgress(pick as RelayEgressPick, { transport: true })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(probes, 1, 'probes are coalesced per row')
+  await runtime.dispose()
+})
+
+test('relay transport failure never relabels a row that has measured facts', async () => {
+  // A subscription exit's protocol came from real traffic; a transport cut
+  // there means the exit is gone, not that its scheme was mistyped.
+  let probes = 0
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, free: { enabled: false } } },
+    quiet,
+    {
+      makeInstaller: () => fakeInstaller(),
+      detectProtocol: async () => { probes += 1; return 'http' },
+    },
+  )
+  assert.ok(runtime !== null)
+  runtime.pool.add(node({ id: '127.0.0.1:30033', protocol: 'socks5', exitIP: '9.9.9.9' }))
+  runtime.pool.markOk('127.0.0.1:30033')
+
+  const pick = pickRelayEgress({ model: 'mimo-v2.6-flash-free', session: 'ses_abc' })
+  assert.ok(pick !== null && !('fail' in pick))
+  settleRelayEgress(pick as RelayEgressPick, { transport: true })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+
+  assert.equal(probes, 0, 'a measured row is not re-examined')
+  assert.equal(runtime.pool.get('127.0.0.1:30033')?.protocol, 'socks5')
+  await runtime.dispose()
 })
 
 // -- assembly wiring -----------------------------------------------------------

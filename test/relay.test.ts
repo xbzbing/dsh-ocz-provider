@@ -45,6 +45,7 @@ function makeSupervisor(options: {
   /** The port the fake child reports (never 0 — that is what a real relay avoids). */
   reportedPort?: number
   maxRestarts?: number
+  healthyResetMs?: number
 } = {}) {
   const children: FakeChild[] = []
   const calls: Array<{ command: string; args: string[]; env: NodeJS.ProcessEnv }> = []
@@ -64,6 +65,7 @@ function makeSupervisor(options: {
     readyTimeoutMs: 2_000,
     logger: { info: () => {}, warn: (message: string) => warnings.push(message) },
     ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
+    ...(options.healthyResetMs !== undefined ? { healthyResetMs: options.healthyResetMs } : {}),
   })
   return { supervisor, children, calls, warnings }
 }
@@ -155,6 +157,50 @@ test('a crash clears the base URL and restarts the relay', async () => {
     children[0]!.emit('exit', 1, null)
     assert.equal(supervisor.baseUrl, null, 'a dead relay is not offered to the adapter')
     assert.equal(supervisor.status().restarts, 1)
+    await supervisor.stop()
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('a relay that stays up gives the restart budget back', async () => {
+  // The budget must bound a crash LOOP, not a process lifetime. Live
+  // 2026-10-25: five isolated kills spent all five restarts, and the next exit
+  // would have answered "gave up … requests will go direct (429 expected)" on
+  // a machine whose relay had been healthy for hours.
+  const temp = await mkdtemp(join(tmpdir(), 'oc2dsh-bun-'))
+  const bun = join(temp, 'bun')
+  await writeFile(bun, '')
+  try {
+    const { supervisor, children } = makeSupervisor({ bunPath: bun, healthyResetMs: 20 })
+    await supervisor.start()
+    children[0]!.emit('exit', 1, null)
+    assert.equal(supervisor.status().restarts, 1)
+    // backoff after the first strike is 500 ms, then the child reports ready
+    await new Promise((resolve) => setTimeout(resolve, 650))
+    assert.equal(children.length, 2, 'the restarted child is up')
+    assert.equal(supervisor.status().baseUrl, 'http://127.0.0.1:45678')
+    await new Promise((resolve) => setTimeout(resolve, 80))
+    assert.equal(supervisor.status().restarts, 0, 'sustained uptime returns the budget')
+    await supervisor.stop()
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
+test('a relay that dies before the window keeps its strike', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'oc2dsh-bun-'))
+  const bun = join(temp, 'bun')
+  await writeFile(bun, '')
+  try {
+    // A window far longer than the test: the counter must NOT decay, which is
+    // what keeps a genuine crash loop from running forever.
+    const { supervisor, children } = makeSupervisor({ bunPath: bun, healthyResetMs: 60_000 })
+    await supervisor.start()
+    children[0]!.emit('exit', 1, null)
+    await new Promise((resolve) => setTimeout(resolve, 650))
+    assert.equal(children.length, 2)
+    assert.equal(supervisor.status().restarts, 1, 'a short-lived child does not clear its record')
     await supervisor.stop()
   } finally {
     await rm(temp, { recursive: true, force: true })

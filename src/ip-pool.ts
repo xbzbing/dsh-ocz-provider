@@ -20,6 +20,7 @@ import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
 import { LOCAL_EXIT_ID } from './pool/usage.ts'
 import { NO_EXIT_MESSAGE, exitProxyUri, type UndiciSeam } from './pool/dispatcher.ts'
 import { setRelayEgressSeams } from './relay/egress.ts'
+import { detectProxyProtocol, type ProxyProtocol } from './pool/protocol.ts'
 import { resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts'
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
@@ -245,6 +246,12 @@ export interface IpPoolAssemblyDeps {
    * cools healthy exits (admission.ts).
    */
   relayBaseUrl?: () => string | null
+  /**
+   * Which protocol a listener actually speaks (pool/protocol.ts). Injected so
+   * the transport-failure heal (see `healProtocol`) is unit-testable without
+   * opening sockets.
+   */
+  detectProtocol?: (address: string) => Promise<ProxyProtocol | null>
 }
 
 /**
@@ -573,6 +580,44 @@ export async function startIpPool(
    * adapter can surface it (the dispatcher's #failClosed parity) rather than
    * quietly putting this machine's address on the wire.
    */
+  /**
+   * Relabel a row whose protocol the listener disagrees with, after a real
+   * transport failure (live 2026-10-25).
+   *
+   * The failure that motivated it: a manual row `127.0.0.1:30035` labelled
+   * `http` on a sing-box SOCKS inbound. Every request died in 6 ms with
+   * `502 relay_error ECONNRESET`, and nothing corrected the row because a
+   * transport cut is indistinguishable, to the pool, from a dead exit — so it
+   * kept striking a row that was alive all along.
+   *
+   * Only rows with NO measured facts are re-examined (`source === 'manual'` or
+   * never admitted): a subscription exit's protocol came from a real request
+   * and a relabel there would be guessing. Probing is coalesced (one in flight
+   * per row, at most one per 30 s) because the adapter's rotation can report
+   * several transport failures for the same row in a second, and it is
+   * fire-and-forget: a verdict that never arrives must not stall a request.
+   */
+  const protocolProbes = new Map<string, number>()
+  const healProtocol = (exitId: string): void => {
+    const node = pool.get(exitId)
+    if (node === undefined) return
+    if (node.source !== 'manual' && node.exitIP !== '') return
+    const now = Date.now()
+    if (now - (protocolProbes.get(exitId) ?? 0) < 30_000) return
+    protocolProbes.set(exitId, now)
+    void (deps.detectProtocol ?? detectProxyProtocol)(exitId)
+      .then((found) => {
+        if (found === null) return
+        const current = pool.get(exitId)
+        if (current === undefined || current.protocol === found) return
+        if (!pool.refresh(exitId, { protocol: found })) return
+        logger.warn(`oc2dsh: 出口 ${exitId} 标的是 ${current.protocol}，实测是 ${found}（已纠正；下一次请求就走对了）`)
+      })
+      .catch(() => {
+        // a probe that cannot answer leaves the row exactly as it was
+      })
+  }
+
   setRelayEgressSeams({
     pick: ({ model, session }) => {
       if (config.ipPool?.enabled === false) return null
@@ -592,6 +637,7 @@ export async function startIpPool(
         if (outcome.transport === true) {
           pool.recordPassiveTransport(pick.exitId)
           pool.rerouteSession(pick.session)
+          healProtocol(pick.exitId)
         } else if (outcome.status !== undefined) {
           const verdict = pool.recordPassive(pick.exitId, outcome.status, pick.model)
           if (verdict !== 'ok') pool.rerouteSession(pick.session)

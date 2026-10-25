@@ -114,6 +114,12 @@ interface RelaySupervisorOptions {
   readyTimeoutMs?: number;
   /** Restart backoff ceiling (attempts beyond this give up for this process). */
   maxRestarts?: number;
+  /**
+   * Continuous uptime after which the restart budget is given back. A crash
+   * loop still exhausts it; isolated crashes spread over hours no longer add
+   * up to a permanent "gave up, requests go direct" state.
+   */
+  healthyResetMs?: number;
 }
 interface RelayStatus {
   /** True while a relay process is up and answering health probes. */

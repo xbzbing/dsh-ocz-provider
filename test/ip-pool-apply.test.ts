@@ -32,7 +32,7 @@ function resetCalls(): void {
 /** Test assembly seam: a runtime face with just what apply.ts touches. */
 const assemble: AssembleIpPool = async (config) => {
   const runtime = {
-    pool: { snapshot: () => ({ total: 1 }), targetSize: 20, list: () => [], has: () => true },
+    pool: { snapshot: () => ({ total: 1 }), targetSize: 20, list: () => [], has: () => true, get: () => undefined },
     installer: { enabled: false, install() { this.enabled = true }, disable() { this.enabled = false }, dispose() {} },
     prober: { stats: { queued: 0, inFlight: 0, enqueued: 0, completed: 0 }, setMaxConcurrent() {} },
     refill: null,
@@ -274,6 +274,19 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
       targetSize: 20,
       list: () => [],
       has: () => true,
+      // A row with measured facts: the pin path then skips the protocol probe
+      // (it only examines rows nobody has verified yet).
+      get: () => ({
+        id: '127.0.0.1:30005',
+        protocol: 'socks5',
+        source: 'subscription',
+        pinned: false,
+        exitIP: '1.1.1.1',
+        exitLocation: 'HK Central',
+        latencyMs: 12,
+        quality: 'S',
+        addedAt: 0,
+      }),
       pinnedId: '',
       pin: (id: string) => { pinCalls.push(id); return true },
       unpin: () => { pinCalls.push('') },

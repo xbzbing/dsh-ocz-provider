@@ -20,6 +20,7 @@ import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTot
 import { localDay, type UsageScope, type UsageStore } from '../pool/usage-store.ts'
 import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titles.ts'
 import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
+import { detectProxyProtocol, type ProxyProtocol } from '../pool/protocol.ts'
 
 /** Bridge route prefix (same-origin, loopback-only). */
 export const IP_POOL_BRIDGE_PREFIX = '/api/oc2dsh/ip-pool'
@@ -714,6 +715,12 @@ export function makeBridgeHandlers(
     sessionTitles?: SessionTitleResolver
     /** Process start, for the 本次重启 label. */
     runSince?: () => number
+    /**
+     * Which protocol a listener actually speaks (pool/protocol.ts). Injected so
+     * the pin checks below stay unit-testable without opening sockets; the
+     * default opens one connect-and-read per call.
+     */
+    detectProtocol?: (address: string) => Promise<ProxyProtocol | null>
   } = {},
 ): BridgeHandlers {
   return {
@@ -805,6 +812,48 @@ export function makeBridgeHandlers(
         if (raw !== '' && raw !== LOCAL_EXIT_ID && !rt.pool.has(raw)) {
           return { ok: false, code: 'unknown-exit', message: `exit "${raw}" is not in the pool` }
         }
+        /**
+         * Verify BEFORE pinning (live 2026-10-25): a pin makes `pick()` hand the
+         * row to every request, so a row whose protocol was typed wrong (or a
+         * port with nothing behind it) fails EVERY request instead of one. That
+         * day a pin on `127.0.0.1:30035` — labelled `http`, in fact a sing-box
+         * SOCKS inbound — answered `502 relay_error ECONNRESET` in 6 ms for the
+         * whole session, and the ledger booked 6 requests / 0 tokens to it.
+         *
+         * The two outcomes are deliberately different:
+         *   - a listener that speaks the OTHER protocol is self-correcting: the
+         *     row is relabelled and the pin proceeds (the operator's intent —
+         *     "route through this port" — is unambiguous);
+         *   - nothing answering at all is refused, because no relabel can make
+         *     it work and a pin would silence the whole lane.
+         * Rows with measured facts (a verified subscription exit) are skipped:
+         * their protocol came from a real request, and a second of probing on
+         * every pin click would only add latency there.
+         */
+        let corrected: ProxyProtocol | null = null
+        if (raw !== '' && raw !== LOCAL_EXIT_ID) {
+          const node = rt.pool.get(raw)
+          const unverified = node === undefined || node.exitIP === '' || node.source === 'manual'
+          if (unverified) {
+            let found: ProxyProtocol | null
+            try {
+              found = await (deps.detectProtocol ?? detectProxyProtocol)(raw)
+            } catch {
+              found = null
+            }
+            if (found === null) {
+              return {
+                ok: false,
+                code: 'exit-unreachable',
+                message: `出口 ${raw} 没有监听（或不是代理），未固定：换一个出口，或先确认该端口已启动`,
+              }
+            }
+            if (node !== undefined && found !== node.protocol) {
+              rt.pool.refresh(raw, { protocol: found })
+              corrected = found
+            }
+          }
+        }
         // Persist first, then apply: the settings commit lands on the same
         // pool through reconfigure(), and applying it here as well makes the
         // click effective even when the profile is read-only (the modal then
@@ -818,7 +867,12 @@ export function makeBridgeHandlers(
         if (raw === '') rt.pool.unpin()
         else if (raw === LOCAL_EXIT_ID) rt.pool.pinLocal()
         else rt.pool.pin(raw)
-        return { ok: true, value: { pinned: raw, local: raw === LOCAL_EXIT_ID, persisted } }
+        return {
+          ok: true,
+          // `corrected` appears only when the row was relabelled, so a pin on a
+          // healthy row answers exactly what it always did.
+          value: { pinned: raw, local: raw === LOCAL_EXIT_ID, persisted, ...(corrected === null ? {} : { corrected }) },
+        }
       }
 
       if (action === 'rotate') {

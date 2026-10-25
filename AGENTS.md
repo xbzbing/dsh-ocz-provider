@@ -92,7 +92,7 @@ node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 | Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.1.4/<client>`, whose last segment mirrors the effective `x-opencode-client` (so Desktop mode sends `/desktop`); it is read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep Node's happy-eyeballs fallback. Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts |
 | Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
-| Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
+| Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Crashes restart with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
 | Config schema nodes must stay plain | NEVER put `.transform()` (or any callback-bearing node) in `Config`. dsh-settings rebuilds the served form from `Config.toJSON()` (`plainSchema`) and serializes it a SECOND time for the browser; a transform's `callback` survives the first `toJSON()` but is dropped on that rebuild, so the browser rehydrates a callback-less node, `ConfigFormController.decode()` throws `callback is not a function`, and the whole configuration card stays loading forever — invisible (live 2026-10-15, introduced with the Zen 请求头 field). Validate at the editor and request boundaries instead | src/config.ts, test/request-headers.test.ts, test/model-context.test.ts, scripts/smoke-dsh-compat.mjs |
 
@@ -199,6 +199,51 @@ in `src/adapter/messages.ts` (`ensureFreeLaneShape` header comment) and
   id -> 429 (stack); Bun + stale id -> 429 (freshness); Bun + fresh id without
   the `<env>` block -> 429 (payload). Probe scripts and raw results live under
   `docs/local/capture-214/` (gitignored); the relay ships in `relay/`.
+- and a FOURTH cause that is not a gate at all: the free quota is per EGRESS
+  ADDRESS. Same bytes, same relay, same minute (2026-10-25): pool exit -> 200,
+  this machine's own egress -> 429 with `retry-after: 55248` (~15 h 20 m). A
+  session that spends its egress IP's quota therefore looks exactly like a
+  fingerprint rejection, which is how one 15-minute outage cost three separate
+  investigations. Read the `retry-after` before touching any wire code: absent
+  = one of the three halves, present = that egress's quota is spent and a
+  different exit fixes it. `relay/oc2dsh-relay.mjs` appends the egress
+  (本机出口 or 出口 <url>) and the reset window to the 429 message the host
+  displays, because the relay is the only hop that sees both the status and the
+  exit it chose.
+
+## Egress row hygiene (protocol mismatch)
+
+A row's `protocol` is typed by the operator (manual rows) or inferred by the
+subscription converter, and nothing used to check it against the listener. Live
+2026-10-25: manual row `127.0.0.1:30035` said `http` while sing-box served
+SOCKS5 on that port, so the relay sent HTTP CONNECT into a SOCKS server, the
+server dropped the socket, and EVERY request failed in 6 ms with
+`502 relay_error ECONNRESET` — the same port answers 200 through `socks5://`.
+Nothing strikes such a row out either: a transport cut is what a dead exit
+looks like, so the pool kept picking it (6 requests / 0 tokens in the ledger).
+
+Three behaviours cover it, all live-measured:
+
+- `src/pool/protocol.ts` decides what a listener actually speaks (a SOCKS5
+  greeting, then an HTTP CONNECT to an RFC 5737 address — nothing is dialled).
+  `null` means undecided and is never guessed from.
+- pinning (`POST /api/oc2dsh/ip-pool/exit`, action `pin`) probes first: a row
+  speaking the other protocol is relabelled and pinned (`corrected` in the
+  reply), a port with nothing behind it is REFUSED (`exit-unreachable`) instead
+  of silencing the lane for a whole session. Rows with measured facts skip the
+  probe.
+- after a transport failure the pool re-examines manual/unverified rows once
+  (coalesced, 30 s) and relabels a mismatch, so a pre-existing bad row heals
+  without editing settings (`healProtocol` in src/ip-pool.ts).
+
+The relay also retries one failed proxied connect on the other scheme and
+remembers the correction per host:port (`PROTO-FIX` in its log), which rescues
+the request that hit the mismatch instead of only the next one. Its SOCKS
+bridge has a 3 s handshake timeout and answers `502` instead of dropping the
+socket — a silent peer used to hang a request with no status line — and the
+rescue retry is bounded at 8 s for the same reason. `test/relay-script.test.ts`
+runs the real script against real listeners (skipped without `bun`);
+`test/protocol.test.ts` covers the detector.
 
 A machine without `bun` still works: the supervisor resolves null, the adapter
 sends directly, and the lane answers 429 — the exact pre-fix behaviour, not a

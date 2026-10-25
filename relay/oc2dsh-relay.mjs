@@ -77,6 +77,86 @@ function parseEgress(raw) {
   return { kind: 'socks5', url: value }
 }
 
+/**
+ * Protocol corrections learned at runtime, per egress URL.
+ *
+ * WHY (live 2026-10-25): pool rows carry a protocol the operator typed, and a
+ * manual row for a sing-box SOCKS inbound was labelled `http`. Bun sent HTTP
+ * CONNECT into a SOCKS server, the server dropped the socket, and the adapter
+ * surfaced `502 relay_error ECONNRESET` in 6 ms on EVERY request while the same
+ * port answered 200 through `socks5://`. The pool cannot tell that apart from a
+ * dead exit, so the rescue has to happen where the socket dies — here.
+ *
+ * A rejected connect is retried once with the other scheme; a success is
+ * remembered, so later requests skip the doomed first attempt. The pool is
+ * corrected separately (src/ip-pool.ts `healProtocol`), because this process
+ * has no way back into it.
+ */
+const protocolFixes = new Map()
+
+/** host:port of an egress URL — the key a correction is remembered under. */
+function egressKey(url) {
+  return String(url).replace(/^[a-z0-9]+:\/\//i, '').replace(/\/.*$/, '').toLowerCase()
+}
+
+/** Rebuild one egress URL on `kind`, keeping its host:port. */
+function withScheme(url, kind) {
+  return `${kind}://${egressKey(url)}`
+}
+
+/** Apply a remembered correction to this request's egress. */
+function withFix(egress) {
+  if (egress.url === undefined) return egress
+  const fixed = protocolFixes.get(egressKey(egress.url))
+  if (fixed === undefined || fixed === egress.kind) return egress
+  return { kind: fixed, url: withScheme(egress.url, fixed) }
+}
+
+/** The same proxy on the other scheme. */
+function swapEgress(egress) {
+  const kind = egress.kind === 'http' ? 'socks5' : 'http'
+  return { kind, url: withScheme(egress.url, kind) }
+}
+
+/** `55248` -> `15h20m`，for error text a human has to read. */
+function humanDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  const total = Math.round(seconds)
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.round((total % 3600) / 60)
+  if (hours === 0) return `${minutes}m`
+  return `${hours}h${String(minutes).padStart(2, '0')}m`
+}
+
+/**
+ * The 429 the free lane answers is a QUOTA on the egress ADDRESS, not a broken
+ * request (measured 2026-10-25: `retry-after: 55248` on this machine's egress
+ * while the same bytes over a pool exit answered 200). Nothing in that response
+ * says so, and the whole team spent hours believing the wire recipe was at
+ * fault — three times. So the relay, which is the only hop that sees both the
+ * status and the egress it chose, appends that context to the message the host
+ * will show. The body stays valid JSON with the original fields intact.
+ */
+function annotateQuotaResponse(text, headers, egress) {
+  const retryAfter = Number(headers.get('retry-after') ?? '')
+  const where = egress.kind === 'direct' ? '本机出口' : `出口 ${egress.url}`
+  const reset = Number.isFinite(retryAfter) && retryAfter > 0
+    ? `，retry-after ${retryAfter}s≈${humanDuration(retryAfter)} 后恢复`
+    : ''
+  const hint = `[oc2dsh: ${where}${reset}。免费额度按出口 IP 计，换一个出口即可继续]`
+  try {
+    const parsed = JSON.parse(text)
+    const error = parsed?.error ?? parsed
+    if (typeof error?.message === 'string') {
+      error.message = `${error.message} ${hint}`
+      return JSON.stringify(parsed)
+    }
+  } catch {
+    // not JSON: fall through and keep the text readable
+  }
+  return `${text} ${hint}`
+}
+
 // -- CONNECT -> SOCKS5 bridge (one listener per distinct socks proxy) --------
 
 /** scheme://host:port of a socks URL. */
@@ -92,11 +172,36 @@ function socksEndpoint(url) {
   return { host, port }
 }
 
+/**
+ * SOCKS5 handshake timeout. Loopback inbounds answer in well under a
+ * millisecond, so this only ever fires when the port is NOT a SOCKS server —
+ * exactly the mislabelled-row case, where the peer may sit on our greeting
+ * forever instead of replying (an HTTP proxy that waits for `\r\n\r\n` does).
+ * Without it the request hangs until the caller gives up and the protocol
+ * swap in the handler never fires (measured 2026-10-25).
+ */
+const SOCKS_HANDSHAKE_TIMEOUT_MS = 3_000
+
+/**
+ * Ceiling on the rescue attempt that follows a failed proxy connect (see the
+ * swap in the request handler). The FIRST attempt is deliberately unbounded, so
+ * a slow-but-healthy exit is never cut; this one only runs after a connect has
+ * already failed, where waiting is pure loss.
+ */
+const SWAP_TIMEOUT_MS = 8_000
+
 /** SOCKS5 CONNECT (no auth) on an already-open socket to the proxy. */
 function socks5Connect(socket, host, port) {
   return new Promise((resolve, reject) => {
     let stage = 0
-    const fail = (why) => reject(new Error(`socks5 ${why}`))
+    const fail = (why) => {
+      socket.setTimeout(0)
+      reject(new Error(`socks5 ${why}`))
+    }
+    socket.setTimeout(SOCKS_HANDSHAKE_TIMEOUT_MS, () => {
+      socket.destroy()
+      fail('handshake timeout')
+    })
     const onData = (chunk) => {
       if (stage === 0) {
         if (chunk[0] !== 5 || chunk[1] !== 0) return fail('auth rejected')
@@ -114,6 +219,7 @@ function socks5Connect(socket, host, port) {
       if (stage !== 1) return
       if (chunk[1] !== 0) return fail(`connect code ${chunk[1]}`)
       stage = 2
+      socket.setTimeout(0)
       socket.off('data', onData)
       // Anything after the reply belongs to the tunnel.
       const atyp = chunk[3]
@@ -159,7 +265,19 @@ function bridgeFor(socksUrl) {
         }
         const [host, port] = [target[1], Number(target[2])]
         const upstream = net.connect({ host: endpoint.host, port: endpoint.port })
-        upstream.on('error', () => client.destroy())
+        /**
+         * A dead SOCKS inbound must answer, not just drop: see the 502 written
+         * by the handshake-failure handler below.
+         */
+        upstream.on('error', () => {
+          log(`BRIDGE socks upstream unreachable ${endpoint.host}:${endpoint.port}`)
+          try {
+            client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+          } catch {
+            client.destroy()
+          }
+          upstream.destroy()
+        })
         socks5Connect(upstream, host, port).then(
           (leftover) => {
             client.write('HTTP/1.1 200 Connection Established\r\n\r\n')
@@ -170,7 +288,19 @@ function bridgeFor(socksUrl) {
           },
           (err) => {
             log(`BRIDGE socks connect failed ${host}:${port}: ${err.message}`)
-            client.destroy()
+            /**
+             * Answer like a proxy instead of dropping the socket: a silent
+             * close leaves Bun's CONNECT waiting for a status line, so the
+             * request hangs until the caller's timeout and the protocol-swap
+             * retry in the handler never fires (measured 2026-10-25, a
+             * `socks5://` label on an HTTP listener). 502 is true AND
+             * actionable.
+             */
+            try {
+              client.end('HTTP/1.1 502 Bad Gateway\r\n\r\n')
+            } catch {
+              client.destroy()
+            }
             upstream.destroy()
           },
         )
@@ -219,7 +349,8 @@ const server = Bun.serve({
     }
     const method = request.method
     const started = Date.now()
-    const egress = parseEgress(request.headers.get(EGRESS_HEADER))
+    const requested = parseEgress(request.headers.get(EGRESS_HEADER))
+    let egress = withFix(requested)
     const forwarded = new Headers()
     request.headers.forEach((value, name) => {
       const key = name.toLowerCase()
@@ -229,25 +360,52 @@ const server = Bun.serve({
     })
     const body =
       method === 'GET' || method === 'HEAD' ? undefined : new Uint8Array(await request.arrayBuffer())
-    let proxy
-    try {
-      proxy = await proxyFor(egress)
-    } catch (err) {
-      log(`${method} ${url.pathname} ${egress.kind} EGRESS-ERR ${err.message}`)
-      return Response.json({ error: { type: 'relay_error', message: String(err.message ?? err) } }, { status: 502 })
-    }
     const target = `${UPSTREAM}${url.pathname}${url.search}`
-    let upstream
-    try {
-      upstream = await fetch(target, {
+    /** One upstream attempt over `candidate`, resolving to a Response. */
+    const attempt = async (candidate, signal) => {
+      const proxy = await proxyFor(candidate)
+      return await fetch(target, {
         method,
         headers: forwarded,
         body,
         ...(proxy === undefined ? {} : { proxy }),
+        ...(signal === undefined ? {} : { signal }),
       })
+    }
+    let upstream
+    let failure
+    try {
+      upstream = await attempt(egress)
     } catch (err) {
-      log(`${method} ${url.pathname} ${egress.kind} UPSTREAM-ERR ${String(err?.message ?? err).slice(0, 160)}`)
-      return Response.json({ error: { type: 'relay_error', message: String(err?.message ?? err) } }, { status: 502 })
+      failure = err
+    }
+    /**
+     * A connect that never produced a response is exactly the shape of a
+     * protocol mismatch (see `protocolFixes`). One retry on the other scheme,
+     * and the correction is remembered for this egress URL.
+     */
+    if (upstream === undefined && (egress.kind === 'http' || egress.kind === 'socks5')) {
+      /**
+       * The rescue attempt is BOUNDED: the first attempt already failed, so a
+       * peer that accepts the connection and then says nothing (a proxy waiting
+       * for a full header block, a wedged inbound) would otherwise hold this
+       * request forever — measured 2026-10-25, a silent peer hung a request with
+       * no status line and no timeout. Healthy traffic never reaches here, so
+       * this bound cannot cut a slow-but-working exit.
+       */
+      const alt = swapEgress(egress)
+      try {
+        upstream = await attempt(alt, AbortSignal.timeout(SWAP_TIMEOUT_MS))
+        egress = alt
+        protocolFixes.set(egressKey(alt.url), alt.kind)
+        log(`PROTO-FIX ${alt.url} ${requested.kind}->${alt.kind} (connect failed, retry served)`)
+      } catch (err) {
+        failure = err
+      }
+    }
+    if (upstream === undefined) {
+      log(`${method} ${url.pathname} ${egress.kind} UPSTREAM-ERR ${String(failure?.message ?? failure).slice(0, 160)}`)
+      return Response.json({ error: { type: 'relay_error', message: String(failure?.message ?? failure) } }, { status: 502 })
     }
     const headers = new Headers(upstream.headers)
     // The request went out without `accept-encoding`, so the body is identity;
@@ -257,6 +415,13 @@ const server = Bun.serve({
     headers.delete('content-encoding')
     headers.delete('transfer-encoding')
     log(`${method} ${url.pathname} ${upstream.status} ${Date.now() - started}ms ${egress.kind}`)
+    if (upstream.status === 429) {
+      const text = await upstream.text()
+      return new Response(annotateQuotaResponse(text, upstream.headers, egress), {
+        status: 429,
+        headers: { 'content-type': headers.get('content-type') ?? 'application/json' },
+      })
+    }
     return new Response(upstream.body, { status: upstream.status, headers })
   },
 })
