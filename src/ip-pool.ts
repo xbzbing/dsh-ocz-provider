@@ -437,6 +437,8 @@ export async function startIpPool(
    * A dead exit must not just sit in the table: the subscription layer swaps
    * it for the next-fastest reserve and, when the reserve is exhausted, parks
    * it at the pool tail — the pool holds its size either way (docs §4.7).
+   * A rebuild holding the lock queues the swap instead of dropping it, so the
+   * row is still exchanged once the lock frees.
    * Only subscription exits rotate: free rows belong to the refill loop (they
    * evict after repeated strikes) and manual/pinned rows are explicit user
    * config.
@@ -444,7 +446,7 @@ export async function startIpPool(
   pool.onDead((id) => {
     if (config.ipPool?.enabled === false) return
     if (pool.get(id)?.source !== 'subscription') return
-    void subscriptions?.replaceExit(id).catch(() => {})
+    void subscriptions?.replaceExit(id, { defer: true }).catch(() => {})
   })
 
   installer.install()
@@ -508,7 +510,7 @@ export async function startIpPool(
         // through the subscription layer, which owns the candidate list and the
         // reserve; it demotes the exit itself when it has nothing to promote.
         if (verdict.unverified === true && entry.source === 'subscription') {
-          void subscriptions?.replaceExit(entry.id).catch(() => {})
+          void subscriptions?.replaceExit(entry.id, { defer: true }).catch(() => {})
         }
       } else {
         pool.markDeadStrike(entry.id)

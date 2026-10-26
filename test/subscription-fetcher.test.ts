@@ -187,7 +187,10 @@ test('a supervisor attached after construction converts on the next refresh', as
     reload: async (nodes, keep) => {
       reloaded.push(nodes)
       const slots = keep ?? nodes.map((_, index) => index)
-      return slots.map((index) => ({ address: `127.0.0.1:${30001 + index}`, protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
+      // Port digits differ on purpose: the test seam answers the ip-api echo
+      // with a query derived from the address LENGTH, and the pool refuses a
+      // second row carrying the same exit IP (pool.add).
+      return slots.map((index) => ({ address: index === 0 ? '127.0.0.1:30001' : '127.0.0.1:300001', protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
     },
     stop: async () => {},
     running: true,
@@ -266,5 +269,83 @@ test('setIntervalMs: only a real change re-arms the refresh timer', async (t) =>
   t.mock.timers.tick(30 * 60_000)
   await settle()
   assert.equal(pulls.length, 3, 'the new 60-minute interval took over')
+  fetcher.stop()
+})
+
+// -- swaps queued behind the rebuild lock -------------------------------------
+
+/** Two encrypted nodes: the conversion yields two local SOCKS5 exits. */
+const TWO_ENCRYPTED = [
+  'proxies:',
+  '  - name: "机场US1"',
+  '    type: anytls',
+  '    server: us01.example.com',
+  '    port: 18888',
+  '    password: secret-pw',
+  '  - name: "机场US2"',
+  '    type: anytls',
+  '    server: us02.example.com',
+  '    port: 18889',
+  '    password: secret-pw',
+].join('\n')
+
+test('a swap refused by the rebuild lock runs once the lock frees', async () => {
+  // The lock exists so a burst of dead exits never stacks sing-box rebuilds.
+  // An AUTOMATIC swap (dead rotation, probe verdict) must therefore wait its
+  // turn instead of being dropped — the row would otherwise stay dead with
+  // nothing left to retry it. The operator's own 轮换 keeps the old answer:
+  // false, and the bridge reports "busy, try again".
+  const log: string[] = []
+  const { pool, fetcher } = makeFetcher(
+    (async () => new Response(TWO_ENCRYPTED)) as unknown as typeof fetch,
+    { info: (message: string) => log.push(message), warn: (message: string) => log.push(message) },
+  )
+  fetcher.setUrls(['https://sub.example.com/x'])
+
+  let armed = false
+  let reached!: () => void
+  const inRebuild = new Promise<void>((resolve) => { reached = resolve })
+  let release!: () => void
+  const rebuild = new Promise<void>((resolve) => { release = resolve })
+  fetcher.setSupervisor({
+    reload: async (nodes, keep) => {
+      if (armed && keep !== undefined) {
+        reached()
+        await rebuild
+      }
+      const slots = keep ?? nodes.map((_, index) => index)
+      // Port digits differ on purpose: the test seam answers the ip-api echo
+      // with a query derived from the address LENGTH, and the pool refuses a
+      // second row carrying the same exit IP (pool.add).
+      return slots.map((index) => ({ address: index === 0 ? '127.0.0.1:30001' : '127.0.0.1:300001', protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
+    },
+    stop: async () => {},
+    running: true,
+  })
+
+  await fetcher.refresh()
+  assert.ok(pool.has('127.0.0.1:30001') && pool.has('127.0.0.1:300001'), 'both converted exits are online')
+
+  // Drop the capacity so the trim has work to do, then hold its rebuild.
+  pool.setPoolSize(1)
+  armed = true
+  const trimming = fetcher.enforceCapacity()
+  await inRebuild
+  assert.equal(pool.list().length, 1, 'the trim evicted before rebuilding')
+  const survivor = pool.list()[0]!.id
+
+  assert.equal(await fetcher.replaceExit(survivor, { defer: true }), false, 'a held lock refuses the swap')
+  assert.equal(await fetcher.replaceExit(survivor), false, 'the manual path is refused too')
+  assert.equal(log.filter((line) => line.includes('deferred swap')).length, 0, 'nothing runs while the lock is held')
+
+  release()
+  await trimming
+  assert.equal(
+    log.filter((line) => line.includes(`deferred swap of ${survivor}`)).length,
+    1,
+    'the queued swap ran the moment the lock freed',
+  )
+  assert.equal(fetcher.busy, false, 'the lock is free again')
+
   fetcher.stop()
 })

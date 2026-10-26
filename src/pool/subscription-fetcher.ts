@@ -106,6 +106,10 @@ export class SubscriptionFetcher {
   /** One replacement at a time: each one rebuilds the sing-box config, and a
    *  burst of dead exits must not stack rebuilds. */
   #replacing = false
+  /** Swaps that arrived while the lock was held, keyed so a row queued twice
+   *  swaps once; drained the moment the lock frees (see replaceExit). */
+  #deferred = new Set<string>()
+  #draining = false
   #logger?: SubscriptionOptions['logger']
 
   constructor(deps: SubscriptionDeps, options: SubscriptionOptions = {}) {
@@ -203,14 +207,14 @@ export class SubscriptionFetcher {
       return 0
     } finally {
       this.#replacing = false
+      await this.#drainDeferred()
     }
   }
 
   /**
-   * Whether a replacement/trim is holding the rebuild mutex. The dead-rotation
-   * path ignores this — its swap is simply skipped and the row stays dead —
-   * but an operator's 删除 must not be mistaken for "no reserve left": the
-   * bridge reads this to answer "busy, try again" instead of sinking the row.
+   * Whether a replacement/trim is holding the rebuild mutex. The bridge reads
+   * this to answer an operator's 删除 with "busy, try again" instead of sinking
+   * the row — an automatic swap never surfaces it, it queues (replaceExit).
    */
   get busy(): boolean {
     return this.#replacing
@@ -224,11 +228,21 @@ export class SubscriptionFetcher {
    * reserve exhausted the exit is kept and moved to the pool tail, so the pool
    * holds its size.
    *
+   * `defer` is for the automatic callers (dead rotation, probe verdict): while
+   * the mutex is held they queue the row instead of dropping the swap, and the
+   * queued rows run the moment the lock frees. Without it — the operator's own
+   * 轮换 — a busy mutex still answers false immediately, which is the
+   * "busy, try again" the bridge reports.
+   *
    * Returns true when a replacement was admitted. False also covers "no
    * onboarder yet" (no subscription round has run in this process).
    */
-  async replaceExit(exitId: string): Promise<boolean> {
-    if (this.#onboarder === null || this.#replacing) return false
+  async replaceExit(exitId: string, options: { defer?: boolean } = {}): Promise<boolean> {
+    if (this.#onboarder === null) return false
+    if (this.#replacing) {
+      if (options.defer === true) this.#deferred.add(exitId)
+      return false
+    }
     this.#replacing = true
     try {
       return await this.#onboarder.replace(exitId)
@@ -237,6 +251,35 @@ export class SubscriptionFetcher {
       return false
     } finally {
       this.#replacing = false
+      await this.#drainDeferred()
+    }
+  }
+
+  /**
+   * Run the swaps queued while the mutex was held. They take the same lock one
+   * at a time, so a drain cannot stack sing-box rebuilds, and a row queued
+   * again while the drain runs is picked up by the same loop.
+   */
+  async #drainDeferred(): Promise<void> {
+    if (this.#draining || this.#replacing || this.#deferred.size === 0) return
+    this.#draining = true
+    try {
+      while (this.#deferred.size > 0) {
+        const exitId = this.#deferred.values().next().value
+        if (exitId === undefined) break
+        this.#deferred.delete(exitId)
+        this.#logger?.info(`oc2dsh: rebuild lock freed; running the deferred swap of ${exitId}`)
+        this.#replacing = true
+        try {
+          await this.#onboarder?.replace(exitId)
+        } catch (err) {
+          this.#logger?.warn(`oc2dsh: deferred replacement of ${exitId} failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          this.#replacing = false
+        }
+      }
+    } finally {
+      this.#draining = false
     }
   }
 
@@ -249,6 +292,7 @@ export class SubscriptionFetcher {
 
   stop(): void {
     this.#stopped = true
+    this.#deferred.clear()
     if (this.#timer !== null) {
       clearInterval(this.#timer)
       this.#timer = null
