@@ -90,7 +90,7 @@ test('subscription refresh: plaintext nodes speed-test into the pool, encrypted 
   assert.ok(pool.list().every((n) => n.source === 'subscription'))
   assert.ok(pool.list().every((n) => n.exitIP !== '' && n.latencyMs >= 0), 'speed-test facts landed on both rows')
   assert.ok(pool.list().every((n) => n.health.state === 'ok'), 'the speed pass is the health verdict')
-  assert.deepEqual(probeAttempts, [], 'ZERO requests to OpenCode on a subscription refresh (2026-10-24 contract)')
+  assert.deepEqual(probeAttempts, [], 'ZERO requests to OpenCode on a subscription refresh')
   // the anytls node parked for IP-4 conversion, not in the pool
   assert.equal(state.pendingConversion.length, 1)
   assert.equal(state.pendingConversion[0]?.type, 'anytls')

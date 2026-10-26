@@ -366,7 +366,7 @@ test('ModelCatalog falls back to static ids while the live catalog is pending', 
   catalog.stop()
 })
 
-test('warm() waits for the first live fetch so a list() read is never the bootstrap list (issue #45)', async () => {
+test('warm() waits for the first live fetch so a list() read is never the bootstrap list', async () => {
   // The gate holds the first fetch back, exactly like a slow first round on
   // a cold start: cold list() reads staticFreeModels, warm() blocks until
   // the fetch lands, then list() exposes the live roster.
@@ -483,7 +483,7 @@ test('S3 vouch survives a stale deprecated flag but not a paid verdict', async (
   }
 })
 
-test('blocklist: issue #56 dead models are denied before any metadata or S3 vouch', async () => {
+test('blocklist: dead models are denied before any metadata or S3 vouch', async () => {
   // every blocklisted id is denied even when the metadata would vouch for it
   // (a stale cache from before the delisting must not resurrect them)
   const allFree = {
@@ -519,7 +519,7 @@ test('blocklist: issue #56 dead models are denied before any metadata or S3 vouc
   }
 })
 
-test('local overrides win over models.dev fields (issue #56 mimo context window)', async () => {
+test('local overrides win over models.dev fields', async () => {
   // models.dev declares 200000 for mimo-v2.6-flash-free; the override speaks
   // 1048576 (the MiMo card / official CLI value), other fields pass through.
   const catalog = new ModelCatalog({
@@ -560,7 +560,7 @@ test('local overrides win over models.dev fields (issue #56 mimo context window)
   }
 })
 
-test('stale-while-revalidate: a fresh disk cache serves capability reads while the online fetch is slow (issue #55)', async () => {
+test('stale-while-revalidate: a fresh disk cache serves capability reads while the online fetch is slow', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'oc2dsh-catalog-'))
   const cachePath = join(dir, 'models.dev.json')
   const cacheBody = {

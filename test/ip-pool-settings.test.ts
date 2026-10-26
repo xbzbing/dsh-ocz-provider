@@ -1029,7 +1029,7 @@ test('本机出口协议族: default auto, pinned positions survive the round tr
   assert.equal((IpPoolConfigSchema({}) as Record<string, unknown>).localIpFamily, 'auto')
   assert.equal(resolveIpPoolSettings({}).localIpFamily, 'auto')
   assert.equal(resolveIpPoolSettings({ localIpFamily: 'ipv6' }).localIpFamily, 'ipv6')
-  assert.equal(resolveIpPoolSettings({ localIpFamily: 'ipv4' }).localIpFamily, 'ipv4', 'the pre-2026-10-18 behaviour stays reachable')
+  assert.equal(resolveIpPoolSettings({ localIpFamily: 'ipv4' }).localIpFamily, 'ipv4', 'the explicit ipv4 position stays reachable')
   assert.equal(resolveIpPoolSettings({ localIpFamily: 'IPv6' }).localIpFamily, 'auto', 'a hand-edited spelling cannot break the field')
   assert.equal(toIpPoolConfig(resolveIpPoolSettings({ localIpFamily: 'ipv6' })).localIpFamily, 'ipv6')
   assert.equal(toIpPoolConfig(IpPoolConfigSchema({ localIpFamily: 'ipv4' }) as never).localIpFamily, 'ipv4')

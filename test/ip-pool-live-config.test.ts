@@ -252,7 +252,7 @@ test('assembly: manual rows and the pin apply live through reconfigure', async (
 
   await runtime.reconfigure({ ipPool: { enabled: true, free: { enabled: false }, manual: [], pinnedExitId: '' } })
   assert.deepEqual(ids(runtime.pool), [], 'the removed row leaves the live table')
-  assert.equal(runtime.pool.pinnedId, '', 'and the pin is released — the exact edit that used to need a restart')
+  assert.equal(runtime.pool.pinnedId, '', 'and the pin is released')
   await runtime.dispose()
 })
 

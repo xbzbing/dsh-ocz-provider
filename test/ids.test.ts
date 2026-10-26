@@ -74,7 +74,7 @@ function digestTailOf(signal: string): string {
   return out.join('')
 }
 
-test('canonicalSessionID mints a FRESH clock-based prefix (the 2026-10-25 rule)', () => {
+test('canonicalSessionID mints a FRESH clock-based prefix', () => {
   resetSessionIDCache()
   const before = Date.now()
   const id = canonicalSessionID('regression-probe')
@@ -85,7 +85,7 @@ test('canonicalSessionID mints a FRESH clock-based prefix (the 2026-10-25 rule)'
   // prefix decodes to a random timestamp, which the lane refuses with 429.
   const ms = decodedTime(id)
   assert.ok(Math.abs(ms - timeFieldOf(before)) < 5_000, `prefix decodes to ${ms}, expected ~${timeFieldOf(before)}`)
-  assert.ok(decodedCounter(id) >= 1, 'counter 0 is the one refused value (probed 2026-10-25)')
+  assert.ok(decodedCounter(id) >= 1, 'counter 0 is the one refused value')
 
   // stable per signal for the life of the process (the lane only accepts a
   // fresh timestamp, so this is a process cache, not a pure function)

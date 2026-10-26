@@ -219,7 +219,7 @@ test('evictWorstFree drops C-grade before S-grade', () => {
   assert.ok(p.has('s:1'))
 })
 
-test('evictWorstFree drops a dead corpse before any live row (2026-10-23)', () => {
+test('evictWorstFree drops a dead corpse before any live row', () => {
   // With the periodic probe gone, a dead free row only leaves the pool through
   // this eviction or the strike threshold — grading alone would evict a live
   // C-grade exit while the dead S-grade corpse kept its slot.
@@ -363,7 +363,7 @@ test('markUnverified: keeps the node, drops the ok claim, and yields to verified
   assert.equal(p.list().find((entry) => entry.id === 'sub:1')!.health.state, 'dead')
 })
 
-test('no periodic probe: a dead exit stays parked until a real-request or manual verdict (2026-10-23)', () => {
+test('no periodic probe: a dead exit stays parked until a real-request or manual verdict', () => {
   // There is no due-probe loop (no periodic recheck, no deadRetryMs revival):
   // liveness is judged by real requests only, and the recovery paths are the
   // strike threshold (free), the reserve swap (subscription), and the card's

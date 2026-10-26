@@ -106,7 +106,7 @@ test('thinking events map to reasoning blocks', async () => {
   assert.deepEqual(chunks[2], { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'hmm' } })
 })
 
-test('a streamed thinkingSignature rides back on the reasoning block (#97)', async () => {
+test('a streamed thinkingSignature rides back on the reasoning block', async () => {
   // pi-ai stamps the wire field the thinking arrived on into the partial
   // block; DeepSeek's thinking mode needs it back on replay (messages.ts
   // restores it as thinkingSignature so the text is sent as reasoning_content).
@@ -199,7 +199,7 @@ test('an empty completed response is an EMPTY_RESPONSE error', async () => {
   assert.equal(failure.code, 'EMPTY_RESPONSE')
 })
 
-test('a healthy finish over the declared window is NOT a context overflow (#101)', async () => {
+test('a healthy finish over the declared window is NOT a context overflow', async () => {
   // The wire carries 4-5k tokens more than the host estimates its history at
   // (system prompt + the gate's genuine tool definitions + serialization), so
   // usage.input alone can exceed the declared window on a turn the upstream
@@ -212,7 +212,7 @@ test('a healthy finish over the declared window is NOT a context overflow (#101)
   assert.deepEqual(expectFinish(chunks[1]).reason, { kind: 'stop' })
 })
 
-test('the provider\'s own overflow wording is still CONTEXT_WINDOW_EXCEEDED (#101)', async () => {
+test('the provider\'s own overflow wording is still CONTEXT_WINDOW_EXCEEDED', async () => {
   const message = 'OpenAI API error (400): {"error":{"code":"context_length_exceeded","message":"This model\'s maximum context length is 65536 tokens. However, your messages resulted in 71233 tokens."}}'
   const chunks = await collect([event({ stopReason: 'error', errorMessage: message })])
   assert.deepEqual(failureOf(expectFinish(chunks[1])), { message, code: 'CONTEXT_WINDOW_EXCEEDED' })

@@ -98,7 +98,7 @@ test('install() swaps the global dispatcher and marks itself enabled', () => {
   )
 })
 
-test('proxyHosts reports the list actually in force, empty config included (live regression)', () => {
+test('proxyHosts reports the list actually in force, empty config included', () => {
   // The settings schema defaults proxyHosts to []: an empty list must resolve
   // to the default, not to "proxy nothing" while /status displays opencode.ai
   // from its own fallback. The card reads this getter, so it can only show the
@@ -122,7 +122,7 @@ test('proxyHosts reports the list actually in force, empty config included (live
   assert.deepEqual(installer.proxyHosts, ['opencode.ai'], 'clearing the field falls back to the default')
 })
 
-test('proxyPathPrefixes reports the path scope actually in force (live regression)', () => {
+test('proxyPathPrefixes reports the path scope actually in force', () => {
   // Same contract as proxyHosts, for the second half of the routing rule: the
   // card and /status must read the scope the router is using, not a display
   // default — otherwise "which opencode.ai traffic is in the pool" is
@@ -149,7 +149,7 @@ test('proxyPathPrefixes reports the path scope actually in force (live regressio
   assert.deepEqual(installer.proxyPathPrefixes, ['/inference/v1'], 'clearing the field falls back to the default')
 })
 
-test('disable() restores the dispatcher that was active before install (regression)', () => {
+test('disable() restores the dispatcher that was active before install', () => {
   const undici = makeUndiciStub()
   const before = undici.peek()
   const installer = makeInstaller(undici)

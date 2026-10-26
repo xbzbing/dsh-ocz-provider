@@ -165,7 +165,7 @@ test('a refused exit is replaced by the next-fastest reserve', async () => {
   assert.equal(result.demoted, 0)
   assert.equal(pool.list().length, 3, 'the pool holds its capacity')
   assert.deepEqual(ascending(selections[0]!), [2, 3, 4], 'the shrink keeps the fastest 3 slots')
-  assert.deepEqual(probeAttempts, [], 'onboarding sent ZERO requests to OpenCode (2026-10-24 contract)')
+  assert.deepEqual(probeAttempts, [], 'onboarding sent ZERO requests to OpenCode')
 
   // A refusal arrives later (passive 401/403 / dead rotation): the swap hands
   // the refused row's slot to the next-fastest reserve — again with no probe.

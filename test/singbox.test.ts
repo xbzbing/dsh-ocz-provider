@@ -151,7 +151,7 @@ test('generateConfig: unsupported nodes are skipped without burning a port', () 
  * anytls TLS `server_name`, so a host-level key collapses them (last port
  * wins) and leaves the other nodes' inbounds orphaned.
  */
-test('generateConfig: nodes sharing host:port but differing in TLS SNI each keep their own port (live regression)', () => {
+test('generateConfig: nodes sharing host:port but differing in TLS SNI each keep their own port', () => {
   const edge = 'b2efc912.edge.0443.me.uk'
   const node = (sni: string): ParsedNode => ({
     name: sni,

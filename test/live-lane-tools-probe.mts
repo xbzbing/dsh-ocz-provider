@@ -283,7 +283,7 @@ const cases: Case[] = [
     run: async () => {
       const headers = new Headers(baseHeaders)
       headers.set('user-agent', `opencode/1.18.31 (${process.platform} ${process.arch}; node${process.versions.node})`)
-      await post('inf-both-stub-1xua', INFERENCE, headers, bodyWithBothStubs(), 'gutted tools under the 1.18.31 UA we used on 10-14')
+      await post('inf-both-stub-1xua', INFERENCE, headers, bodyWithBothStubs(), 'gutted tools under the legacy 1.18.31 UA')
     },
   },
   { name: 'inf-empty-tools', run: () => post('inf-empty-tools', INFERENCE, baseHeaders, bodyWithToolsOnly([]), 'empty tools array') },

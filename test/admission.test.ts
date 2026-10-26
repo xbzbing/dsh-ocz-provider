@@ -146,14 +146,14 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
     tools?: Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
   }
   assert.equal(smokeBody.stream, true)
-  assert.equal(smokeBody.tool_choice, undefined, 'none is a 403 of its own since 2026-10-14')
+  assert.equal(smokeBody.tool_choice, undefined, 'none is a 403 of its own')
   // The system slot carries the `<env>` block the free lane demands,
   // so the probe sentence is the turn AFTER it.
   const smokeMessages = smokeBody.messages ?? []
   assert.equal(smokeMessages.length, 2)
   assert.equal(smokeMessages[0]!.role, 'system')
   assert.match(smokeMessages[0]!.content, /^<env>\n/)
-  assert.deepEqual(smokeMessages[1], { role: 'user', content: 'hello' }, 'the unconfigured probe content is hello (live request 2026-10-14)')
+  assert.deepEqual(smokeMessages[1], { role: 'user', content: 'hello' }, 'the unconfigured probe content is hello')
   const smokeToolNames = smokeBody.tools?.map((t) => t.function.name) ?? []
   assert.deepEqual([...smokeToolNames].sort(), ['read', 'shell'])
   for (const tool of smokeBody.tools ?? []) {
@@ -300,7 +300,7 @@ test('admission: admitBySpeed runs the speed test alone and never touches OpenCo
   assert.deepEqual(failing.calls, [ECHO_URL], 'even the failure path only ever ran the speed test')
 })
 
-test('admission: scheme-carrying manual addresses build a valid agent URI (issue #44)', async () => {
+test('admission: scheme-carrying manual addresses build a valid agent URI', async () => {
   // manual entries keep the scheme the UI asks for (http://host:port), and
   // prefixing again yields http://http://host:port — InvalidArgumentError in
   // every ProxyAgent, invisible because admitTrusted admits on failure with

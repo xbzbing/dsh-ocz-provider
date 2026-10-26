@@ -129,7 +129,7 @@ test('assistant history replays text, thinking and tool calls with parsed argume
   assert.equal(assistant.model, 'qwen-free')
 })
 
-test('an unsigned reasoning block stays a bare thinking block (#97)', async () => {
+test('an unsigned reasoning block stays a bare thinking block', async () => {
   const context = await toPiContext(
     options({
       messages: [

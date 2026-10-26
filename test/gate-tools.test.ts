@@ -88,7 +88,7 @@ test('isGenuineGateTool mirrors the gate: substring description, exact parameter
   assert.ok(isGenuineGateTool('shell', genuine))
   assert.ok(
     isGenuineGateTool('shell', { ...genuine, function: { ...genuine.function, description: `X${genuine.function.description} (copy)` } }),
-    'a description that CONTAINS the genuine text passes (measured 2026-10-14)',
+    'a description that CONTAINS the genuine text passes',
   )
   assert.ok(
     !isGenuineGateTool('shell', { ...genuine, function: { ...genuine.function, description: genuine.function.description.slice(0, 120) } }),

@@ -625,7 +625,7 @@ test('dispatcher sentinel: any handler callback disarms it (a live exit is never
   assert.equal(pool.isUsable('live:1', 'm'), true)
 })
 
-test('dispatcher sentinel: tunnel-established silence aborts the dispatch (the muse 70-minute hang)', async () => {
+test('dispatcher sentinel: tunnel-established silence aborts the dispatch', async () => {
   // After onRequestStart (tunnel stands) a dead-behind-the-tunnel exit sends
   // no response headers and no error — fetch would wait forever and the turn
   // never finishes. The sentinel re-arms at onRequestStart and ABORTS the

@@ -29,7 +29,7 @@ test('providerInfo names the provider for the picker', () => {
   assert.notEqual(PROVIDER_NAME, PROVIDER_ID)
 })
 
-test('providerRetryPolicy tunes the host retry for free-lane 429 bursts (issue #51)', () => {
+test('providerRetryPolicy tunes the host retry for free-lane 429 bursts', () => {
   const adapter = new ZenAdapter(new ModelCatalog())
   const policy = adapter.providerRetryPolicy('oc2dsh')
   assert.equal(policy.mode, 'normal')
@@ -130,7 +130,7 @@ test('prepareCall returns the resolved model and a stream dispatcher', async () 
   assert.equal(typeof call.stream, 'function')
 })
 
-test('the pi-ai model declares the DeepSeek reasoning replay requirement (#97)', () => {
+test('the pi-ai model declares the DeepSeek reasoning replay requirement', () => {
   // DeepSeek's thinking mode rejects replayed turns without reasoning_content;
   // pi-ai only auto-detects that for provider 'deepseek' (or a deepseek.com
   // baseUrl), neither of which matches this lane, so the model literal
@@ -152,7 +152,7 @@ test('listModels mirrors the catalog without duplicates', async () => {
   assert.deepEqual(models.map((m) => m.inputModalities), [['text'], ['text', 'image'], ['text', 'image'], ['text']])
 })
 
-test('listModels awaits the catalog warm before reading (issue #45)', async () => {
+test('listModels awaits the catalog warm before reading', async () => {
   let warmCalls = 0
   let readAfterWarm = false
   const adapter = new ZenAdapter({
@@ -172,7 +172,7 @@ test('listModels awaits the catalog warm before reading (issue #45)', async () =
   assert.deepEqual(models.map((m) => m.id), ['step-5-preview-free'])
 })
 
-test('listModels answers from the live roster once the first fetch lands (issue #45)', async () => {
+test('listModels answers from the live roster once the first fetch lands', async () => {
   // The registration-time read races the first Zen fetch: without the await the
   // host is handed the 7-id bootstrap list, which the picker keeps for the
   // whole host generation.
