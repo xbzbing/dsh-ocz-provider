@@ -243,11 +243,15 @@ Four behaviours cover it, all live-measured:
   of silencing the lane for a whole session. Rows with measured facts skip the
   probe.
 - a transport cut goes to `src/pool/transport.ts`, never straight to a strike.
-  A row with NO measured facts gets one free diagnosis per 30 s window: nothing
+  A row with NO measured facts gets one free diagnosis per OUTAGE: nothing
   answering -> struck dead; the other scheme -> relabelled AND revived; the
   right scheme -> the row stays pickable in the 'unknown' tier and the next cut
-  inside the window is the strike. A row with measured facts still strikes
-  immediately — its label came from real traffic, so the cut IS the verdict.
+  is the strike. An outage ends when something proves the row alive
+  (`provenAt` = a 2xx or a passing probe), NOT when a timer runs out — a 30 s
+  window pardoned a row that failed every couple of minutes, which is how a
+  listener with a dead tunnel stayed in service (measured: 8 cuts, 0 successes,
+  pinned row still picked). A row with measured facts still strikes immediately
+  — its label came from real traffic, so the cut IS the verdict.
 - `revive()` is why a corrected label actually restores service: a dead mark
   outlives its cause otherwise, because `pick()` skips dead rows and the only
   other proofs (a real 2xx, the card's 探测) are unavailable to a row nothing

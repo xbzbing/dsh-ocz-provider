@@ -34,7 +34,6 @@ interface Harness {
 
 function harness(options: {
   answer?: (address: string) => Promise<ProxyProtocol | null>
-  windowMs?: number
 } = {}): Harness {
   const pool = new ExitPool({ now })
   const warnings: string[] = []
@@ -47,7 +46,6 @@ function harness(options: {
     },
     logger: { warn: (message) => { warnings.push(message) } },
     now,
-    ...(options.windowMs === undefined ? {} : { windowMs: options.windowMs }),
   })
   return {
     pool,
@@ -102,10 +100,10 @@ test('a listener that answers nothing is still struck dead on the first cut', as
   assert.match(h.warnings.join('\n'), /连不上（端口没有监听/)
 })
 
-test('the right label and a live listener absolves the ROW, not the outage', async () => {
+test('the right label and a live listener absolves the row once, not forever', async () => {
   // Answers, label correct: not this row's fault. It stays pickable (a
   // transient cut must not empty a healthy pool) but drops to 'unknown', and
-  // the NEXT cut inside the window is a strike.
+  // the NEXT cut is a strike — no timer involved.
   const h = harness({ answer: async () => 'http' })
   h.pool.add(node({ id: '127.0.0.1:30035', source: 'manual', protocol: 'http', exitIP: '' }))
   h.pool.markOk('127.0.0.1:30035')
@@ -116,13 +114,17 @@ test('the right label and a live listener absolves the ROW, not the outage', asy
   assert.equal(h.pool.isUsable('127.0.0.1:30035', 'm'), true, 'still routable')
   assert.match(h.warnings.join('\n'), /再失败一次就判/)
 
-  clock += 5_000
+  // Hours later, with nothing having succeeded through the row in between:
+  // still a strike. A time window used to pardon this again on every cut, which
+  // is how a listener that answers while its tunnel is gone stayed pickable
+  // (measured live: 8 cuts, 0 successes, pinned row still in service).
+  clock += 6 * 60 * 60 * 1000
   assert.equal(h.verdicts.cut('127.0.0.1:30035'), 'struck', 'one free diagnosis per outage')
   assert.equal(h.pool.list()[0]!.health.state, 'dead')
   assert.deepEqual(h.probes, ['127.0.0.1:30035'], 'and no second probe was spent')
 })
 
-test('a second cut inside the window strikes without asking again', async () => {
+test('a second cut with no success in between strikes without asking again', async () => {
   const h = harness({ answer: async () => 'socks5' })
   h.pool.add(node({ id: '127.0.0.1:30035', source: 'manual', protocol: 'socks5', exitIP: '' }))
   h.pool.markOk('127.0.0.1:30035')
@@ -191,4 +193,23 @@ test('every cut is counted, whatever the verdict', async () => {
   h.verdicts.cut('127.0.0.1:30035')
   await h.settle()
   assert.equal(h.pool.passiveStats('127.0.0.1:30035').transport, 1)
+})
+
+test('a success re-arms the free diagnosis (the outage is over)', async () => {
+  // The pardon is keyed on PROOF, not on time: once a real 2xx lands on the
+  // row, the next isolated cut is again forgiven — that is what keeps a busy
+  // row from dying on two unrelated hiccups a day apart.
+  const h = harness({ answer: async () => 'http' })
+  h.pool.add(node({ id: '127.0.0.1:30035', source: 'manual', protocol: 'http', exitIP: '' }))
+  h.pool.markOk('127.0.0.1:30035')
+
+  h.verdicts.cut('127.0.0.1:30035')
+  await h.settle()
+  assert.equal(h.verdicts.cut('127.0.0.1:30035'), 'struck', 'the pardoned outage is spent')
+
+  h.pool.markOk('127.0.0.1:30035') // a real request got through
+  clock += 60 * 60 * 1000
+  assert.equal(h.verdicts.cut('127.0.0.1:30035'), 'deferred', 'a fresh outage gets its own diagnosis')
+  await h.settle()
+  assert.equal(h.pool.isUsable('127.0.0.1:30035', 'm'), true)
 })

@@ -148,11 +148,17 @@ test('relay transport failure relabels and revives a manual row the listener dis
   assert.notEqual(healed?.health.state, 'dead', 'the mislabelled row is not left dead')
   assert.equal(runtime.pool.isUsable('127.0.0.1:30035', 'mimo-v2.6-flash-free'), true)
 
-  // The free diagnosis is spent with that correction: a second cut inside the
-  // window strikes the row and spends no probe on it.
+  // A corrected label is a new line, so the row earns a fresh grace: the next
+  // cut asks the listener again (the label now matches, so nothing changes),
+  // and only the cut after that — with still no success in between — strikes.
   settleRelayEgress(pick as RelayEgressPick, { transport: true })
   await new Promise((resolve) => setTimeout(resolve, 50))
-  assert.equal(probes, 1, 'probes are coalesced per row')
+  assert.equal(probes, 2, 'a healed row is re-examined once on its next cut')
+  assert.equal(runtime.pool.list().find((entry) => entry.id === '127.0.0.1:30035')?.health.state, 'unknown')
+
+  settleRelayEgress(pick as RelayEgressPick, { transport: true })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(probes, 2, 'and the grace is not renewable without a success')
   assert.equal(runtime.pool.list().find((entry) => entry.id === '127.0.0.1:30035')?.health.state, 'dead')
   await runtime.dispose()
 })

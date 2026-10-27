@@ -13,16 +13,14 @@
  *
  * A row WITH measured facts keeps the direct accounting: its protocol came
  * from a real request, so a cut is a genuine loss of the line and there is
- * nothing to ask. The grace is also one per outage per row (`windowMs`), so a
- * genuinely flapping line still dies after two cuts rather than living on
- * diagnostics (AGENTS.md, egress row hygiene).
+ * nothing to ask. The grace is one per OUTAGE — an outage ends when something
+ * proves the row alive again — so a line that keeps dropping requests still
+ * dies on its second cut rather than living on diagnostics (AGENTS.md, egress
+ * row hygiene).
  */
 
 import type { ExitNode, ExitPool } from './pool.ts'
 import type { ProxyProtocol } from './protocol.ts'
-
-/** One free diagnosis per row per window; a second cut inside it strikes. */
-export const TRANSPORT_DIAGNOSIS_WINDOW_MS = 30_000
 
 /**
  * What one cut means:
@@ -44,8 +42,6 @@ export interface TransportVerdictDeps {
   detect: (address: string) => Promise<ProxyProtocol | null>
   logger?: { warn(message: string): void }
   now?: () => number
-  /** Free-diagnosis window per row (default {@link TRANSPORT_DIAGNOSIS_WINDOW_MS}). */
-  windowMs?: number
 }
 
 /** A row the pool never measured: its `protocol` is the operator's typing. */
@@ -55,8 +51,8 @@ function unmeasured(node: ExitNode): boolean {
 
 export class TransportVerdicts {
   readonly #deps: TransportVerdictDeps
-  /** When each row last spent its free diagnosis (epoch ms). */
-  readonly #diagnosedAt = new Map<string, number>()
+  /** When each row last spent its one free diagnosis this outage. */
+  readonly #pardonedAt = new Map<string, number>()
   /** Rows with a diagnosis in flight — a second cut must not queue another. */
   readonly #inflight = new Set<string>()
 
@@ -89,14 +85,25 @@ export class TransportVerdicts {
       pool.recordTransportSignal(exitId)
       return 'deferred'
     }
-    const now = this.#now()
-    if (now - (this.#diagnosedAt.get(exitId) ?? 0) < this.#window()) {
-      // Its one free diagnosis is spent and the row still dropped a request.
-      this.#diagnosedAt.delete(exitId)
+    /**
+     * One free diagnosis per OUTAGE, and an outage ends when something proves
+     * the row alive — not when a timer expires.
+     *
+     * A time window looked equivalent and was not: a row that drops a request
+     * every couple of minutes was pardoned again on every cut, so a listener
+     * that answers while its tunnel is gone stayed "usable" forever and kept
+     * absorbing the pinned traffic (measured live: 8 cuts, 0 successes, and the
+     * row still pickable). Keying the pardon on the proof instead means the
+     * second cut without a success in between is a strike, however far apart
+     * the two were — while any success, including a passing probe, re-arms it.
+     */
+    const pardon = this.#pardonedAt.get(exitId)
+    if (pardon !== undefined && pardon >= pool.provenAt(exitId)) {
+      this.#pardonedAt.delete(exitId)
       pool.recordPassiveTransport(exitId)
       return 'struck'
     }
-    this.#diagnosedAt.set(exitId, now)
+    this.#pardonedAt.set(exitId, this.#now())
     this.#inflight.add(exitId)
     pool.recordTransportSignal(exitId)
     void this.#diagnose(exitId, node.protocol)
@@ -117,17 +124,20 @@ export class TransportVerdicts {
       if (found !== label) {
         if (!this.#deps.pool.refresh(exitId, { protocol: found })) return
         this.#deps.pool.revive(exitId)
+        // A corrected label is a new line: it earns a fresh grace rather than
+        // inheriting the one the bad label spent.
+        this.#pardonedAt.delete(exitId)
         this.#warn(`oc2dsh: 出口 ${exitId} 标的是 ${label}，实测是 ${found}（已纠正并复活；下一次请求就走对了）`)
         return
       }
       // Answers, and the label was right: not this row's fault. It leaves the
       // verified tier (nothing has proven it against the lane) but stays
-      // pickable, and the next cut inside the window is a strike.
+      // pickable, and the next cut — however far off — is a strike.
       this.#deps.pool.markUnverified(exitId)
-      this.#warn(`oc2dsh: 出口 ${exitId} 连得上，这一次请求没拿到响应（先不判 dead；${Math.round(this.#window() / 1000)} 秒内再失败一次就判）`)
+      this.#warn(`oc2dsh: 出口 ${exitId} 连得上，这一次请求没拿到响应（先不判 dead；再失败一次就判）`)
     } catch {
       // A prober that cannot answer leaves the row exactly as it was; the next
-      // cut inside the window is a strike, so silence never becomes a pardon.
+      // cut is a strike, so silence never becomes a pardon.
     } finally {
       this.#inflight.delete(exitId)
     }
@@ -135,11 +145,6 @@ export class TransportVerdicts {
 
   #now(): number {
     return this.#deps.now?.() ?? Date.now()
-  }
-
-  #window(): number {
-    const windowMs = this.#deps.windowMs
-    return windowMs === undefined ? TRANSPORT_DIAGNOSIS_WINDOW_MS : windowMs
   }
 
   #warn(message: string): void {
