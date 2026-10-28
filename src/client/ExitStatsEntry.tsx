@@ -11,7 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { Modal, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Modal, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
@@ -193,6 +193,32 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [refresh, showNote, t])
 
   /**
+   * 订阅「立即刷新」: the same /probe route the settings card's button sends
+   * (docs §5.2), so the modal can re-pull the subscriptions without opening
+   * the settings page. The POST answers only when the refresh round ends, so
+   * the shared busy flag covers the whole pull; the follow-up /status read is
+   * what makes the table show the converted rows.
+   */
+  const refreshSubscriptions = useCallback(async (): Promise<void> => {
+    setBusy('refresh-subscriptions')
+    setNote(null)
+    try {
+      const response = await fetch(`${BRIDGE_PREFIX}/probe`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scope: 'subscription' }),
+      })
+      const body = await response.json() as { ok: boolean }
+      showNote(body.ok ? t('statsSubscriptionRefreshed') : t('statsActionFailed'), !body.ok)
+    } catch {
+      showNote(t('statsActionFailed'), true)
+    } finally {
+      setBusy('')
+      await refresh()
+    }
+  }, [refresh, showNote, t])
+
+  /**
    * One row action (固定 / 取消固定 / 轮换) over the bridge. The bridge owns the
    * settings write, the live pin and the candidate refill, so this stays a
    * POST plus a re-read — and it reports what actually happened, because a
@@ -284,6 +310,12 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
    * row alone, never a "0/13 available" table that reads as a broken pool.
    */
   const poolOff = status !== null && status.enabled === false
+  /**
+   * The 订阅 refresh button exists only while subscriptions are configured:
+   * a pool fed by the free source or manual rows alone has nothing to re-pull,
+   * and a button that answers "nothing to refresh" is noise.
+   */
+  const hasSubscriptions = (status?.subscription?.urlCount ?? 0) > 0
 
   // Sorted by the clicked column — request count descending is the home
   // position. An unprobed exit (latency 0) sinks to the bottom under every
@@ -420,13 +452,29 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             the scrolling pane below, so tall content cannot drag it out of the
             card, and a pane switch resets the pane's scroll offset. The
             description follows the active pane (exit table vs ledger). */}
-        <SegmentedTabs
-          items={tabs}
-          value={tab}
-          onChange={setTab}
-          label={t('statsTabsLabel')}
-          className={styles.statsTabs}
-        />
+        <div className={styles.statsBar}>
+          <SegmentedTabs
+            items={tabs}
+            value={tab}
+            onChange={setTab}
+            label={t('statsTabsLabel')}
+            className={styles.statsTabs}
+          />
+          {/* The trailing 订阅 refresh is a pool-level action, so it parks on
+              the tab bar and stays reachable from both panes. */}
+          {hasSubscriptions && (
+            <Button
+              variant="outline"
+              size="sm"
+              data-testid="stats-refresh-subscriptions"
+              disabled={busy !== ''}
+              title={t('statsRefreshSubscriptionsHint')}
+              onClick={() => { void refreshSubscriptions() }}
+            >
+              {t('subscriptionRefreshNow')}
+            </Button>
+          )}
+        </div>
         {/* The card's only scrolling region: the header and the tab bar stay
             parked above it, and the ref lets a pane switch reset the offset. */}
         <div

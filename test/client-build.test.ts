@@ -126,6 +126,17 @@ test('the 清空 control ships in the bundle', () => {
   assert.ok(source.includes('统计已清空'), 'plus the success note')
 })
 
+test('the 订阅 refresh action ships in the stats modal', () => {
+  // The stats modal can re-pull the subscriptions without opening the settings
+  // card: same /probe scope the 立即刷新 button sends. The button is rendered
+  // only while subscriptions are configured, so what ships is the test id, the
+  // probe scope and the success note.
+  const source = code(bundle())
+  assert.ok(source.includes('stats-refresh-subscriptions'), 'the refresh button is mounted on the modal tab bar')
+  assert.ok(source.includes('订阅已刷新'), 'with its zh success note')
+  assert.ok(/"scope":\s*"subscription"/.test(source) || /scope:\s*"subscription"/.test(source), 'it posts the subscription probe scope')
+})
+
 test('the summary chip row keeps one pill height', () => {
   // The chip row must show ONE pill height: align-items:center stops the
   // 清空 button's 32px stretching every chip, and the pinned line box keeps a

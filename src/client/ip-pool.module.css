@@ -933,11 +933,23 @@
   overflow: hidden;
 }
 
+/* The parked bar above the pane: the platform SegmentedTabs plus the modal's
+   trailing action (the 订阅 refresh button, present only while subscriptions
+   are configured). One row, so the button stays reachable from both panes. */
+.statsBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
 /* Placement for the platform SegmentedTabs bar (chrome itself is module-scoped
    in @deepseek-ai/dsh-client-ui-primitives). It is a grid row here — the bar
-   spans the whole content column rather than hugging its two labels. */
+   spans the whole content column rather than hugging its two labels; inside
+   .statsBar it flexes instead, and the trailing action takes its own width. */
 .statsTabs {
-  margin-bottom: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* The only scrolling region in the card: header, description and tab bar are
