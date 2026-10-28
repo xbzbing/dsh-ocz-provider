@@ -185,15 +185,16 @@ git add lib                          # 产物是提交进仓库的，不是忽�
 
 `pnpm build` 是唯一受支持的构建入口：它先清空 `lib/`，再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`pnpm test` 会拿它与 `src/` 比对。两半共用 `tsdown.config.ts` / `tsdown.client.config.ts` 一对配置，chunk 文件名固定，反复重建不会留下 `admission-<hash>.js` 这类垃圾文件。
 
-旧版 Go agent 在 `legacy/agent`（`go test ./...`），仅作移植语义参考，不参与构建与发行。架构说明与移植记录见 `docs/`；面向 agent 的项目说明（构建命令、项目相关设置、上游闸门）见 `AGENTS.md`。
+架构说明与移植记录见 `docs/`；面向 agent 的项目说明（构建命令、项目相关设置、上游闸门）见 `AGENTS.md`。
 
 打包：在仓库根目录执行 `pnpm build && pnpm pack`（根目录才是那个包；根目录**故意不放** `prepack`，因为生命周期脚本正是让 git 源安装被迫要求 `allowBuilds` 的原因）。
 
 ## 致谢
 
 - [**opencode2api**](https://github.com/jasonxu114514/opencode2api)，作者
-  [@jasonxu114514](https://github.com/jasonxu114514)——`legacy/agent` 里的旧版
-  Go agent 是其匿名通道实现的移植版，目录回退链与请求伪装细节同样源自它。
+  [@jasonxu114514](https://github.com/jasonxu114514)——本项目最早的匿名通道实现
+  就是其单租户 Go agent 的移植版（代码留在 git 历史），目录回退链与请求伪装
+  细节同样源自它。
   本项目能成立，全靠它踩过的路。上游的免费通道修复（#69/#70/#83）也曾移植到
   本项目。
 - [**FishBottle7/opencode2dsh**](https://github.com/FishBottle7/opencode2dsh)：

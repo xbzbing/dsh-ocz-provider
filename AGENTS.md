@@ -13,8 +13,8 @@ official client's wire fingerprint. The repository root IS the installable
 package (`dsh plugin add file:<repo>` or `github:xbzbing/dsh-ocz-provider`); `lib/`
 is committed because neither install path runs a lifecycle script.
 
-Upstream this fork ported fixes from: `jasonxu114514/opencode2api` (its Go
-agent survives under `legacy/` as a semantic reference, not distributed).
+Upstream this fork ported fixes from: `jasonxu114514/opencode2api` (the
+ported Go agent lives in git history; this tree is TypeScript only).
 
 ## Layout
 
@@ -35,9 +35,6 @@ src/client/     browser half: IP pool settings card, exit-stats modal (+ its
 src/config.ts   the whole settings schema (Config, exported for dsh-settings)
 test/           node:test suite (runs the real TS sources, no build step)
 lib/            committed build output (never edit; rebuild instead)
-legacy/         the ported Go agent (`cmd/agent` + `internal/`, module
-                opencode2dsh/agent; semantic reference only, not distributed —
-                see package.json `files`)
 scripts/        build.mjs (canonical build), lib-manifest.mjs (freshness stamp),
                 smoke-dsh-compat.mjs (loads the real installed host)
 docs/           design.md (architecture + porting record), ip-pool.md (exit
