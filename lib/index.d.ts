@@ -201,7 +201,7 @@ interface Opencode2dshConfig {
   /**
    * The User-Agent sent on every Zen request: chat, the model
    * catalog refresh and the pool's admission probes. Empty = the built-in
-   * current-client shape (`opencode/latest/2.1.4/<client>`, where `<client>`
+   * current-client shape (`opencode/latest/2.2.0/<client>`, where `<client>`
    * mirrors the effective `x-opencode-client`).
    *
    * The anonymous lane accepts a FINGERPRINT, not one string: this header

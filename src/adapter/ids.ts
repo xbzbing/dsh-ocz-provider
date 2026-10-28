@@ -333,12 +333,12 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
  * generation mix; the 1.x shape was `opencode/1.18.31 (<platform> <arch>;
  * node<ver>)`.
  *
- * The value below tracks the installed client byte-for-byte: the 2.1.4 CLI's
- * own loopback capture (`docs/local/capture-214/`) sent
- * `user-agent: opencode/latest/2.1.4/cli` with `x-opencode-client: cli`.
+ * The value below tracks the installed client's version segment; the rest of
+ * the fingerprint (header set, tool pair, `<env>` block) is the captured 2.x
+ * recipe, which the gate reads as a whole — the probe record is AGENTS.md.
  */
 export const ZEN_UA_CHANNEL = 'latest'
-export const ZEN_UA_VERSION = '2.1.4'
+export const ZEN_UA_VERSION = '2.2.0'
 /** `x-opencode-client` value the client uses when no mode toggle is set. */
 export const DEFAULT_ZEN_CLIENT = 'cli'
 
@@ -396,8 +396,8 @@ export function setUserAgentOverride(value: string | undefined): void {
 
 /**
  * The User-Agent every Zen request carries: the built-in 2.x shape above
- * (`opencode/latest/2.1.4/<client>`) unless the `userAgent` config field or a
- * live settings override names another string.
+ * (`opencode/latest/<ZEN_UA_VERSION>/<client>`) unless the `userAgent` config
+ * field or a live settings override names another string.
  *
  * The anonymous lane reads a whole FINGERPRINT — this header plus the
  * session/project/request id shapes and the tool definitions — so the two ways
@@ -415,22 +415,23 @@ export function opencodeUserAgent(): string {
 
 /**
  * The full disguise header set sent with every upstream request
- * (design.md 2.4; gateway.go newUpstreamRequest) — the official 2.1.4
+ * (design.md 2.4; gateway.go newUpstreamRequest) — the official 2.x
  * client's own set, captured by driving the installed `opencode-cli 2.1.4`
- * against a loopback server (16 headers logged, nothing left 127.0.0.1).
- * The client sends exactly:
+ * against a loopback server (16 headers logged, nothing left 127.0.0.1) and
+ * byte-stable through the 2.2.0 CLI binary. The client sends exactly:
  *
  *   authorization: Bearer public      content-type: application/json
- *   user-agent: opencode/latest/2.1.4/cli      accept: `*` + `/` star
+ *   user-agent: opencode/latest/<version>/cli      accept: `*` + `/` star
  *   b3: <trace>-<span>-1-<parent>     traceparent: 00-<trace>-<span>-01
  *   x-opencode-client: cli
  *   x-opencode-project: <40-hex | global>
  *   x-opencode-session / x-opencode-session-id /
  *   x-session-affinity / x-session-id   (all four = the same ses_* id)
  *
- * and NO `x-opencode-request` — the header is absent repo-wide in 2.1.3 and
- * 2.1.4 (static extraction) and absent from this capture. This set therefore
- * carries the four session spellings and drops `x-opencode-request`, the
+ * and NO `x-opencode-request` — the header is absent from every 2.x
+ * extraction (static, through 2.2.0) and absent from this capture. This set
+ * therefore carries the four session spellings and drops
+ * `x-opencode-request`, the
  * reverse of the 1.x generation's rule: under a 1.x header set the affinity
  * pair marked a FOREIGN client, while this 2.x set rides it for the client's
  * own provider. The gate reads the fingerprint as a WHOLE, never one header in

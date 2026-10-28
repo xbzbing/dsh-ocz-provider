@@ -538,7 +538,7 @@ test('the wire request carries the correlation headers the free-lane gate requir
   assert.equal(headers?.['x-opencode-request'], undefined, 'the 2.x wire carries no request header')
   assert.match(headers?.['x-opencode-project'] ?? '', /^(global|[0-9a-f]{40})$/, 'the client sends a prefix-less project id')
   assert.equal(headers?.['x-opencode-client'], 'cli')
-  assert.match(headers?.['user-agent'] ?? '', /^opencode\/latest\/2\.1\.4\//)
+  assert.match(headers?.['user-agent'] ?? '', /^opencode\/latest\/\d+\.\d+\.\d+\//)
 })
 
 test('the tool-name alias seam renames the wire `shell` back to the host `bash`', async () => {
