@@ -1,6 +1,5 @@
-import { ChildProcessWithoutNullStreams } from "node:child_process";
-import { EventEmitter } from "node:events";
 import Schema from "@deepseek-ai/schemastery";
+import { ChildProcessWithoutNullStreams } from "node:child_process";
 
 //#region src/pool/local-family.d.ts
 
@@ -183,30 +182,8 @@ type RequestHeaders = Record<string, string>;
  * Plugin configuration (cordis config object, injected via cordis.patch.yml).
  */
 interface Opencode2dshConfig {
-  /**
-   * Integration mode. `adapter` (default) registers a DSH LlmAdapter that
-   * streams directly from the Zen anonymous lane — no child process. `sidecar`
-   * (legacy, not bundled with the published package) spawns the Go agent
-   * binary and registers an llm-pi-ai route to it; build the agent from
-   * legacy/agent and pass agentPath.
-   */
-  mode?: 'adapter' | 'sidecar';
-  /** Path to the agent binary (sidecar mode). Not bundled: build from legacy/agent. */
-  agentPath?: string;
-  /** Extra CLI args forwarded to the agent (after --config). */
-  agentArgs?: string[];
-  /** Provider route name registered into llm-pi-ai settings. */
-  providerId?: string;
-  /** Credential reference (env var name) holding the local agent token. */
-  apiKeyEnv?: string;
-  /** Model list refresh interval in seconds (agent refresh_seconds matches). */
+  /** Model list refresh interval in seconds. */
   refreshSeconds?: number;
-  /** Restart backoff: initial delay ms. */
-  restartDelayMs?: number;
-  /** Restart backoff: max delay ms. */
-  restartMaxDelayMs?: number;
-  /** Consecutive crash count that trips the circuit breaker. */
-  maxConsecutiveCrashes?: number;
   /**
    * Watchdog: ms to wait for the first pi-ai stream event (issue #33). The
    * shipped window (zen-adapter.ts DEFAULT_FIRST_EVENT_MS) is the fallback
@@ -222,7 +199,7 @@ interface Opencode2dshConfig {
    */
   responsesBodyIdleMs?: number;
   /**
-   * The User-Agent sent on every Zen request (adapter mode): chat, the model
+   * The User-Agent sent on every Zen request: chat, the model
    * catalog refresh and the pool's admission probes. Empty = the built-in
    * current-client shape (`opencode/latest/2.1.4/<client>`, where `<client>`
    * mirrors the effective `x-opencode-client`).
@@ -324,27 +301,11 @@ interface IpPoolConfig {
   /** Same-request rotate attempts on pre-content failures (docs 3.4). */
   maxRotateAttempts?: number;
 }
-type ResolvedConfig = Required<Pick<Opencode2dshConfig, 'providerId' | 'apiKeyEnv' | 'refreshSeconds' | 'restartDelayMs' | 'restartMaxDelayMs' | 'maxConsecutiveCrashes'>> & Opencode2dshConfig;
+type ResolvedConfig = Required<Pick<Opencode2dshConfig, 'refreshSeconds'>> & Opencode2dshConfig;
 declare function resolveConfig(config?: Opencode2dshConfig): ResolvedConfig;
 declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
-  /** Integration mode; `adapter` (default) is the shipped shape. */
-  mode: Schema<"adapter" | "sidecar", "adapter" | "sidecar", "defined">;
-  /** Path to the agent binary (sidecar mode only; not bundled). */
-  agentPath: Schema<string, string, "plain">;
-  /** Extra CLI args forwarded to the agent (after --config). */
-  agentArgs: Schema<string[], string[], "defined">;
-  /** Provider route name registered into llm-pi-ai settings (sidecar mode). */
-  providerId: Schema<string, string, "defined">;
-  /** Credential reference (env var name) holding the local agent token. */
-  apiKeyEnv: Schema<string, string, "defined">;
   /** Model list refresh interval in seconds. */
   refreshSeconds: Schema<number, number, "defined">;
-  /** Restart backoff: initial delay ms. */
-  restartDelayMs: Schema<number, number, "defined">;
-  /** Restart backoff: max delay ms. */
-  restartMaxDelayMs: Schema<number, number, "defined">;
-  /** Consecutive crash count that trips the circuit breaker. */
-  maxConsecutiveCrashes: Schema<number, number, "defined">;
   /**
    * Watchdog: ms to wait for the first stream event. No `.default()` on
    * purpose — the adapter owns those numbers (DEFAULT_FIRST_EVENT_MS &
@@ -458,24 +419,8 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     usageScope: Schema<string, string, "defined">;
   }>>>, "volatile">;
 }>>, Schemastery.ObjectT<NoInfer<{
-  /** Integration mode; `adapter` (default) is the shipped shape. */
-  mode: Schema<"adapter" | "sidecar", "adapter" | "sidecar", "defined">;
-  /** Path to the agent binary (sidecar mode only; not bundled). */
-  agentPath: Schema<string, string, "plain">;
-  /** Extra CLI args forwarded to the agent (after --config). */
-  agentArgs: Schema<string[], string[], "defined">;
-  /** Provider route name registered into llm-pi-ai settings (sidecar mode). */
-  providerId: Schema<string, string, "defined">;
-  /** Credential reference (env var name) holding the local agent token. */
-  apiKeyEnv: Schema<string, string, "defined">;
   /** Model list refresh interval in seconds. */
   refreshSeconds: Schema<number, number, "defined">;
-  /** Restart backoff: initial delay ms. */
-  restartDelayMs: Schema<number, number, "defined">;
-  /** Restart backoff: max delay ms. */
-  restartMaxDelayMs: Schema<number, number, "defined">;
-  /** Consecutive crash count that trips the circuit breaker. */
-  maxConsecutiveCrashes: Schema<number, number, "defined">;
   /**
    * Watchdog: ms to wait for the first stream event. No `.default()` on
    * purpose — the adapter owns those numbers (DEFAULT_FIRST_EVENT_MS &
@@ -602,149 +547,19 @@ interface ResolvedPluginConfig extends Omit<ResolvedConfig, 'ipPool' | 'requestH
   requestHeaders: VolatileRef<RequestHeaders>;
   modelContextWindows: VolatileRef<ModelContextWindows>;
 }
-/**
- * Everything the plugin persists next to the agent: the generated
- * agent-config.json (design.md section 8.3 template) and the local auth token.
- * The data directory doubles as the models.dev cache location for the agent.
- */
-interface AgentConfigPaths {
-  dataDir: string;
-  configPath: string;
-  tokenPath: string;
-}
-declare function configPaths(dataDir: string): AgentConfigPaths;
-/**
- * Read the persisted token or generate and persist a fresh one.
- * Best-effort 0600 on POSIX; Windows profile dirs are user-scoped already.
- */
-declare function ensureToken(paths: AgentConfigPaths): Promise<string>;
-/**
- * Write agent-config.json atomically (tmp + rename) every plugin start, so a
- * version upgrade or option change reaches the next agent spawn. The agent
- * accepts JSON with comments; we emit plain JSON.
- */
-declare function writeAgentConfig(paths: AgentConfigPaths, options: {
-  token: string;
-  refreshSeconds: number;
-}): Promise<void>;
-//#endregion
-//#region src/agent-process.d.ts
-/**
- * Drives the agent child process (design.md section 8.1-8.2):
- * spawn with piped stdio, READY-line handshake for the random port,
- * exponential-backoff restart on unexpected exit (1s -> 60s, circuit breaker
- * after N consecutive crashes), and graceful stop (SIGTERM -> 5s -> SIGKILL;
- * Windows uses taskkill /T because signals are not deliverable there).
- */
-interface ReadyInfo {
-  port: number;
-  version: string;
-}
-type AgentState = 'starting' | 'ready' | 'stopped' | 'tripped';
-declare class AgentProcess extends EventEmitter {
-  #private;
-  private child;
-  private state;
-  private consecutiveCrashes;
-  private restartTimer;
-  private stopping;
-  private disposed;
-  private backoffMs;
-  private readySinceMs;
-  private readonly agentPath;
-  private readonly args;
-  private readonly options;
-  constructor(agentPath: string, args: string[], options: {
-    restartDelayMs: number;
-    restartMaxDelayMs: number;
-    maxConsecutiveCrashes: number;
-    onLog?: (line: string) => void;
-  });
-  getState(): AgentState;
-  get readyInfo(): ReadyInfo | null;
-  /** Spawn the agent and resolve with the READY handshake result. */
-  start(readyTimeoutMs?: number): Promise<ReadyInfo>;
-  /** Read stdout until the READY line (design.md section 8.2). */
-  private readReadyLine;
-  private pipeLogs;
-  private onExit;
-  private detach;
-  /** Graceful stop: terminate, wait, then force-kill the whole tree. */
-  stop(): Promise<void>;
-  /** Idempotent teardown: no more restarts after dispose. */
-  dispose(): Promise<void>;
-  private terminate;
-  private killTree;
-  private taskkill;
-  private setState;
-}
-//#endregion
-//#region src/provider.d.ts
-interface PiAiModelEntry {
-  id: string;
-  name: string;
-}
-interface ProviderTarget {
-  providerId: string;
-  apiKeyEnv: string;
-  port: number;
-}
-declare function providerBaseURL(port: number): string;
-/**
- * Minimal settings/credentials seam so tests can run against fakes. `mutate`
- * is optional (a reduced composition, and the sidecar's degraded fallback, may
- * lack it), so every caller checks before writing; the read face is
- * `describe()` on 0.1.7, with 0.1.1's `get(ns)` tolerated.
- */
-interface DshSeams {
-  credentials: {
-    set(ref: string, value: string): Promise<void>;
-  };
-  settings: {
-    describe?(options?: {
-      redactSecrets?: boolean;
-    }): unknown;
-    get?(ns: string): unknown;
-    mutate?(ns: string, ops: Array<{
-      op: 'set' | 'unset';
-      path: Array<string | number>;
-      value?: unknown;
-    }>, expectedRevision?: number): Promise<void>;
-  };
-  logger: {
-    info(message: string): void;
-    warn(message: string): void;
-  };
-}
-/** Parse the agent's OpenAI-shaped /v1/models reply into pi-ai model entries. */
-declare function toPiAiModels(data: unknown): PiAiModelEntry[];
-declare function fetchModels(port: number, token: string, timeoutMs?: number): Promise<PiAiModelEntry[]>;
-/** GET /healthz (no auth); throws on transport failure or non-2xx. */
-declare function fetchHealth(port: number, timeoutMs?: number): Promise<unknown>;
-/**
- * Ensure the credential and the llm-pi-ai provider route reflect the running
- * agent. Safe to call repeatedly (every refresh): writes are no-ops when the
- * stored shape already matches, and mutate keeps other namespaces/routes
- * untouched because it edits only the oc2dsh subtree.
- */
-declare function registerProvider(seams: DshSeams, target: ProviderTarget, token: string, models: PiAiModelEntry[]): Promise<void>;
 //#endregion
 //#region src/index.d.ts
 /**
- * oc2dsh DSH cordis plugin entry. Two modes (config.mode, default `adapter`):
- *  - adapter: register a DSH LlmAdapter streaming directly from the Zen
- *    anonymous lane (marketplace shape: no child process, no binary).
- *  - sidecar (not bundled): prepare data dir + token + agent-config.json,
- *    spawn the Go agent, wait for READY, register the llm-pi-ai provider
- *    route, schedule model refresh.
+ * oc2dsh DSH cordis plugin entry: register a DSH LlmAdapter that streams
+ * directly from the Zen anonymous lane — no child process, no binary, no
+ * local port.
  *
  * Settings: the editable surface is exported as `Config` (`ipPool` volatile,
  * plus the `requestHeaders` / `modelContextWindows` dictionaries), served
  * under this entry's Loader id; there is no `ctx.settings.register()`.
  *
- * dispose(): stop timers/catalog, terminate the agent tree (sidecar mode).
- * The cordis fiber disposal guarantees this runs on plugin reload/unload and
- * on DSH shutdown.
+ * dispose(): stop timers/catalog. The cordis fiber disposal guarantees this
+ * runs on plugin reload/unload and on DSH shutdown.
  */
 interface PluginContext {
   logger: {
@@ -754,9 +569,6 @@ interface PluginContext {
   };
   llm?: {
     registerAdapter(providers: string[], adapter: unknown): unknown;
-  };
-  credentials?: {
-    set(ref: string, value: string): Promise<void>;
   };
   /**
    * The host's workspace registry (`@deepseek-ai/dsh-workspace`), requested on
@@ -789,10 +601,10 @@ interface PluginContext {
     }>>;
   };
   /**
-   * DSH 0.1.7 `SettingsForms` (dsh-settings). Read face for the sidecar's
-   * namespace writes; `configure` is how a plugin claims its own settings
-   * page instead of letting the domain auto-generate one. The 0.1.1
-   * `register()/watch()` scope seam is gone and deliberately not re-declared.
+   * DSH 0.1.7 `SettingsForms` (dsh-settings). `configure` is how a plugin
+   * claims its own settings page instead of letting the domain auto-generate
+   * one; `mutate` is the pin write path. The 0.1.1 `register()/watch()` scope
+   * seam is gone and deliberately not re-declared.
    */
   settings?: {
     describe?(options?: {
@@ -823,23 +635,16 @@ interface PluginContext {
 }
 declare const name = "oc2dsh";
 /**
- * Only `llm` gates this fiber, because adapter mode (the shipped default) uses
- * nothing else: the Zen lane's credential is the literal `'public'`, and the
- * ip-pool settings ride the `Config` volatile reference. DSH 0.1.7 composes
- * `ctx.settings` as `SettingsForms`, which injects
- * `['configEditor', 'profileContext']` and ships disabled wherever no
- * `profileContext` exists (headless/CLI) — demanding it here would keep the
- * fiber (and the provider route) from activating. Sidecar mode and the
- * `configure({ auto: false })` page claim ask for the extra seams through
- * `ctx.inject` instead.
+ * Only `llm` gates this fiber, because the Zen lane needs nothing else: its
+ * credential is the literal `'public'` and the ip-pool settings ride the
+ * `Config` volatile reference. DSH 0.1.7 composes `ctx.settings` as
+ * `SettingsForms`, which injects `['configEditor', 'profileContext']` and
+ * ships disabled wherever no `profileContext` exists (headless/CLI) —
+ * demanding it here would keep the fiber (and the provider route) from
+ * activating. The `configure({ auto: false })` page claim asks for that seam
+ * through `ctx.inject` instead.
  */
 declare const inject: readonly ["llm"];
 declare function apply(ctx: PluginContext, config?: ResolvedPluginConfig | Opencode2dshConfig): void;
-/**
- * Locate the agent binary (sidecar mode, legacy — the published package does
- * not bundle it): explicit config wins; then a sibling `legacy/agent` dev
- * build; then a bare name on PATH.
- */
-declare function defaultAgentPath(): string;
 //#endregion
-export { AgentProcess, Config, type DshSeams, type Opencode2dshConfig, PluginContext, type RelayStatus, RelaySupervisor, apply, configPaths, defaultAgentPath, defaultRelayScript, ensureToken, fetchHealth, fetchModels, findBun, inject, name, providerBaseURL, registerProvider, resolveConfig, toPiAiModels, writeAgentConfig };
+export { Config, type Opencode2dshConfig, PluginContext, type RelayStatus, RelaySupervisor, apply, defaultRelayScript, findBun, inject, name, resolveConfig };

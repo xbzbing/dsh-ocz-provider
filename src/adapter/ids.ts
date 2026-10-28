@@ -93,8 +93,8 @@ export function conversationLabel(messages: Array<{ role: string; content: unkno
 export const DEFAULT_PROJECT_ID = 'global'
 
 /**
- * Derive the correlation ids for one upstream request. In adapter mode there
- * are no inbound opencode headers, so the seed is the conversation itself.
+ * Derive the correlation ids for one upstream request. There are no inbound
+ * opencode headers, so the seed is the conversation itself.
  *
  * `request` (a `msg_*` id) is minted but NOT SENT: the 2.x client's wire
  * carries no `x-opencode-request` header (absent repo-wide in 2.1.3 and

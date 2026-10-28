@@ -1,38 +1,30 @@
 import { join } from 'node:path'
-import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 
 import { ModelCatalog, defaultCachePath, type CatalogSnapshot } from './adapter/catalog.ts'
 import { opencodeUserAgent, setRequestHeadersReader, setUserAgentOverride } from './adapter/ids.ts'
 import type { RequestHeaders } from './request-headers.ts'
 import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
-import { AgentProcess, type ReadyInfo } from './agent-process.ts'
-import { Config, configPaths, ensureToken, ordinaryConfig, resolveConfig, writeAgentConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
+import { Config, ordinaryConfig, resolveConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
 import type { ModelContextWindows } from './model-context.ts'
 import { applyIpPoolSettings } from './ip-pool-settings/apply.ts'
 import { setUsageRecorder } from './pool/usage.ts'
 import { usageStore } from './pool/usage-store.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
 import { stateDir } from './paths.ts'
-import { fetchHealth, fetchModels, registerProvider, removeProviderRoute } from './provider.ts'
 import { RelaySupervisor, type RelayStatus } from './relay/supervisor.ts'
 
 /**
- * oc2dsh DSH cordis plugin entry. Two modes (config.mode, default `adapter`):
- *  - adapter: register a DSH LlmAdapter streaming directly from the Zen
- *    anonymous lane (marketplace shape: no child process, no binary).
- *  - sidecar (not bundled): prepare data dir + token + agent-config.json,
- *    spawn the Go agent, wait for READY, register the llm-pi-ai provider
- *    route, schedule model refresh.
+ * oc2dsh DSH cordis plugin entry: register a DSH LlmAdapter that streams
+ * directly from the Zen anonymous lane — no child process, no binary, no
+ * local port.
  *
  * Settings: the editable surface is exported as `Config` (`ipPool` volatile,
  * plus the `requestHeaders` / `modelContextWindows` dictionaries), served
  * under this entry's Loader id; there is no `ctx.settings.register()`.
  *
- * dispose(): stop timers/catalog, terminate the agent tree (sidecar mode).
- * The cordis fiber disposal guarantees this runs on plugin reload/unload and
- * on DSH shutdown.
+ * dispose(): stop timers/catalog. The cordis fiber disposal guarantees this
+ * runs on plugin reload/unload and on DSH shutdown.
  */
 
 // Minimal structural typing against the host ctx; keeps the plugin independent
@@ -40,7 +32,6 @@ import { RelaySupervisor, type RelayStatus } from './relay/supervisor.ts'
 export interface PluginContext {
   logger: { info(...args: unknown[]): void; warn(...args: unknown[]): void; error(...args: unknown[]): void }
   llm?: { registerAdapter(providers: string[], adapter: unknown): unknown }
-  credentials?: { set(ref: string, value: string): Promise<void> }
   /**
    * The host's workspace registry (`@deepseek-ai/dsh-workspace`), requested on
    * demand: it is the authority on which project a session belongs to, and the
@@ -62,10 +53,10 @@ export interface PluginContext {
     ): Promise<ReadonlyArray<{ sessionId?: unknown; status?: unknown; value?: { title?: { title?: unknown } } | undefined }>>
   }
   /**
-   * DSH 0.1.7 `SettingsForms` (dsh-settings). Read face for the sidecar's
-   * namespace writes; `configure` is how a plugin claims its own settings
-   * page instead of letting the domain auto-generate one. The 0.1.1
-   * `register()/watch()` scope seam is gone and deliberately not re-declared.
+   * DSH 0.1.7 `SettingsForms` (dsh-settings). `configure` is how a plugin
+   * claims its own settings page instead of letting the domain auto-generate
+   * one; `mutate` is the pin write path. The 0.1.1 `register()/watch()` scope
+   * seam is gone and deliberately not re-declared.
    */
   settings?: {
     describe?(options?: { redactSecrets?: boolean }): unknown
@@ -91,15 +82,14 @@ export const name = 'oc2dsh'
  */
 export { Config } from './config.ts'
 /**
- * Only `llm` gates this fiber, because adapter mode (the shipped default) uses
- * nothing else: the Zen lane's credential is the literal `'public'`, and the
- * ip-pool settings ride the `Config` volatile reference. DSH 0.1.7 composes
- * `ctx.settings` as `SettingsForms`, which injects
- * `['configEditor', 'profileContext']` and ships disabled wherever no
- * `profileContext` exists (headless/CLI) — demanding it here would keep the
- * fiber (and the provider route) from activating. Sidecar mode and the
- * `configure({ auto: false })` page claim ask for the extra seams through
- * `ctx.inject` instead.
+ * Only `llm` gates this fiber, because the Zen lane needs nothing else: its
+ * credential is the literal `'public'` and the ip-pool settings ride the
+ * `Config` volatile reference. DSH 0.1.7 composes `ctx.settings` as
+ * `SettingsForms`, which injects `['configEditor', 'profileContext']` and
+ * ships disabled wherever no `profileContext` exists (headless/CLI) —
+ * demanding it here would keep the fiber (and the provider route) from
+ * activating. The `configure({ auto: false })` page claim asks for that seam
+ * through `ctx.inject` instead.
  */
 export const inject = ['llm'] as const
 export function apply(ctx: PluginContext, config: ResolvedPluginConfig | Opencode2dshConfig = {}): void {
@@ -109,37 +99,35 @@ export function apply(ctx: PluginContext, config: ResolvedPluginConfig | Opencod
   const cfg = resolveConfig(config as Opencode2dshConfig)
   // The Zen-lane User-Agent is ordinary config, but every sender reads it at
   // request time (chat adapter, catalog refresh, admission probes), so it is
-  // applied here — before either branch — and the first /models fetch already
+  // applied here — before registration — and the first /models fetch already
   // carries it. Empty restores the built-in CLI-identical value.
   setUserAgentOverride(cfg.userAgent)
   const releaseHeaders = setRequestHeadersReader(() => readVolatile<RequestHeaders>(resolved.requestHeaders))
   if (typeof ctx.effect === 'function') ctx.effect.call(ctx, () => releaseHeaders)
   // Cordis accepts disposal effects; readiness objects are invalid effects.
-  if (cfg.mode === 'sidecar') applySidecar(ctx, config as Opencode2dshConfig)
-  else applyAdapter(ctx, resolved, () => readVolatile<IpPoolSettings>(resolved.ipPool))
+  applyAdapter(ctx, resolved, () => readVolatile<IpPoolSettings>(resolved.ipPool))
 }
 
 /**
- * Adapter mode: catalog + LlmAdapter registration. The adapter registration
- * is disposed with the plugin fiber (registerAdapter uses ctx.effect
- * internally); we only own the catalog refresh loop here.
+ * Catalog + LlmAdapter registration. The adapter registration is disposed
+ * with the plugin fiber (registerAdapter uses ctx.effect internally); we only
+ * own the catalog refresh loop here.
  */
 function applyAdapter(
   ctx: PluginContext,
   config: ResolvedPluginConfig,
   readIpPool: () => Partial<IpPoolSettings> | undefined,
-): { ready: Promise<{ port: number; version: string }> } {
+): void {
   const logger = ctx.logger
   // Strip the volatile reference before the plain config resolution: it is an
   // ordinary-fields consumer, and `{ ...defaults, ...config }` would otherwise
   // hand `startIpPool` the reference object where it expects values.
   const ordinary = ordinaryConfig(config)
   const cfg = resolveConfig(ordinary)
-  const ready = Promise.resolve({ port: 0, version: 'adapter' })
 
   if (!ctx.llm || typeof ctx.llm.registerAdapter !== 'function') {
-    logger.error('oc2dsh: llm service unavailable; adapter mode cannot register')
-    return { ready }
+    logger.error('oc2dsh: llm service unavailable; the adapter cannot register')
+    return
   }
 
   const dataDir = stateDir()
@@ -216,8 +204,8 @@ function applyAdapter(
   // host awaits listModels and caches its answer per host generation, so the
   // registration-time read warms the catalog (bounded, issue #45) instead of
   // handing the picker the staticFreeModels bootstrap list. A throw anywhere
-  // in the ip-pool wiring, the stale-route sweep, or the refresh loop must
-  // never cost the deployment its only free provider.
+  // in the ip-pool wiring or the refresh loop must never cost the deployment
+  // its only free provider.
   ctx.llm.registerAdapter([PROVIDER_ID], adapter)
   logger.info(`oc2dsh: adapter registered for "${PROVIDER_ID}" (catalog warms up in background)`)
 
@@ -262,209 +250,12 @@ function applyAdapter(
     logger.error(`oc2dsh: catalog start failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  // A sidecar leftover (llm-pi-ai.providers.oc2dsh pointing at a dead local
-  // port) would shadow the adapter registration and fail every dispatch with a
-  // connection error, so it is removed before the route can be used. The
-  // `settings` seam is requested rather than assumed (0.1.7's SettingsForms is
-  // absent from a headless composition) and reads through `describe()`.
-  if (typeof ctx.inject === 'function') {
-    void Promise.resolve(ctx.inject(['settings'], (sctx: PluginContext) => {
-      if (!sctx.settings) return
-      void removeProviderRoute({ settings: sctx.settings }, cfg.providerId)
-        .then((removed) => {
-          if (removed) logger.info(`oc2dsh: removed stale sidecar route for "${cfg.providerId}" from llm-pi-ai settings`)
-        })
-        .catch((err) => {
-          logger.warn(`oc2dsh: stale route cleanup failed: ${err instanceof Error ? err.message : String(err)}`)
-        })
-    })) as unknown as Promise<unknown>
-  }
-
   if (typeof ctx.effect === 'function') {
     ctx.effect.call(ctx, () => () => {
       catalog.stop()
     })
   }
-  return { ready }
 }
 
-function applySidecar(ctx: PluginContext, config: Opencode2dshConfig): { ready: Promise<ReadyInfo> } {
-  const cfg = resolveConfig(config)
-  const paths = configPaths(stateDir())
-  const logger = ctx.logger
-
-  let agent: AgentProcess | null = null
-  let refreshTimer: NodeJS.Timeout | null = null
-  let disposed = false
-  let readyResolve: (info: ReadyInfo) => void = () => {}
-  const ready = new Promise<ReadyInfo>((resolve) => {
-    readyResolve = resolve
-  })
-
-  const onLog = (line: string) => {
-    // Agent structured logs arrive as single JSON lines on stderr/stdout.
-    logger.info(`[agent] ${line}`)
-  }
-
-  /**
-   * Sidecar mode's two extra seams, asked for lazily: `inject` declares only
-   * `llm`, so sidecar requests `credentials`/`settings` itself. The 2 s race
-   * keeps a composition that composes neither from parking the first refresh
-   * forever — it settles immediately when the services are already up, and
-   * falls back to what ctx carries when they never arrive.
-   */
-  let seams: Promise<{ credentials?: PluginContext['credentials']; settings?: PluginContext['settings'] }> | undefined
-  const resolveSeams = (): Promise<{ credentials?: PluginContext['credentials']; settings?: PluginContext['settings'] }> => {
-    if (seams !== undefined) return seams
-    const carried = { credentials: ctx.credentials, settings: ctx.settings }
-    if ((carried.credentials !== undefined && carried.settings !== undefined) || typeof ctx.inject !== 'function') {
-      seams = Promise.resolve(carried)
-      return seams
-    }
-    const arrived = new Promise<{ credentials?: PluginContext['credentials']; settings?: PluginContext['settings'] }>((resolve) => {
-      void Promise.resolve(ctx.inject!(['credentials', 'settings'], (sctx: PluginContext) => {
-        resolve({ credentials: sctx.credentials, settings: sctx.settings })
-      }))
-    })
-    seams = Promise.race([arrived, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 2000))])
-      .then((value) => value ?? carried)
-    return seams
-  }
-
-  /**
-   * Wait until the agent's model catalog is no longer "pending" (it fetches
-   * the live S1 list a moment after listen; registering before that bakes the
-   * 3-model static fallback into the DSH provider until the next refresh).
-   */
-  async function waitCatalogReady(port: number, timeoutMs = 15000): Promise<void> {
-    const deadline = Date.now() + timeoutMs
-    while (Date.now() < deadline) {
-      try {
-        const health = await fetchHealth(port, 2000)
-        const status = (health as { models?: { status?: string } })?.models?.status
-        if (status && status !== 'pending') return
-      } catch {
-        // healthz hiccups right after listen are normal; keep polling
-      }
-      await new Promise((r) => setTimeout(r, 300))
-    }
-    logger.warn('oc2dsh: catalog still pending after timeout; registering whatever the agent exposes now')
-  }
-
-  async function refreshModels(info: ReadyInfo, token: string, { waitReady = false } = {}): Promise<void> {
-    try {
-      if (waitReady) await waitCatalogReady(info.port)
-      const models = await fetchModels(info.port, token)
-      const { credentials, settings } = await resolveSeams()
-      if (credentials && settings) {
-        await registerProvider(
-          {
-            credentials,
-            settings,
-            logger: { info: (m) => logger.info(m), warn: (m) => logger.warn(m) },
-          },
-          { providerId: cfg.providerId, apiKeyEnv: cfg.apiKeyEnv, port: info.port },
-          token,
-          models,
-        )
-      } else {
-        logger.warn('oc2dsh: credentials/settings services unavailable; provider route not registered')
-      }
-    } catch (err) {
-      logger.warn(`oc2dsh: model refresh failed: ${err instanceof Error ? err.message : String(err)}`)
-    }
-  }
-
-  function scheduleRefresh(info: ReadyInfo, token: string): void {
-    if (refreshTimer) clearTimeout(refreshTimer)
-    refreshTimer = setTimeout(() => {
-      if (disposed) return
-      void refreshModels(info, token).then(() => {
-        if (!disposed && agent?.getState() === 'ready') scheduleRefresh(info, token)
-      })
-    }, cfg.refreshSeconds * 1000)
-  }
-
-  async function startOnce(): Promise<ReadyInfo> {
-    const token = await ensureToken(paths)
-    await writeAgentConfig(paths, { token, refreshSeconds: cfg.refreshSeconds })
-    const binary = cfg.agentPath ?? defaultAgentPath()
-    agent = new AgentProcess(binary, ['--config', paths.configPath, '--print-ready', ...(cfg.agentArgs ?? [])], {
-      restartDelayMs: cfg.restartDelayMs,
-      restartMaxDelayMs: cfg.restartMaxDelayMs,
-      maxConsecutiveCrashes: cfg.maxConsecutiveCrashes,
-      onLog,
-    })
-    agent.on('exit-restart', (delay, crashes) => {
-      logger.warn(`oc2dsh: agent exited unexpectedly; restarting in ${delay}ms (attempt ${crashes})`)
-    })
-    agent.on('circuit-tripped', (crashes) => {
-      logger.error(`oc2dsh: agent crashed ${crashes} times consecutively; giving up`)
-    })
-    agent.on('state', (state) => {
-      if (state === 'ready') logger.info('oc2dsh: agent ready')
-    })
-    const info = await agent.start()
-    readyResolve(info)
-    await refreshModels(info, token, { waitReady: true })
-    scheduleRefresh(info, token)
-    return info
-  }
-
-  void startOnce().catch((err) => {
-    logger.error(`oc2dsh: failed to start agent: ${err instanceof Error ? err.message : String(err)}`)
-  })
-
-  // Register disposer on the plugin fiber so reload/unload/shutdown reaps the
-  // child process (design.md §7 sidecar contract: no orphans).
-  if (typeof ctx.effect === 'function') {
-    ctx.effect.call(ctx, () => () => {
-      void teardown()
-    })
-  }
-
-  async function teardown(): Promise<void> {
-    disposed = true
-    if (refreshTimer) {
-      clearTimeout(refreshTimer)
-      refreshTimer = null
-    }
-    if (agent) {
-      await agent.dispose().catch(() => {})
-      agent = null
-    }
-  }
-
-  return { ready }
-}
-
-/**
- * Locate the agent binary (sidecar mode, legacy — the published package does
- * not bundle it): explicit config wins; then a sibling `legacy/agent` dev
- * build; then a bare name on PATH.
- */
-export function defaultAgentPath(): string {
-  const bin = 'oc2dsh-agent'
-  const exe = process.platform === 'win32' ? `${bin}.exe` : bin
-  const here = __dirnameSafe()
-  for (const sibling of [
-    join(here, '..', '..', '..', 'legacy', 'agent', exe),
-    join(here, '..', '..', 'legacy', 'agent', exe),
-  ]) {
-    if (existsSync(sibling)) return sibling
-  }
-  return exe
-}
-
-function __dirnameSafe(): string {
-  try {
-    return fileURLToPath(new URL('.', import.meta.url))
-  } catch {
-    return '.'
-  }
-}
-
-export { AgentProcess } from './agent-process.ts'
 export { RelaySupervisor, defaultRelayScript, findBun, type RelayStatus } from './relay/supervisor.ts'
-export { configPaths, ensureToken, resolveConfig, writeAgentConfig, type Opencode2dshConfig } from './config.ts'
-export { fetchHealth, fetchModels, registerProvider, providerBaseURL, toPiAiModels, type DshSeams } from './provider.ts'
+export { resolveConfig, type Opencode2dshConfig } from './config.ts'

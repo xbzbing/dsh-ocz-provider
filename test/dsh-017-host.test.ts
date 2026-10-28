@@ -108,12 +108,11 @@ test('the plugin serves volatile settings nodes and the fiber needs only llm', a
   // selects a node's whole plain schema, and a nested volatile is a
   // schemastery error. None may be a `.transform()` — see the AGENTS.md row on
   // callback-bearing schema nodes.
-  const resolved = Config({ mode: 'adapter' })
+  const resolved = Config({})
   const ipPool = resolved.ipPool as unknown as { get(): unknown }
   assert.equal(typeof ipPool.get, 'function', 'ipPool is a volatile reference')
   assert.equal(typeof (resolved.requestHeaders as unknown as { get(): unknown }).get, 'function', 'requestHeaders is a volatile reference')
   assert.equal(typeof (resolved.modelContextWindows as unknown as { get(): unknown }).get, 'function', 'modelContextWindows is a volatile reference')
-  assert.equal((resolved as { mode: unknown }).mode, 'adapter')
 })
 
 test('a 0.1.7-shaped host registers the provider and claims its own settings page', async () => {
@@ -121,7 +120,7 @@ test('a 0.1.7-shaped host registers the provider and claims its own settings pag
   const s = settings17()
   h.base.settings = s.service
 
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool })
   await settle()
 
   assert.deepEqual(h.registrations, [['oc2dsh']], 'exactly one route, and it needed no settings API')
@@ -135,7 +134,7 @@ test('a settings save reaches the pool through loader/volatile-update', async ()
   const s = settings17()
   h.base.settings = s.service
 
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool })
   await settle()
   assert.equal(h.volatileListeners.length, 1)
   const before = h.ipPool.reads
@@ -151,20 +150,6 @@ test('a settings save reaches the pool through loader/volatile-update', async ()
   assert.ok(h.ipPool.reads > before, 'the handler re-reads the reference instead of caching a snapshot')
 })
 
-test('the stale sidecar route is swept through describe(), not a removed get(ns)', async () => {
-  const h = host()
-  const s = settings17()
-  s.namespaces.push({ ns: 'llm-pi-ai', value: { providers: { 'oc2dsh': { baseURL: 'http://127.0.0.1:1' } } } })
-  h.base.settings = s.service
-
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
-  await settle()
-
-  assert.equal(s.mutations.length, 1)
-  assert.equal(s.mutations[0]!.ns, 'llm-pi-ai')
-  assert.deepEqual(s.mutations[0]!.ops, [{ op: 'unset', path: ['providers', 'oc2dsh'] }])
-})
-
 test('a legacy 0.1.1 host with register()/get() still gets a provider route', async () => {
   // Nothing here is called, so the absence of describe/configure only means the
   // page is not claimed — the route must survive regardless.
@@ -175,7 +160,7 @@ test('a legacy 0.1.1 host with register()/get() still gets a provider route', as
     register: () => { throw new Error('must not re-register under 0.1.7') },
   } as never
 
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool })
   await settle()
   assert.deepEqual(h.registrations, [['oc2dsh']])
 })
@@ -183,7 +168,7 @@ test('a legacy 0.1.1 host with register()/get() still gets a provider route', as
 test('a headless composition with no settings service at all still registers', async () => {
   const h = host()
   delete h.base.settings
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool })
   await settle()
   assert.deepEqual(h.registrations, [['oc2dsh']])
 })
@@ -191,7 +176,7 @@ test('a headless composition with no settings service at all still registers', a
 test('a host predating the Config export (plain ipPool object) still registers', async () => {
   const h = host()
   h.base.settings = settings17().service
-  apply(h.base, { mode: 'adapter', ipPool: { enabled: false, manual: [] } })
+  apply(h.base, { ipPool: { enabled: false, manual: [] } })
   await settle()
   assert.deepEqual(h.registrations, [['oc2dsh']])
 })
@@ -199,7 +184,7 @@ test('a host predating the Config export (plain ipPool object) still registers',
 test('an inject that never fires its callback does not block the route', async () => {
   const h = host()
   h.base.inject = () => Promise.resolve()
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool })
   await settle()
   assert.deepEqual(h.registrations, [['oc2dsh']])
 })
@@ -208,7 +193,7 @@ test('an inject that never fires its callback does not block the route', async (
 test('plugin entry reads committed request headers live and releases its reader on unload', async () => {
   const h = host()
   let value: Record<string, string> = { 'user-agent': 'first-agent' }
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool, requestHeaders: { get: () => value } })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool, requestHeaders: { get: () => value } })
   try {
     assert.equal(opencodeUserAgent(), 'first-agent')
     value = { 'user-agent': 'second-agent', 'x-opencode-client': 'desktop' }
@@ -224,7 +209,7 @@ test('plugin entry reads committed request headers live and releases its reader 
 test('the modelContextWindows node reaches resolveModel live', async () => {
   const h = host()
   let value: Record<string, number> = { 'big-pickle': 1048576 }
-  apply(h.base, { ...Config({ mode: 'adapter' }), ipPool: h.ipPool, modelContextWindows: { get: () => value } })
+  apply(h.base, { ...Config({}), ipPool: h.ipPool, modelContextWindows: { get: () => value } })
   await settle()
 
   const adapter = h.adapters[0] as {

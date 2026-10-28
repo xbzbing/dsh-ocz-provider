@@ -22,7 +22,7 @@ OpenCode 官方 CLI 无需登录即可使用的那批免费模型，它们会以
 ## 特性
 
 - **零凭据、零配置**——匿名通道不需要任何 Key；装好、重启、开聊
-- **原生 adapter，无 sidecar**——一个 npm 包，没有子进程、没有二进制、没有本地端口（旧版 Go sidecar 不随包发行，见 `legacy/`）
+- **原生 adapter，无 sidecar**——一个 npm 包，没有子进程、没有二进制、没有本地端口
 - **CLI 同形伪装**——请求携带 OpenCode CLI 的 User-Agent 和整套会话/请求/项目关联头，按会话派生
 - **思考等级可选**——带推理的免费模型在 DSH 模型选择器里出现思考等级选项（模型声明档位的按声明展示，其余提供 Off/Minimal/Low/Medium/High）；Off 向上游发送 `reasoning_effort: "none"` 真正停思考，不选则保持上游默认
 - **按声明支持图片输入**——只要 [models.dev](https://models.dev) 的模型条目在 `modalities.input` 里列了 `image`，图片附件就会被放行；只声明 `text` 的模型仍然拒绝；元数据缺省时退回已验证的视觉家族
@@ -79,23 +79,16 @@ pnpm build && git add lib
 - id: oc2dsh
   name: 'oc2dsh'
   config:
-    mode: adapter        # adapter（默认）| sidecar
-    providerId: oc2dsh
     refreshSeconds: 300  # 目录刷新周期（秒）
 ```
 
 | 配置项 | 默认值 | 说明 |
 | --- | --- | --- |
-| `mode` | `adapter` | `adapter`：原生 LlmAdapter 直连 Zen。`sidecar`：旧版本地 agent 模式，不随包发行——请从 `legacy/agent` 自行构建并通过 `agentPath` 指定。 |
-| `providerId` | `oc2dsh` | 在 DSH 中显示的 provider 名称。 |
 | `refreshSeconds` | `300` | 实时目录刷新间隔；定价元数据每 24 小时刷新。 |
-| `agentPath` | 自动解析 | 仅 sidecar：agent 二进制路径。 |
-| `agentArgs` | — | 仅 sidecar：传给 agent 的额外 CLI 参数。 |
-| `restartDelayMs` / `restartMaxDelayMs` / `maxConsecutiveCrashes` | `1000` / `60000` / `5` | 仅 sidecar：重启退避与熔断阈值。 |
-| `firstEventMs` / `bodyIdleMs` / `responsesBodyIdleMs` | `30000` / `120000` / `300000` | 仅 adapter，插件 0.3.7 起支持：流存活超时，单位毫秒，取 `1` 到 `600000` 的整数。分别控制首事件等待、流中静默，以及 Responses 模型（`muse-spark-*`）的静默下限。冷启动慢时可调大 `firstEventMs`。不设置则使用默认值；修改后重启 DSH。 |
-| `userAgent` | 内置值 `opencode/latest/2.1.4/<client>`（`<client>` 跟随 `x-opencode-client`，开启 Desktop 模式即为 `desktop`） | 仅 adapter：旧 profile UA 配置，供正式对话、目录刷新和准入探测使用；留空使用内置值。页面的 `requestHeaders` 中若有 `User-Agent`，优先使用页面值。修改此旧字段需重启或重新加载插件。 |
-| `requestHeaders` | `{}` | 仅 adapter：在插件配置页的「Zen 请求头」区域编辑，每行一个 `Header-Name: value`。保存后对下一次正式对话、模型目录和准入探测生效，不依赖 IP 池开关。名称不区分大小写；鉴权、Cookie、HTTP 传输及正文格式头由插件管理。 |
-| `modelContextWindows` | `{}` | 仅 adapter：逐模型覆盖上下文长度（`模型 ID` → token 数），在插件配置页的「模型上下文」区域编辑，每行 `模型 ID = 1048576`。用于 models.dev 只声明 200K、而接口实际支持 1M 的模型；保存后对下一次请求生效，无需重启。范围 1024–16777216；留空使用 models.dev 声明值（内置仍覆盖 `mimo-v2.6-flash-free` = 1048576）。 |
+| `firstEventMs` / `bodyIdleMs` / `responsesBodyIdleMs` | `30000` / `120000` / `300000` | 插件 0.3.7 起支持：流存活超时，单位毫秒，取 `1` 到 `600000` 的整数。分别控制首事件等待、流中静默，以及 Responses 模型（`muse-spark-*`）的静默下限。冷启动慢时可调大 `firstEventMs`。不设置则使用默认值；修改后重启 DSH。 |
+| `userAgent` | 内置值 `opencode/latest/2.1.4/<client>`（`<client>` 跟随 `x-opencode-client`，开启 Desktop 模式即为 `desktop`） | 旧 profile UA 配置，供正式对话、目录刷新和准入探测使用；留空使用内置值。页面的 `requestHeaders` 中若有 `User-Agent`，优先使用页面值。修改此旧字段需重启或重新加载插件。 |
+| `requestHeaders` | `{}` | 在插件配置页的「Zen 请求头」区域编辑，每行一个 `Header-Name: value`。保存后对下一次正式对话、模型目录和准入探测生效，不依赖 IP 池开关。名称不区分大小写；鉴权、Cookie、HTTP 传输及正文格式头由插件管理。 |
+| `modelContextWindows` | `{}` | 逐模型覆盖上下文长度（`模型 ID` → token 数），在插件配置页的「模型上下文」区域编辑，每行 `模型 ID = 1048576`。用于 models.dev 只声明 200K、而接口实际支持 1M 的模型；保存后对下一次请求生效，无需重启。范围 1024–16777216；留空使用 models.dev 声明值（内置仍覆盖 `mimo-v2.6-flash-free` = 1048576）。 |
 
 在 **设置 → 插件 → OpenCode Zen 插件配置** 的「Zen 请求头」里，可以填写：
 
@@ -142,11 +135,6 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
   "免费"；S3：编译期验证的静态名单。上游故障时由磁盘缓存（约 7 天有效期）兜底。
 - **韧性**——adapter 在启动时立即注册；若首次目录拉取撞上网络尚未就绪
   （VPN/TUN 重连、DNS 等），会以短周期重试（约 1 分钟内），随后转入常规刷新。
-- **sidecar 模式**（`mode: sidecar`，旧版）——拉起本地 Go agent（
-  [opencode2api](https://github.com/jasonxu114514/opencode2api) 的单租户移植版），
-  监听 `127.0.0.1:<随机端口>`、token 鉴权，并注册标准 `llm-pi-ai` 路由。
-  **不随包发行**；请从 `legacy/agent` 构建（`go build ./cmd/agent`）并把
-  `agentPath` 指向产物。
 
 ## 健康状态与排查
 
@@ -175,7 +163,7 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 | 对话中报限流错误（`429 … Endpoint is unavailable`） | 匿名通道按 IP 限额，免费模型竞争大。[#51](https://github.com/FishBottle7/opencode2dsh/issues/51) 修复后，插件的 provider 重试策略会静默扛过 429 突发（10 次重试、5s/8s/10s/15s/20s/30s 阶梯间隔，之后封顶 30s，每步最坏约 208s），不再直接抛给用户；仍被打满时可降低思考强度、换一个竞争较小的 `-free` 模型，或在插件设置页开启 IP 池（多出口轮换）。 |
 | 思考耗尽输出预算，没有正文 | 插件 0.3.6 会在模型支持 Off 时关闭思考重试一次。已有任何正文或工具调用则不会重试。重试保持原输出上限，仍可能失败，两次请求的用量合并统计。不支持 Off 的模型（如 Muse）需要手动调整设置或更换模型。 |
 | Muse 报 `REGION_BLOCKED` / "This model is not available in your country" | Zen 不向当前网络地区提供该模型。插件 0.3.5 保留上游解释；旧版会把这个 403 误报为 API 密钥无效。匿名通道不需要个人密钥，可使用当前地区可用的模型。 |
-| 连接 `127.0.0.1:*` 报错 | 残留的 sidecar 路由遮蔽了 adapter；插件 ≥ 0.2.1 启动时会自动清理。 |
+| 连接 `127.0.0.1:*` 报错 | 旧版（≤ 0.2.0）sidecar 模式在 llm-pi-ai 里留下的 `oc2dsh` 路由遮蔽了 adapter；在宿主设置的 llm-pi-ai 提供方列表里删除该条目即可。 |
 | 安装时报 `ERR_PNPM_IGNORED_BUILDS` | `pi-ai` 的传递依赖（`@google/genai`、`protobufjs`）带构建脚本，运行时并不需要。在插件市场里按提示选择允许/拒绝，或在 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds:` 下把这两项设为 `false`。 |
 
 ## 安全性
@@ -197,7 +185,7 @@ git add lib                          # 产物是提交进仓库的，不是忽�
 
 `pnpm build` 是唯一受支持的构建入口：它先清空 `lib/`，再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`pnpm test` 会拿它与 `src/` 比对。两半共用 `tsdown.config.ts` / `tsdown.client.config.ts` 一对配置，chunk 文件名固定，反复重建不会留下 `admission-<hash>.js` 这类垃圾文件。
 
-旧版 Go sidecar 在 `legacy/agent`（`go test ./...`）。架构说明与移植记录见 `docs/`；面向 agent 的项目说明（构建命令、项目相关设置、上游闸门）见 `AGENTS.md`。
+旧版 Go agent 在 `legacy/agent`（`go test ./...`），仅作移植语义参考，不参与构建与发行。架构说明与移植记录见 `docs/`；面向 agent 的项目说明（构建命令、项目相关设置、上游闸门）见 `AGENTS.md`。
 
 打包：在仓库根目录执行 `pnpm build && pnpm pack`（根目录才是那个包；根目录**故意不放** `prepack`，因为生命周期脚本正是让 git 源安装被迫要求 `allowBuilds` 的原因）。
 
@@ -205,7 +193,7 @@ git add lib                          # 产物是提交进仓库的，不是忽�
 
 - [**opencode2api**](https://github.com/jasonxu114514/opencode2api)，作者
   [@jasonxu114514](https://github.com/jasonxu114514)——`legacy/agent` 里的旧版
-  Go sidecar 是其匿名通道实现的移植版，目录回退链与请求伪装细节同样源自它。
+  Go agent 是其匿名通道实现的移植版，目录回退链与请求伪装细节同样源自它。
   本项目能成立，全靠它踩过的路。上游的免费通道修复（#69/#70/#83）也曾移植到
   本项目。
 - [**FishBottle7/opencode2dsh**](https://github.com/FishBottle7/opencode2dsh)：

@@ -1,8 +1,3 @@
-import { randomBytes } from 'node:crypto'
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { platform } from 'node:process'
-
 import Schema from '@deepseek-ai/schemastery'
 
 import { IpPoolConfigSchema, type IpPoolSettings, type VolatileRef } from './ip-pool-settings/namespace.ts'
@@ -17,30 +12,8 @@ export type { RelayConfig } from './relay/supervisor.ts'
  * Plugin configuration (cordis config object, injected via cordis.patch.yml).
  */
 export interface Opencode2dshConfig {
-  /**
-   * Integration mode. `adapter` (default) registers a DSH LlmAdapter that
-   * streams directly from the Zen anonymous lane — no child process. `sidecar`
-   * (legacy, not bundled with the published package) spawns the Go agent
-   * binary and registers an llm-pi-ai route to it; build the agent from
-   * legacy/agent and pass agentPath.
-   */
-  mode?: 'adapter' | 'sidecar'
-  /** Path to the agent binary (sidecar mode). Not bundled: build from legacy/agent. */
-  agentPath?: string
-  /** Extra CLI args forwarded to the agent (after --config). */
-  agentArgs?: string[]
-  /** Provider route name registered into llm-pi-ai settings. */
-  providerId?: string
-  /** Credential reference (env var name) holding the local agent token. */
-  apiKeyEnv?: string
-  /** Model list refresh interval in seconds (agent refresh_seconds matches). */
+  /** Model list refresh interval in seconds. */
   refreshSeconds?: number
-  /** Restart backoff: initial delay ms. */
-  restartDelayMs?: number
-  /** Restart backoff: max delay ms. */
-  restartMaxDelayMs?: number
-  /** Consecutive crash count that trips the circuit breaker. */
-  maxConsecutiveCrashes?: number
   /**
    * Watchdog: ms to wait for the first pi-ai stream event (issue #33). The
    * shipped window (zen-adapter.ts DEFAULT_FIRST_EVENT_MS) is the fallback
@@ -56,7 +29,7 @@ export interface Opencode2dshConfig {
    */
   responsesBodyIdleMs?: number
   /**
-   * The User-Agent sent on every Zen request (adapter mode): chat, the model
+   * The User-Agent sent on every Zen request: chat, the model
    * catalog refresh and the pool's admission probes. Empty = the built-in
    * current-client shape (`opencode/latest/2.1.4/<client>`, where `<client>`
    * mirrors the effective `x-opencode-client`).
@@ -158,17 +131,10 @@ export interface IpPoolConfig {
 }
 
 export const defaults = {
-  providerId: 'oc2dsh',
-  apiKeyEnv: 'OC2DSH_TOKEN',
   refreshSeconds: 300,
-  restartDelayMs: 1000,
-  restartMaxDelayMs: 60000,
-  maxConsecutiveCrashes: 5,
 }
 
-export type ResolvedConfig = Required<
-  Pick<Opencode2dshConfig, 'providerId' | 'apiKeyEnv' | 'refreshSeconds' | 'restartDelayMs' | 'restartMaxDelayMs' | 'maxConsecutiveCrashes'>
-> & Opencode2dshConfig
+export type ResolvedConfig = Required<Pick<Opencode2dshConfig, 'refreshSeconds'>> & Opencode2dshConfig
 
 export function resolveConfig(config: Opencode2dshConfig = {}): ResolvedConfig {
   return { ...defaults, ...config }
@@ -236,24 +202,8 @@ const RelayConfigSchema: Schema<RelayConfig, RelayConfig, never> = Schema.object
 })
 
 export const Config = Schema.object({
-  /** Integration mode; `adapter` (default) is the shipped shape. */
-  mode: Schema.union(['adapter', 'sidecar']).default('adapter'),
-  /** Path to the agent binary (sidecar mode only; not bundled). */
-  agentPath: Schema.string(),
-  /** Extra CLI args forwarded to the agent (after --config). */
-  agentArgs: Schema.array(Schema.string()).default([]),
-  /** Provider route name registered into llm-pi-ai settings (sidecar mode). */
-  providerId: Schema.string().default(defaults.providerId),
-  /** Credential reference (env var name) holding the local agent token. */
-  apiKeyEnv: Schema.string().default(defaults.apiKeyEnv),
   /** Model list refresh interval in seconds. */
   refreshSeconds: Schema.number().step(1).min(1).default(defaults.refreshSeconds),
-  /** Restart backoff: initial delay ms. */
-  restartDelayMs: Schema.number().step(1).min(0).default(defaults.restartDelayMs),
-  /** Restart backoff: max delay ms. */
-  restartMaxDelayMs: Schema.number().step(1).min(0).default(defaults.restartMaxDelayMs),
-  /** Consecutive crash count that trips the circuit breaker. */
-  maxConsecutiveCrashes: Schema.number().step(1).min(0).default(defaults.maxConsecutiveCrashes),
   /**
    * Watchdog: ms to wait for the first stream event. No `.default()` on
    * purpose — the adapter owns those numbers (DEFAULT_FIRST_EVENT_MS &
@@ -315,85 +265,4 @@ export type OrdinaryPluginConfig = Omit<ResolvedPluginConfig, 'ipPool' | 'reques
 export function ordinaryConfig(config: ResolvedPluginConfig): OrdinaryPluginConfig {
   const { ipPool: _ipPool, requestHeaders: _requestHeaders, modelContextWindows: _modelContextWindows, ...ordinary } = config
   return ordinary
-}
-
-/**
- * Everything the plugin persists next to the agent: the generated
- * agent-config.json (design.md section 8.3 template) and the local auth token.
- * The data directory doubles as the models.dev cache location for the agent.
- */
-export interface AgentConfigPaths {
-  dataDir: string
-  configPath: string
-  tokenPath: string
-}
-
-export function configPaths(dataDir: string): AgentConfigPaths {
-  return {
-    dataDir,
-    configPath: join(dataDir, 'agent-config.json'),
-    tokenPath: join(dataDir, 'agent-token.txt'),
-  }
-}
-
-/** 32-byte random token, base64url (design.md section 7). */
-export function generateToken(): string {
-  return randomBytes(32).toString('base64url')
-}
-
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Read the persisted token or generate and persist a fresh one.
- * Best-effort 0600 on POSIX; Windows profile dirs are user-scoped already.
- */
-export async function ensureToken(paths: AgentConfigPaths): Promise<string> {
-  if (await fileExists(paths.tokenPath)) {
-    const existing = (await readFile(paths.tokenPath, 'utf8')).trim()
-    if (existing.length > 0) return existing
-  }
-  const token = generateToken()
-  await mkdir(dirname(paths.tokenPath), { recursive: true })
-  await writeFile(paths.tokenPath, token + '\n', { encoding: 'utf8' })
-  if (platform !== 'win32') {
-    await chmod(paths.tokenPath, 0o600).catch(() => {})
-  }
-  return token
-}
-
-/**
- * Write agent-config.json atomically (tmp + rename) every plugin start, so a
- * version upgrade or option change reaches the next agent spawn. The agent
- * accepts JSON with comments; we emit plain JSON.
- */
-export async function writeAgentConfig(
-  paths: AgentConfigPaths,
-  options: { token: string; refreshSeconds: number },
-): Promise<void> {
-  // design.md section 8.3 template; listen 127.0.0.1:0 => random port,
-  // discovered via the READY line (--print-ready).
-  const config = {
-    listen: '127.0.0.1:0',
-    server_keys: [options.token],
-    anonymous: true,
-    zen_keys: [],
-    go_keys: [],
-    upstream: { zen: 'https://opencode.ai/inference' },
-    models: { refresh_seconds: options.refreshSeconds },
-    retry: { max_attempts: 2, timeout_seconds: 300 },
-    proxies: ['direct'],
-    logging: { level: 'info' },
-  }
-  await mkdir(paths.dataDir, { recursive: true })
-  const tmpPath = paths.configPath + '.tmp'
-  await writeFile(tmpPath, JSON.stringify(config, null, 2), 'utf8')
-  await rm(paths.configPath, { force: true })
-  await rename(tmpPath, paths.configPath)
 }

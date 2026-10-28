@@ -95,7 +95,6 @@ argument itself.
 | Provider display name (model picker group) | `OpenCode-Zen-Free` | src/adapter/zen-adapter.ts `PROVIDER_NAME` — label only, deliberately separate from the id |
 | Loopback bridge prefix | `/api/oc2dsh/ip-pool` | src/ip-pool-settings/bridge.ts `IP_POOL_BRIDGE_PREFIX` (mirrored in src/client/IpPoolCard.tsx) |
 | On-disk state root | `~/.dsh/oc2dsh` (env `OC2DSH_HOME` redirects) | src/paths.ts `stateDir()` |
-| Credential env var (sidecar only) | `OC2DSH_TOKEN` | src/config.ts |
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/IpPoolCard.tsx `IP_POOL_FIELD` |
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie and transport/body format headers are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |

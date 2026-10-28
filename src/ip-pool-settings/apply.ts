@@ -203,8 +203,7 @@ export function applyIpPoolSettings(
    * in front (`['ipPool', 'pinnedExitId']`) exactly like the card's own writes;
    * an empty value unsets it so the schema default applies rather than a stored
    * empty string. No expectedRevision: this is a single-field path op from a
-   * surface that never read the descriptor (the same tolerance
-   * provider.ts::removeProviderRoute uses for the sidecar route).
+   * surface that never read the descriptor.
    */
   const writePin: WritePin = async (value) => {
     const settings = settingsHandle
@@ -262,8 +261,8 @@ export function applyIpPoolSettings(
           usageScope: controller.settings().usageScope,
         }),
         {
-          // Probe-model dropdown rows: the plugin's live Zen catalog when one
-          // is running (adapter mode), static S3 list only otherwise.
+          // Probe-model dropdown rows: the plugin's live Zen catalog when it
+          // has one, static S3 list only otherwise.
           listLiveModels: deps.listLiveModels,
           // The modal's 固定 button persists `pinnedExitId` here.
           writePin,

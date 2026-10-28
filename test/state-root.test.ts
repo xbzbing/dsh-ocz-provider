@@ -3,7 +3,7 @@
  * the operator's own state root.
  *
  * `apply()` is the production wiring — it installs the real on-disk ledger and
- * points the catalog status, the sing-box dir and the sidecar configs at the
+ * points the catalog status, the catalog cache and the sing-box dir at the
  * plugin's state root (`~/.dsh/oc2dsh`). A test file that calls it and then
  * streams a request therefore accounts that request in the USER's own 流量统计.
  * Redirecting `OC2DSH_HOME` (src/paths.ts) is what prevents that: every file
