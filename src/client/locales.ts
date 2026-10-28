@@ -6,13 +6,10 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   requestHeadersLabel: '自定义请求头',
-  requestHeadersHint: '每行一个 Header-Name: value，例如 User-Agent 或 x-opencode-client。保存后对下一次正式对话、模型列表和准入探测生效，与 IP 池开关无关；留空恢复 profile 中的 userAgent 或插件默认值。鉴权、Cookie 和传输头由插件管理。',
+  requestHeadersHint: '每行一个 Header-Name: value，例如 User-Agent。保存后对下一次正式对话、模型列表和准入探测生效，与 IP 池开关无关；留空恢复 profile 中的 userAgent 或插件默认值。鉴权、Cookie、传输头和客户端标识由插件管理。',
   requestHeadersEffectiveUA: '当前生效的 Zen User-Agent：',
-  requestHeadersEffectiveClient: '当前生效的 x-opencode-client：',
-  requestHeadersDesktopMode: '使用 Desktop 模式',
-  requestHeadersDesktopModeHint: '勾选后为每次 Zen 请求附带 x-opencode-client: desktop，与官方桌面客户端一致；取消则移除该头，回退到默认的 cli。与上方自定义请求头共用一次保存。',
   requestHeadersConflict: '请求头已在其他页面更新。请先丢弃本页修改以加载最新值，再重新编辑。',
-  requestHeadersInvalid: '请求头格式无效。请每行填写 Header-Name: 非空值，勿重复名称或填写鉴权、Cookie、传输头；最多 32 个，总长不超过 8192 字节。',
+  requestHeadersInvalid: '请求头格式无效。请每行填写 Header-Name: 非空值，勿重复名称或填写鉴权、Cookie、传输头、客户端标识；最多 32 个，总长不超过 8192 字节。',
   modelContextLabel: '上下文长度覆盖',
   modelContextHint: '每行一个「模型 ID = 上下文长度（token）」，例如 mimo-v2.6-flash-free = 1048576；也接受冒号分隔。保存后对下一次请求生效，无需重启；留空使用 models.dev 的声明值（内置仍覆盖 mimo-v2.6-flash-free = 1048576）。范围 1024–16777216，不要小于该模型的最大输出 token，否则压缩策略腾不出空间。',
   modelContextCount: '已覆盖 {count} 个模型',
@@ -222,13 +219,10 @@ export const zh = {
 /** English dictionary, checked complete against the zh key set. */
 export const en: Record<keyof typeof zh, string> = {
   requestHeadersLabel: 'Custom request headers',
-  requestHeadersHint: 'One Header-Name: value per line, e.g. User-Agent or x-opencode-client. Applies to the next chat, model-list refresh and admission probe, regardless of the IP pool switch. Leave blank to use the profile userAgent or built-in default. Authentication, cookies and transport headers are managed by the plugin.',
+  requestHeadersHint: 'One Header-Name: value per line, e.g. User-Agent. Applies to the next chat, model-list refresh and admission probe, regardless of the IP pool switch. Leave blank to use the profile userAgent or built-in default. Authentication, cookies, transport headers and the client-identity flag are managed by the plugin.',
   requestHeadersEffectiveUA: 'Effective Zen User-Agent:',
-  requestHeadersEffectiveClient: 'Effective x-opencode-client:',
-  requestHeadersDesktopMode: 'Use Desktop mode',
-  requestHeadersDesktopModeHint: 'When on, every Zen request carries x-opencode-client: desktop to match the official desktop client; turning it off removes that header and falls back to the default cli. Saved together with the custom headers above.',
   requestHeadersConflict: 'Request headers changed elsewhere. Discard this draft to load the latest values, then edit again.',
-  requestHeadersInvalid: 'Invalid headers. Use one Header-Name: non-empty value per line, without duplicate names, authentication, cookies or transport headers. Maximum 32 headers and 8192 bytes in total.',
+  requestHeadersInvalid: 'Invalid headers. Use one Header-Name: non-empty value per line, without duplicate names, authentication, cookies, transport headers or the client-identity flag. Maximum 32 headers and 8192 bytes in total.',
   modelContextLabel: 'Context window overrides',
   modelContextHint: 'One "model-id = context window (tokens)" per line, e.g. mimo-v2.6-flash-free = 1048576; a colon separator works too. Applies to the next request without a restart; leave blank to use the models.dev declaration (the built-in mimo-v2.6-flash-free = 1048576 override still applies). Range 1024–16777216; do not go below the model\'s max output tokens or compaction will have no room to work.',
   modelContextCount: '{count} models overridden',

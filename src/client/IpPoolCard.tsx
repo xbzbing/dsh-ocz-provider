@@ -42,7 +42,7 @@ import styles from './ip-pool.module.css'
 import { PinIcon, RotateIcon } from './icons.tsx'
 import { fieldWrite, modelContextWriteOps, poolWriteOps, requestHeadersWriteOps, type FieldWrite } from './settings-writes.ts'
 import { formatModelContextWindows, sanitizeModelContextWindows, type ModelContextWindows } from '../model-context.ts'
-import { desktopModeDraft, formatRequestHeaders, isDesktopModeDraft, normalizeRequestHeaders, parseRequestHeaders } from '../request-headers.ts'
+import { formatRequestHeaders, normalizeRequestHeaders, parseRequestHeaders } from '../request-headers.ts'
 import { RequestHeadersEditor } from './RequestHeadersEditor.tsx'
 import { ModelContextEditor } from './ModelContextEditor.tsx'
 
@@ -131,7 +131,6 @@ export type LocalIpFamilyView = 'auto' | 'ipv4' | 'ipv6'
 /** Bridge /status view (mirrors src/ip-pool-settings/bridge.ts). */
 export interface PoolStatusView {
   zenUserAgent?: string
-  zenClient?: string
   enabled: boolean
   deferredReason: string
   state: 'healthy' | 'warning' | 'critical' | 'emergency'
@@ -1589,12 +1588,9 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         <RequestHeadersEditor
           text={headersText}
           effectiveUserAgent={status?.zenUserAgent}
-          effectiveClient={status?.zenClient}
-          desktopMode={isDesktopModeDraft(headersText)}
           disabled={!writable || saving}
           t={t}
           onChange={(text) => { setSaved(false); setHeadersText(text) }}
-          onDesktopModeChange={(next) => { setSaved(false); setHeadersText(desktopModeDraft(headersText, next)) }}
         />
       </Group>
 

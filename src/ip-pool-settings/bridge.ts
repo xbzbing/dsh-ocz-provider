@@ -240,8 +240,6 @@ export interface PoolStatusView {
   usage: UsageView | null
   /** The UA the next formal Zen request will actually use. */
   zenUserAgent: string
-  /** The x-opencode-client the next formal Zen request will actually use. */
-  zenClient: string
   /**
    * Pool-wide recent output speed (tok/s): every timed bucket in the
    * process tracker's rolling 3-minute window — the modal summary chip and
@@ -440,7 +438,6 @@ export function buildStatusView(
       runSince: options.runSince,
     }),
     zenUserAgent: opencodeUserAgent(),
-    zenClient: zenRequestHeaders()['x-opencode-client'] ?? 'cli',
     recentSpeed: tracker.speedAll(),
     todayTokens: todayTokensOf(store, now),
     // Report the ROUTER's policy, not the setting plus a guess: the two can

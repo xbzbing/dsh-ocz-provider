@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import Schema from '@deepseek-ai/schemastery'
 import { Config, ordinaryConfig, type ResolvedPluginConfig } from '../src/config.ts'
-import { desktopModeDraft, effectiveClientHeader, isDesktopModeDraft, normalizeRequestHeaders, parseRequestHeaders, formatRequestHeaders, sanitizeRequestHeaders } from '../src/request-headers.ts'
+import { normalizeRequestHeaders, parseRequestHeaders, formatRequestHeaders, sanitizeRequestHeaders } from '../src/request-headers.ts'
 import { disguiseHeaders, deriveRequestIDs, opencodeUserAgent, setUserAgentOverride, setRequestHeadersReader, zenRequestHeaders } from '../src/adapter/ids.ts'
 import { fetchZenModels } from '../src/adapter/catalog.ts'
 import { buildStatusView } from '../src/ip-pool-settings/bridge.ts'
@@ -10,21 +10,22 @@ import { ZenAdapter } from '../src/adapter/zen-adapter.ts'
 
 import { requestHeadersWriteOps } from '../src/client/settings-writes.ts'
 
-const desktopUA = 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/node.js/24'
+const customUA = 'opencode/1.19.0 ai-sdk/provider-utils/4.0.23 runtime/node.js/24'
 
 test('request headers are editable volatile config and ordinary consumers receive no reference', () => {
   // The schema stores the dictionary verbatim (case-insensitive folding happens
   // at the request/editor boundary, not in the schema — see config.ts).
-  const config = Config({ userAgent: 'legacy-agent', requestHeaders: { 'User-Agent': desktopUA, 'X-OpenCode-Client': 'desktop' } })
+  const config = Config({ userAgent: 'legacy-agent', requestHeaders: { 'User-Agent': customUA, 'X-OpenCode-Client': 'desktop' } })
   assert.equal(typeof config.requestHeaders.get, 'function')
-  assert.deepEqual(config.requestHeaders.get(), { 'User-Agent': desktopUA, 'X-OpenCode-Client': 'desktop' })
+  assert.deepEqual(config.requestHeaders.get(), { 'User-Agent': customUA, 'X-OpenCode-Client': 'desktop' })
   assert.equal('requestHeaders' in ordinaryConfig(config as unknown as ResolvedPluginConfig), false)
   assert.equal(ordinaryConfig(config as unknown as ResolvedPluginConfig).userAgent, 'legacy-agent')
-  // ...and the wire sees the folded, lowercased form.
+  // ...and the wire sees the folded UA override while the client flag stays
+  // pinned to the CLI (the managed header is dropped at the request boundary).
   const release = setRequestHeadersReader(() => config.requestHeaders.get())
   try {
-    assert.equal(zenRequestHeaders()['user-agent'], desktopUA)
-    assert.equal(zenRequestHeaders()['x-opencode-client'], 'desktop')
+    assert.equal(zenRequestHeaders()['user-agent'], customUA)
+    assert.equal(zenRequestHeaders()['x-opencode-client'], 'cli')
   } finally { release() }
 })
 
@@ -72,6 +73,7 @@ test('the request path is lenient while the editor boundary stays strict', () =>
     Cookie: 'a=b',
     Host: 'elsewhere',
     'Content-Length': '0',
+    'X-OpenCode-Client': 'desktop',
     'Bad Name': 'x',
     'X-Blank': '   ',
     'X-Ok': 'kept',
@@ -86,8 +88,8 @@ test('the request path is lenient while the editor boundary stays strict', () =>
 })
 
 test('the header editor parses HTTP header lines and preserves colons in values', () => {
-  const headers = parseRequestHeaders(`User-Agent: ${desktopUA}\nX-Trace: scope: local\n\n`)
-  assert.deepEqual(headers, { 'user-agent': desktopUA, 'x-trace': 'scope: local' })
+  const headers = parseRequestHeaders(`User-Agent: ${customUA}\nX-Trace: scope: local\n\n`)
+  assert.deepEqual(headers, { 'user-agent': customUA, 'x-trace': 'scope: local' })
   assert.deepEqual(parseRequestHeaders(formatRequestHeaders(headers)), headers)
   assert.deepEqual(parseRequestHeaders(' \n '), {})
   assert.throws(() => parseRequestHeaders('User-Agent missing-colon'))
@@ -100,6 +102,7 @@ test('invalid headers are rejected at the editor boundary', () => {
     { 'X-Test': '' }, { 'X-Test': '💥' }, { Host: 'elsewhere' }, { Authorization: 'test' },
     { Cookie: 'test' }, { 'Content-Length': '0' }, { Connection: 'close' },
     { 'Content-Type': 'text/plain' }, { 'Transfer-Encoding': 'chunked' },
+    { 'X-OpenCode-Client': 'desktop' },
     { 'X-Test': 'a'.repeat(8193) }, { 'X-Test': 123 },
     Object.fromEntries(Array.from({length:33}, (_, i) => [`x-${i}`, 'a'])),
   ]) {
@@ -111,32 +114,33 @@ test('invalid headers are rejected at the editor boundary', () => {
   // problem here — it is a second line, validated as its own header.
   for (const text of [
     'Bad Name: x', 'User-Agent: a\nUSER-agent: b', 'Host: elsewhere',
-    'Authorization: Bearer stolen', 'Cookie: a=b', 'X-Test:', `X-Test: ${'a'.repeat(8193)}`,
+    'Authorization: Bearer stolen', 'Cookie: a=b', 'x-opencode-client: desktop',
+    'X-Test:', `X-Test: ${'a'.repeat(8193)}`,
   ]) {
     assert.throws(() => parseRequestHeaders(text), `editor must refuse ${JSON.stringify(text.slice(0, 40))}`)
   }
 })
 
 test('live overrides reach chat, catalog and effective-UA status without reinstalling a reader', async () => {
-  let value = { 'User-Agent': desktopUA, 'X-OpenCode-Client': 'desktop', 'X-Local-Probe': 'one' }
+  let value = { 'User-Agent': customUA, 'X-OpenCode-Client': 'desktop', 'X-Local-Probe': 'one' }
   setUserAgentOverride('legacy-agent')
   const dispose = setRequestHeadersReader(() => value)
   try {
     const ids = deriveRequestIDs([{ role: 'user', content: 'hello' }])
     const headers = disguiseHeaders(ids)
-    assert.equal(headers['user-agent'], desktopUA)
-    assert.equal(headers['x-opencode-client'], 'desktop')
+    assert.equal(headers['user-agent'], customUA)
+    assert.equal(headers['x-opencode-client'], 'cli', 'the override dict cannot move the client flag')
     assert.equal(headers['x-local-probe'], 'one')
     assert.equal(headers['x-opencode-session'], ids.session)
-    assert.equal(opencodeUserAgent(), desktopUA)
-    assert.equal(buildStatusView(null, false, []).zenUserAgent, desktopUA)
+    assert.equal(opencodeUserAgent(), customUA)
+    assert.equal(buildStatusView(null, false, []).zenUserAgent, customUA)
     const seen: Headers[] = []
     const fetcher = (async (_url: unknown, init?: RequestInit) => {
       seen.push(new Headers(init?.headers))
       return Response.json({ data: [{ id: 'big-pickle' }] })
     }) as typeof fetch
     await fetchZenModels('https://zen.test', fetcher, opencodeUserAgent())
-    assert.equal(seen[0]?.get('user-agent'), desktopUA)
+    assert.equal(seen[0]?.get('user-agent'), customUA)
     assert.equal(seen[0]?.get('x-local-probe'), 'one')
     assert.equal(seen[0]?.get('authorization'), 'Bearer public')
     value = { 'User-Agent': 'updated-agent', 'X-OpenCode-Client': 'cli', 'X-Local-Probe': 'two' }
@@ -147,11 +151,11 @@ test('live overrides reach chat, catalog and effective-UA status without reinsta
 })
 
 test('clearing overrides restores the built-in UA and disposing restores defaults', () => {
-  let value: Record<string, string> = { 'user-agent': desktopUA }
+  let value: Record<string, string> = { 'user-agent': customUA }
   setUserAgentOverride('legacy-agent')
   const dispose = setRequestHeadersReader(() => value)
   try {
-    assert.equal(opencodeUserAgent(), desktopUA)
+    assert.equal(opencodeUserAgent(), customUA)
     value = {}
     assert.equal(opencodeUserAgent(), 'legacy-agent')
     assert.equal(zenRequestHeaders()['x-opencode-client'], 'cli')
@@ -170,49 +174,8 @@ test('header save writes only the dedicated field and blank restores inherited d
   assert.deepEqual(requestHeadersWriteOps('User-Agent: custom', { 'user-agent': 'custom' }, {}), [])
 })
 
-test('the Desktop-mode toggle upserts and removes only the client header in the draft', () => {
-  // Reading the toggle off a mid-edit draft is lenient: the scan looks for the
-  // one header line and ignores everything else.
-  assert.equal(isDesktopModeDraft(''), false)
-  assert.equal(isDesktopModeDraft('User-Agent: opencode/1.19.3'), false)
-  assert.equal(isDesktopModeDraft('x-opencode-client: cli'), false)
-  assert.equal(isDesktopModeDraft('X-OpenCode-Client: desktop'), true)
-  assert.equal(effectiveClientHeader('User-Agent: a\nx-opencode-client: desktop'), 'desktop')
-  assert.equal(effectiveClientHeader('User-Agent: a'), undefined)
-
-  // ON upserts the header after a blank separator, replacing a stale cli.
-  assert.equal(desktopModeDraft('', true), 'x-opencode-client: desktop')
-  assert.equal(desktopModeDraft('User-Agent: a', true), 'User-Agent: a\n\nx-opencode-client: desktop')
-  assert.equal(desktopModeDraft('x-opencode-client: cli', true), 'x-opencode-client: desktop')
-  assert.equal(desktopModeDraft('User-Agent: a\nx-opencode-client: desktop', true), 'User-Agent: a\nx-opencode-client: desktop')
-
-  // OFF removes the desktop line and trims the separator it added; a
-  // hand-typed non-desktop value is left alone.
-  assert.equal(desktopModeDraft('User-Agent: a\n\nx-opencode-client: desktop', false), 'User-Agent: a')
-  assert.equal(desktopModeDraft('x-opencode-client: desktop', false), '')
-  assert.equal(desktopModeDraft('x-opencode-client: cli', false), 'x-opencode-client: cli')
-
-  // The toggled draft still round-trips through the strict editor boundary.
-  assert.deepEqual(parseRequestHeaders(desktopModeDraft('User-Agent: a', true)), {
-    'user-agent': 'a',
-    'x-opencode-client': 'desktop',
-  })
-})
-
-test('the status view reports the client header the next request will send', () => {
-  let value: Record<string, string> = {}
-  const dispose = setRequestHeadersReader(() => value)
-  try {
-    assert.equal(buildStatusView(null, false, []).zenClient, 'cli')
-    value = { 'x-opencode-client': 'desktop' }
-    assert.equal(buildStatusView(null, false, []).zenClient, 'desktop')
-    value = { 'X-OpenCode-Client': 'cli' }
-    assert.equal(buildStatusView(null, false, []).zenClient, 'cli')
-  } finally { dispose() }
-})
-
 test('the real pi-ai dispatch sends exact overrides for chat and Responses and reads live edits', async (t) => {
-  let value: Record<string, string> = { 'user-agent': desktopUA, 'x-opencode-client': 'desktop', 'x-local-probe': 'first' }
+  let value: Record<string, string> = { 'user-agent': customUA, 'x-local-probe': 'first' }
   const release = setRequestHeadersReader(() => value)
   t.after(release)
   const seen: Array<{ url: string; headers: Headers }> = []
@@ -232,9 +195,9 @@ test('the real pi-ai dispatch sends exact overrides for chat and Responses and r
     const request = seen.at(-1)!
     assert.equal(request.headers.get('user-agent'), value['user-agent'])
     assert.equal(request.headers.get('x-local-probe'), value['x-local-probe'])
-    assert.equal(request.headers.get('x-opencode-client'), 'desktop')
+    assert.equal(request.headers.get('x-opencode-client'), 'cli')
     assert.equal(request.headers.get('authorization'), 'Bearer public')
     assert.match(request.url, model === 'big-pickle' ? /chat\/completions/ : /responses/)
-    value = { 'user-agent': 'updated-agent', 'x-opencode-client': 'desktop', 'x-local-probe': 'second' }
+    value = { 'user-agent': 'updated-agent', 'x-local-probe': 'second' }
   }
 })

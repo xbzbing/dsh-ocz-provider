@@ -198,7 +198,7 @@ test('plugin entry reads committed request headers live and releases its reader 
     assert.equal(opencodeUserAgent(), 'first-agent')
     value = { 'user-agent': 'second-agent', 'x-opencode-client': 'desktop' }
     assert.equal(opencodeUserAgent(), 'second-agent')
-    assert.equal(disguiseHeaders(deriveRequestIDs([]))['x-opencode-client'], 'desktop')
+    assert.equal(disguiseHeaders(deriveRequestIDs([]))['x-opencode-client'], 'cli', 'the client flag is plugin-owned')
     value = {}
     assert.match(opencodeUserAgent(), /^opencode\/latest\/\d+\.\d+\.\d+\/cli$/)
   } finally { for (const dispose of h.effects) dispose() }

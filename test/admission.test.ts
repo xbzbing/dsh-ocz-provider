@@ -382,13 +382,13 @@ test('admission end-to-end: real undici.request through a real local proxy', asy
 
 
 test('admission reads Zen header edits between model-list and smoke requests', async () => {
-  let headers = { 'user-agent': 'catalog-agent', 'x-opencode-client': 'desktop' }
+  let headers = { 'user-agent': 'catalog-agent', 'x-local-probe': 'one' }
   const release = setRequestHeadersReader(() => headers)
   const transport = fakeTransport(okScript())
   const request = transport.undici.request as (url: string, init?: { body?: string; headers?: Record<string, string> }) => Promise<unknown>
   transport.undici.request = (async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
     const response = await request(url, init)
-    if (url === MODELS_URL) headers = { 'user-agent': 'smoke-agent', 'x-opencode-client': 'desktop' }
+    if (url === MODELS_URL) headers = { 'user-agent': 'smoke-agent', 'x-local-probe': 'two' }
     return response
   }) as never
   try {
@@ -396,7 +396,8 @@ test('admission reads Zen header edits between model-list and smoke requests', a
     assert.ok(result.admitted)
     assert.equal(transport.headers.get(MODELS_URL)?.['user-agent'], 'catalog-agent')
     assert.equal(transport.headers.get(CHAT_URL)?.['user-agent'], 'smoke-agent')
-    assert.equal(transport.headers.get(CHAT_URL)?.['x-opencode-client'], 'desktop')
+    assert.equal(transport.headers.get(CHAT_URL)?.['x-local-probe'], 'two')
+    assert.equal(transport.headers.get(CHAT_URL)?.['x-opencode-client'], 'cli', 'the client flag stays pinned across the edits')
     assert.equal(transport.headers.get(ECHO_URL)?.['user-agent'], undefined, 'overrides must not leak to geo echo')
   } finally { release() }
 })

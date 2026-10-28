@@ -190,12 +190,11 @@ test('client manifest is declared in package.json', () => {
 })
 
 test('the switch rows lead with their control', () => {
-  // The master switch — and the desktop-mode toggle sharing the row style —
-  // leads the row: the control is the row's first child, and the row must not
-  // push it away with space-between. A type check sees neither; both rows are
-  // checked because they share one rule.
+  // The master switch leads the row: the control is the row's first child, and
+  // the row must not push it away with space-between. A type check sees
+  // neither the order nor the layout, hence this bundle-level guard.
   const source = code(bundle())
-  for (const id of ['field-enabled', 'field-desktopMode']) {
+  for (const id of ['field-enabled']) {
     const at = source.indexOf(id)
     assert.ok(at > 0, `${id} is in the bundle`)
     const row = source.slice(at, at + 2000)
