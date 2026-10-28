@@ -452,29 +452,13 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             the scrolling pane below, so tall content cannot drag it out of the
             card, and a pane switch resets the pane's scroll offset. The
             description follows the active pane (exit table vs ledger). */}
-        <div className={styles.statsBar}>
-          <SegmentedTabs
-            items={tabs}
-            value={tab}
-            onChange={setTab}
-            label={t('statsTabsLabel')}
-            className={styles.statsTabs}
-          />
-          {/* The trailing 订阅 refresh is a pool-level action, so it parks on
-              the tab bar and stays reachable from both panes. */}
-          {hasSubscriptions && (
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="stats-refresh-subscriptions"
-              disabled={busy !== ''}
-              title={t('statsRefreshSubscriptionsHint')}
-              onClick={() => { void refreshSubscriptions() }}
-            >
-              {t('subscriptionRefreshNow')}
-            </Button>
-          )}
-        </div>
+        <SegmentedTabs
+          items={tabs}
+          value={tab}
+          onChange={setTab}
+          label={t('statsTabsLabel')}
+          className={styles.statsTabs}
+        />
         {/* The card's only scrolling region: the header and the tab bar stay
             parked above it, and the ref lets a pane switch reset the offset. */}
         <div
@@ -500,6 +484,22 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           <span className={styles.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
           <span className={styles.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
           <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
+          {/* 订阅 refresh, on the SAME row as the chips but pushed to the
+              trailing edge — the action belongs to the exit view, so the 流量
+              pane never carries it. */}
+          {hasSubscriptions && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.statsSummaryAction}
+              data-testid="stats-refresh-subscriptions"
+              disabled={busy !== ''}
+              title={t('statsRefreshSubscriptionsHint')}
+              onClick={() => { void refreshSubscriptions() }}
+            >
+              {t('subscriptionRefreshNow')}
+            </Button>
+          )}
         </div>
         {poolOff && <p className={styles.status}>{t('statsPoolOff')}</p>}
         {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
