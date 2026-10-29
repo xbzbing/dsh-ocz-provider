@@ -40,8 +40,17 @@ const HOP_BY_HOP = new Set([
   'transfer-encoding',
   'upgrade',
   'content-length',
-  'accept-encoding', // identity upstream: no decode ambiguity on the way back
+  'accept-encoding', // Bun sets its own and decodes the body itself
 ])
+
+/**
+ * Headers the official client never sends, added by the Node side of this hop
+ * (the OpenAI SDK and undici's fetch). Dropping them, and letting Bun add its
+ * default Accept as the client's own fetch does, leaves upstream the client's
+ * exact header set, names, casing and order (docs/relay.md).
+ */
+const NODE_STACK_HEADERS = new Set(['accept', 'accept-language', 'sec-fetch-mode'])
+const NODE_STACK_PREFIX = 'x-stainless-'
 
 /**
  * Egress as the plugin asks for it. `undefined` = plain request (the plugin
@@ -323,6 +332,7 @@ const server = Bun.serve({
       const key = name.toLowerCase()
       if (HOP_BY_HOP.has(key)) return
       if (key === EGRESS_HEADER) return
+      if (NODE_STACK_HEADERS.has(key) || key.startsWith(NODE_STACK_PREFIX)) return
       forwarded.set(name, value)
     })
     const body =
@@ -373,9 +383,8 @@ const server = Bun.serve({
       return Response.json({ error: { type: 'relay_error', message: String(failure?.message ?? failure) } }, { status: 502 })
     }
     const headers = new Headers(upstream.headers)
-    // The request went out without `accept-encoding`, so the body is identity;
-    // dropping these three keeps the client from trying to decode or to size a
-    // stream it will receive in chunks.
+    // Bun's fetch already decoded the body, so these three would make the
+    // caller decode it again or size a stream it receives in chunks.
     headers.delete('content-length')
     headers.delete('content-encoding')
     headers.delete('transfer-encoding')

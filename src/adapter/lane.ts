@@ -53,6 +53,16 @@ export function laneOrigins(primary: string, fallback?: string): string[] {
 }
 
 /**
+ * The chat API path under one origin. The client posts chats to the models.dev
+ * family path, `/inference/openai/v1`; `/zen` has no family route (404), and
+ * the catalog keeps the flat `/v1` everywhere because the family `/models`
+ * 404s. Any other origin (a test fixture, an operator base) stays flat.
+ */
+export function chatApiPath(origin: string): '/openai/v1' | '/v1' {
+  return normalizeOrigin(origin) === ZEN_PRIMARY_BASE_URL ? '/openai/v1' : '/v1'
+}
+
+/**
  * True when a failure names the ORIGIN rather than the exit: the gate refusing
  * the request outright (401/403, the `FreeTierError` body), the edge itself
  * failing (5xx), or the door not serving the route at all (404). Any of those

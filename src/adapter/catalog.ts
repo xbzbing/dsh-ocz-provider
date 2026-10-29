@@ -27,12 +27,11 @@ import { sanitizeModelContextWindows, type ModelContextWindows } from '../model-
  * a `/models` route that answers while chat refuses is exactly what hides an
  * origin move from the operator.
  *
- * The official 2.1.4 client posts chats to the FAMILY path
- * `/inference/openai/v1` (models.dev `api` field), and that chat path answers
- * like the flat one — but `/inference/openai/v1/models` 404s while
- * `/inference/v1/models` answers 200. The flat spelling therefore stays: it is
- * the one path that serves chat AND catalog, and the gate does not read the
- * route.
+ * The client posts chats to the FAMILY path `/inference/openai/v1`
+ * (models.dev `api` field) and the adapter does the same (lane.ts
+ * `chatApiPath`), but `/inference/openai/v1/models` 404s while
+ * `/inference/v1/models` answers 200, so the catalog and the admission model
+ * list stay on the flat spelling.
  */
 export const ZEN_BASE_URL = 'https://opencode.ai/inference'
 

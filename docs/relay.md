@@ -38,6 +38,13 @@
 ## 3. 转发语义
 
 - `<METHOD> <pathname><search>` 原样转发，响应流原样回传；逐跳头（RFC 7230 §6.1）不转发。
+- **请求头对齐官方客户端**：Node 一侧自己加的头不转发——OpenAI SDK 的 `x-stainless-*`、
+  undici fetch 的 `accept-language` / `sec-fetch-mode`、SDK 显式的 `accept`。`Accept`
+  与 `Accept-Encoding` 交给 Bun 自己补（`*/*`、`gzip, deflate, br, zstd`），和官方客户端
+  的 Bun fetch 一样。Bun 按 Fetch 规范排序写出、常见头名规范化大小写，所以只要集合相同，
+  上游看到的头名、大小写和顺序就与 2.2.0 客户端的 TLS 抓包逐项相同
+  （`test/relay-script.test.ts` 钉住这 16 个头的顺序）。Bun 会自动解压响应体，所以回程
+  去掉 `content-encoding` / `content-length` / `transfer-encoding`。
 - **出站**由 `x-oc2dsh-egress` 指定，转发前剥除（上游绝不能看到它）：
   缺省 / `direct` → 本机出口；`http://h:p` → Bun `fetch` 的 `proxy`；
   `socks5://h:p` → 本地 CONNECT→SOCKS5 桥再 `proxy`。

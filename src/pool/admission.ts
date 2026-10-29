@@ -31,11 +31,11 @@
 import type { Dispatcher } from 'undici'
 
 import { ZEN_BASE_URL } from '../adapter/catalog.ts'
-import { renderEnvBlock } from '../adapter/env-block.ts'
+import { renderEnvSection } from '../adapter/env-block.ts'
 import { EGRESS_HEADER } from '../relay/egress.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../adapter/gate-tools.ts'
-import { canonicalSessionID, DEFAULT_PROJECT_ID, disguiseHeaders, mintedMessageID, opencodeUserAgent } from '../adapter/ids.ts'
-import { laneOrigins } from '../adapter/lane.ts'
+import { canonicalSessionID, currentProjectID, disguiseHeaders, mintedMessageID, opencodeUserAgent } from '../adapter/ids.ts'
+import { chatApiPath, laneOrigins } from '../adapter/lane.ts'
 import { gradeOf, UNVERIFIED_QUALITY, type ExitNode, type ExitPool } from './pool.ts'
 import { exitProxyUri } from './dispatcher.ts'
 import { pickSmokeContent } from './smoke-content.ts'
@@ -266,7 +266,7 @@ export async function admitCandidate(
   const probeHeaders = () => disguiseHeaders({
     session: canonicalSessionID(`admission:${candidate.address}`),
     request: mintedMessageID(),
-    project: DEFAULT_PROJECT_ID,
+    project: currentProjectID(),
     parentSession: '',
   })
 
@@ -351,20 +351,32 @@ export async function admitCandidate(
     // 429s would read as "exit quota consumed" and cool healthy exits. Without
     // a relay the probe sends directly.
     const relayBase = deps.relayBaseUrl?.() ?? null
+    // The relay forwards the pathname verbatim, so the origin's own path rides
+    // in front of the chat path the adapter would use for it.
+    const relayChatPath = (): string => {
+      const primary = origins[0] ?? zenBase
+      let prefix = ''
+      try {
+        prefix = new URL(primary).pathname.replace(/\/+$/, '')
+      } catch {
+        prefix = ''
+      }
+      return `${prefix}${chatApiPath(primary)}/chat/completions`
+    }
     const smokeBody = JSON.stringify({
       model: smokeModel,
       messages: [
-        { role: 'system', content: renderEnvBlock() },
+        { role: 'system', content: renderEnvSection() },
         { role: 'user', content: smokeContent },
       ],
-      max_tokens: 1,
+      tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
       stream: true,
       stream_options: { include_usage: true },
-      tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
+      max_completion_tokens: 1,
     })
     const smokeEgress = exitProxyUri(candidate.address, candidate.protocol)
     const smokeStatus = relayBase !== null
-      ? await request(`${relayBase}/v1/chat/completions`, {
+      ? await request(`${relayBase}${relayChatPath()}`, {
         method: 'POST',
         headers: {
           authorization: 'Bearer public',

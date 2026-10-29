@@ -18,7 +18,10 @@ import { defaultRelayScript, findBun } from '../src/relay/supervisor.ts'
  *   1. a 429 is annotated with the egress that produced it plus its
  *      `retry-after`, because the lane's quota is per egress ADDRESS;
  *   2. an egress whose protocol is mislabelled is retried once on the other
- *      scheme and the correction remembered (`PROTO-FIX` in its log).
+ *      scheme and the correction remembered (`PROTO-FIX` in its log);
+ *   3. what the Node side adds (OpenAI SDK `x-stainless-*`, undici's
+ *      `accept-language`/`sec-fetch-mode`, an explicit `accept`) never
+ *      reaches upstream, so the wire carries the client's header set.
  *
  * Real listeners stand in for the proxies.
  */
@@ -67,6 +70,11 @@ interface Closer {
 async function upstream(tls: TlsPair): Promise<Closer> {
   const sockets = new Set<{ destroy: () => void }>()
   const server = https.createServer({ cert: tls.cert, key: tls.key }, (req, res) => {
+    if ((req.url ?? '').includes('/echo-headers')) {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(req.rawHeaders))
+      return
+    }
     if ((req.url ?? '').includes('/quota')) {
       res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '55248' })
       res.end(JSON.stringify({ type: 'error', error: { type: 'FreeUsageLimitError', message: 'Free usage limit reached.' } }))
@@ -308,6 +316,47 @@ async function withUpstream(
     await rm(tls.dir, { recursive: true, force: true })
   }
 }
+
+maybe('upstream sees the client header set, not the Node stack additions', async (t) => {
+  await withUpstream(t, async (upstreamPort) => {
+    const relay = await startRelay(upstreamPort)
+    try {
+      const session = 'ses_e7a58a468ffeSWbLKI121D4nWy'
+      const res = await fetch(`http://127.0.0.1:${relay.port}/inference/openai/v1/echo-headers`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'x-stainless-retry-count': '0',
+          'x-stainless-lang': 'js',
+          authorization: 'Bearer public',
+          'user-agent': 'opencode/latest/2.2.0/cli',
+          b3: 'c61faeadc62bcb4034071424cfdf074a-6f7048a1b05e6431-1-1010cd9f473a6a8d',
+          traceparent: '00-c61faeadc62bcb4034071424cfdf074a-6f7048a1b05e6431-01',
+          'x-opencode-client': 'cli',
+          'x-opencode-project': '2752b498507aba026b4d114783abe85b6f8509fb',
+          'x-opencode-session': session,
+          'x-opencode-session-id': session,
+          'x-session-affinity': session,
+          'x-session-id': session,
+          'content-type': 'application/json',
+          'x-oc2dsh-egress': 'direct',
+        },
+        body: '{}',
+      })
+      const raw = JSON.parse(await res.text()) as string[]
+      const names = raw.filter((_, i) => i % 2 === 0)
+      // The 2.2.0 client's own wire, captured over TLS: same names, casing, order.
+      assert.deepEqual(names, [
+        'Authorization', 'Content-Type', 'User-Agent', 'b3', 'traceparent',
+        'x-opencode-client', 'x-opencode-project', 'x-opencode-session', 'x-opencode-session-id',
+        'x-session-affinity', 'x-session-id', 'Connection', 'Accept', 'Host', 'Accept-Encoding', 'Content-Length',
+      ])
+      assert.equal(raw[names.indexOf('Accept') * 2 + 1], '*/*', "Bun's own default, as the client sends")
+    } finally {
+      await relay.close()
+    }
+  })
+})
 
 maybe('a 429 is annotated with the egress and its retry-after', async (t) => {
   await withUpstream(t, async (upstreamPort) => {

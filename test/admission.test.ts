@@ -7,7 +7,7 @@ import * as realUndici from 'undici'
 import { ExitPool } from '../src/pool/pool.ts'
 import { admitCandidate, admitBySpeed, admitTrusted, coarseScreen, type AdmissionDeps } from '../src/pool/admission.ts'
 import { GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
-import { setRequestHeadersReader } from '../src/adapter/ids.ts'
+import { currentProjectID, setRequestHeadersReader } from '../src/adapter/ids.ts'
 
 /**
  * A fake per-request transport: the seam `undici.request` would hit. Each
@@ -152,7 +152,7 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   const smokeMessages = smokeBody.messages ?? []
   assert.equal(smokeMessages.length, 2)
   assert.equal(smokeMessages[0]!.role, 'system')
-  assert.match(smokeMessages[0]!.content, /^<env>\n/)
+  assert.match(smokeMessages[0]!.content, /^Today's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
   assert.deepEqual(smokeMessages[1], { role: 'user', content: 'hello' }, 'the unconfigured probe content is hello')
   const smokeToolNames = smokeBody.tools?.map((t) => t.function.name) ?? []
   assert.deepEqual([...smokeToolNames].sort(), ['read', 'shell'])
@@ -165,7 +165,7 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   // the 2.1.4 recipe: four session spellings, no request header, prefix-less project
   assert.equal(smokeHeaders['x-session-affinity'], smokeHeaders['x-opencode-session'], 'the affinity pair carries the same id')
   assert.equal(smokeHeaders['x-opencode-request'], undefined, 'the 2.x wire carries no request header')
-  assert.equal(smokeHeaders['x-opencode-project'], 'global', 'the prefix-less project id')
+  assert.equal(smokeHeaders['x-opencode-project'], currentProjectID(), 'the client\'s project id for this directory')
 
   // transport errors surface as reasons (timeout / reset)
   transport = fakeTransport({ '*': new Error('connect ECONNREFUSED') })

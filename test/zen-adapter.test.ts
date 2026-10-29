@@ -136,7 +136,13 @@ test('the pi-ai model declares the DeepSeek reasoning replay requirement', () =>
   // baseUrl), neither of which matches this lane, so the model literal
   // declares it — the flag gates pi-ai's empty reasoning_content backfill for
   // thinking-free assistant turns.
-  assert.deepEqual(toPiModel('deepseek-v4.1-flash-free', true).compat, { requiresReasoningContentOnAssistantMessages: true })
+  assert.deepEqual(toPiModel('deepseek-v4.1-flash-free', true).compat, {
+    requiresReasoningContentOnAssistantMessages: true,
+    // pinned: behind the loopback relay pi-ai would detect `store` and the
+    // `developer` role, neither of which the client sends
+    supportsStore: false,
+    supportsDeveloperRole: false,
+  })
 })
 
 test('listModels mirrors the catalog without duplicates', async () => {
@@ -305,10 +311,29 @@ test('stream injects the selected reasoning_effort into the outgoing body', asyn
   const lowOptions = (await runStream(true, 'low'))[0]!
   assert.deepEqual(lowOptions.onPayload?.({ ...gateBody }), { ...gateBody, reasoning_effort: 'low' })
 
-  // no selection: the onPayload stays the plain gate shaper (a gate-satisfied
-  // body needs no rewrite -> undefined, and no effort field is ever added)
+  // no selection: a gate-satisfied body keeps its values and gains no effort
+  // field; only its keys move into the client's order
   const defaultOptions = (await runStream(true))[0]!
-  assert.equal(defaultOptions.onPayload?.({ ...gateBody }), undefined)
+  const untouched = defaultOptions.onPayload?.({ ...gateBody }) as Record<string, unknown>
+  assert.deepEqual(untouched, gateBody)
+  assert.equal('reasoning_effort' in untouched, false)
+  assert.deepEqual(Object.keys(untouched), ['model', 'messages', 'tools', 'stream'])
+})
+
+test('the chat body leaves in the client\'s key order', async () => {
+  const options = (await runStream(true, 'low'))[0]!
+  const body = options.onPayload?.({
+    model: 'big-pickle',
+    messages: gateBody.messages,
+    stream: true,
+    stream_options: { include_usage: true },
+    max_completion_tokens: 16,
+    temperature: 0,
+    tools: gateBody.tools,
+  }) as Record<string, unknown>
+  assert.deepEqual(Object.keys(body), [
+    'model', 'messages', 'tools', 'stream', 'stream_options', 'max_completion_tokens', 'temperature', 'reasoning_effort',
+  ])
 })
 
 test('stream keeps the free-lane gate rewrite alongside the effort injection', async () => {
@@ -537,6 +562,13 @@ test('the wire request carries the correlation headers the free-lane gate requir
   }
   assert.equal(headers?.['x-opencode-request'], undefined, 'the 2.x wire carries no request header')
   assert.match(headers?.['x-opencode-project'] ?? '', /^(global|[0-9a-f]{40})$/, 'the client sends a prefix-less project id')
+  // the client's OTel pair: one trace, the same span in both spellings
+  const b3 = (headers?.['b3'] ?? '').split('-')
+  const traceparent = (headers?.['traceparent'] ?? '').split('-')
+  assert.match(headers?.['b3'] ?? '', /^[0-9a-f]{32}-[0-9a-f]{16}-1-[0-9a-f]{16}$/)
+  assert.match(headers?.['traceparent'] ?? '', /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/)
+  assert.equal(b3[0], traceparent[1])
+  assert.equal(b3[1], traceparent[2])
   assert.equal(headers?.['x-opencode-client'], 'cli')
   assert.match(headers?.['user-agent'] ?? '', /^opencode\/latest\/\d+\.\d+\.\d+\//)
 })

@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { hasEnvBlock, hostEnvFacts, renderEnvBlock, withEnvBlock } from '../src/adapter/env-block.ts'
+import { hasEnvBlock, hostEnvFacts, renderEnvBlock, renderEnvSection, withEnvBlock } from '../src/adapter/env-block.ts'
+import { hostProject } from '../src/adapter/project.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape } from '../src/adapter/messages.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool } from '../src/adapter/gate-tools.ts'
 
@@ -18,7 +19,8 @@ const FACTS = {
   workspaceRoot: '/tmp/root',
   isGitRepo: true,
   platform: 'darwin',
-  preferTempDir: '/private/tmp',
+  preferTempDir: '/private/tmp/opencode',
+  date: 'Thu Oct 29 2026',
 }
 
 test('renderEnvBlock reproduces the official block layout', () => {
@@ -38,6 +40,15 @@ test('renderEnvBlock reproduces the official block layout', () => {
   assert.equal(hasEnvBlock(block), true)
 })
 
+test('renderEnvSection is the client\'s date + environment instruction pair', () => {
+  assert.equal(
+    renderEnvSection(FACTS),
+    `Today's date: Thu Oct 29 2026\n\nHere is some useful information about the environment you are running in:\n${renderEnvBlock(FACTS)}`,
+  )
+  const undated = renderEnvSection({ ...FACTS, date: undefined })
+  assert.equal(undated, `Here is some useful information about the environment you are running in:\n${renderEnvBlock(FACTS)}`)
+})
+
 test('renderEnvBlock omits the optional lines it has no value for', () => {
   const block = renderEnvBlock({ workingDirectory: '/w', platform: 'linux' })
   assert.equal(block, ['<env>', '  Working directory: /w', '  Platform: linux', '</env>'].join('\n'))
@@ -49,6 +60,10 @@ test('hostEnvFacts reports this process honestly', () => {
   assert.equal(typeof facts.workingDirectory, 'string')
   assert.equal(facts.platform, process.platform)
   assert.deepEqual(facts.isGitRepo, true, 'the suite runs inside this git worktree')
+  // The block and x-opencode-project describe one place: the project root of the cwd.
+  assert.equal(facts.workspaceRoot, hostProject().root)
+  assert.match(facts.preferTempDir ?? '', /\/opencode$/, 'the client\'s temp dir is <tmpdir>/opencode')
+  assert.equal(facts.date, new Date().toDateString())
 })
 
 /** Tags alone are not a block: an empty block is one of the refused 429 shapes. */
@@ -64,9 +79,9 @@ test('hasEnvBlock rejects the shapes the lane refuses', () => {
 
 test('withEnvBlock appends once and is idempotent', () => {
   const once = withEnvBlock('be helpful', FACTS)
-  assert.equal(once, `be helpful\n\n${renderEnvBlock(FACTS)}`)
+  assert.equal(once, `be helpful\n\n${renderEnvSection(FACTS)}`)
   assert.equal(withEnvBlock(once, FACTS), once, 'no second block')
-  assert.equal(withEnvBlock('', FACTS), renderEnvBlock(FACTS), 'an empty prompt becomes the block')
+  assert.equal(withEnvBlock('', FACTS), renderEnvSection(FACTS), 'an empty prompt becomes the section')
   // A block the harness itself carried (or a probe body) is left alone.
   const foreign = 'prompt\n<env>\n  Working directory: /elsewhere\n</env>'
   assert.equal(withEnvBlock(foreign, FACTS), foreign)
@@ -85,7 +100,7 @@ test('ensureFreeLaneShape appends the env block to a system prompt', () => {
   const messages = next.messages as Array<{ role: string; content: string }>
   assert.equal(messages.length, 2, 'no extra message: the block rides the system slot')
   assert.equal(messages[0]!.role, 'system')
-  assert.match(messages[0]!.content, /^you are helpful\n\n<env>\n/)
+  assert.match(messages[0]!.content, /^you are helpful\n\nToday's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
   assert.equal(messages[1]!.content, 'ping', 'the user turn is untouched')
   // The input payload is not mutated (pi-ai keeps using it on the next retry).
   assert.equal((payload.messages[0] as { content: string }).content, 'you are helpful')
@@ -100,7 +115,7 @@ test('ensureFreeLaneShape inserts a system message when the body has none', () =
   const messages = next.messages as Array<{ role: string; content: string }>
   assert.equal(messages.length, 2)
   assert.equal(messages[0]!.role, 'system')
-  assert.match(messages[0]!.content, /^<env>\n/)
+  assert.match(messages[0]!.content, /^Today's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
   assert.equal(messages[1]!.content, 'ping')
 })
 
@@ -135,7 +150,7 @@ test('ensureFreeLaneShape appends the block to array-shaped system content', () 
   const parts = (next.messages as Array<{ content: Array<{ type: string; text: string }> }>)[0]!.content
   assert.equal(parts.length, 2)
   assert.equal(parts[0]!.text, 'prompt')
-  assert.match(parts[1]!.text, /^<env>\n/)
+  assert.match(parts[1]!.text, /^Today's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
 })
 
 test('ensureResponsesFreeLaneShape shapes instructions and the input system slot', () => {
@@ -145,7 +160,7 @@ test('ensureResponsesFreeLaneShape shapes instructions and the input system slot
     input: [{ role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
     tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
   }) as Record<string, unknown>
-  assert.match(String(withInstructions.instructions), /^be brief\n\n<env>\n/)
+  assert.match(String(withInstructions.instructions), /^be brief\n\nToday's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
   const flat = withInstructions.input as Array<{ role: string }>
   assert.equal(flat.length, 1, 'instructions carry the block; the input array is untouched')
 
@@ -160,5 +175,5 @@ test('ensureResponsesFreeLaneShape shapes instructions and the input system slot
   const parts = (withSystemInput.input as Array<{ content: Array<{ type: string; text: string }> }>)[0]!.content
   assert.equal(parts.length, 2)
   assert.equal(parts[1]!.type, 'input_text', 'Responses parts keep their own spelling')
-  assert.match(parts[1]!.text, /^<env>\n/)
+  assert.match(parts[1]!.text, /^Today's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
 })

@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { sanitizeRequestHeaders, type RequestHeaders } from '../request-headers.ts'
+import { hostProject } from './project.ts'
 
 /**
  * Port of agent/internal/ids (opencode2api ids.go, verbatim semantics):
@@ -13,6 +14,8 @@ export interface RequestIDs {
   request: string
   project: string
   parentSession: string
+  /** 32-hex trace id shared by every request of one conversation (absent = derived from `session`). */
+  trace?: string
 }
 
 export function randomID(prefix: string, size: number): string {
@@ -68,29 +71,16 @@ export function conversationLabel(messages: Array<{ role: string; content: unkno
 }
 
 /**
- * The project id sent upstream. `ProjectID` in the client is a PLAIN string —
- * `"global"` for a directory that is not a git worktree, otherwise a 40-hex
- * sha1 (values seen on the wire: `global` and
- * `c956d9742c6f72c5f22ab1c75bd9b47ad294161c`). It has no prefix: the client's
- * id prefix table lists job/event/session/message/permission/question/part/
- * pty/tool/workspace and NOT project, and `prj_*` is a rejection signal
- * (`prj_*` -> 403 FreeTierError; `global`, a 40-hex id or the header omitted
- * -> 200). The adapter has no worktree, so it sends what the client sends for
- * a non-git directory.
- *
- * The 40-hex derivation (static extraction of the 2.1.3 `opencode-cli`): for a
- * git repo it prefers `sha1("git-remote:" + host + "/" + path)` of the
- * normalized `origin` URL (`git@github.com:xbzbing/dsh-git-panel.git` ->
- * `github.com/xbzbing/dsh-git-panel` -> `c956d974…`), falling back to the
- * repo's oldest root commit; a non-git directory hashes
- * `sha1("directory:" + absPath)`; `"global"` is only the no-VCS fallback. The
- * adapter keeps `global` — a legitimate client value in the gate's accepted
- * set — rather than fabricating a directory hash for a path the upstream has
- * never seen: the workspace dimension stays unsimulated (no login, no project
- * hash), and `global` passes alongside a 40-hex id and with the header
- * omitted entirely.
+ * The project id sent upstream: the prefix-less `ProjectID` the client
+ * derives for its working directory (project.ts) — a 40-hex sha1, or
+ * `global` for a repository with nothing to hash. `prj_*` is a rejection
+ * signal (403 FreeTierError). The directory is this host's working directory,
+ * the same one the `<env>` block reports (env-block.ts), so the header and
+ * the prompt describe one place.
  */
-export const DEFAULT_PROJECT_ID = 'global'
+export function currentProjectID(): string {
+  return hostProject().id
+}
 
 /**
  * Derive the correlation ids for one upstream request. There are no inbound
@@ -101,7 +91,8 @@ export const DEFAULT_PROJECT_ID = 'global'
  * 2.1.4). It stays in the record because the pool's admission probe reuses
  * the same shape-checked minter and because `req_*` remains a documented
  * rejection signal if the header ever has to come back.
- * `x-opencode-project` must be the prefix-less project id above.
+ * `x-opencode-project` must be the prefix-less project id above; the trace id
+ * follows the session ({@link traceIDFor}).
  */
 export function deriveRequestIDs(messages: Array<{ role: string; content: unknown }>): RequestIDs {
   let signal = conversationSeed(messages)
@@ -109,7 +100,7 @@ export function deriveRequestIDs(messages: Array<{ role: string; content: unknow
   return {
     session: canonicalSessionID(signal),
     request: mintedMessageID(),
-    project: DEFAULT_PROJECT_ID,
+    project: currentProjectID(),
     parentSession: '',
   }
 }
@@ -297,6 +288,7 @@ function mintSessionID(signal: string): string {
 /** Drop the process' cached session ids (tests only: the cache is a lifetime cache). */
 export function resetSessionIDCache(): void {
   sessionCache.clear()
+  traceCache.clear()
   sessionCounter = 0
 }
 
@@ -408,6 +400,34 @@ export function opencodeUserAgent(): string {
   return zenRequestHeaders()['user-agent']!
 }
 
+/** One trace per conversation, like the client's long-lived root span; bounded like the session cache. */
+const traceCache = new Map<string, string>()
+
+/** The 32-hex trace id every request of one session shares. */
+export function traceIDFor(session: string): string {
+  const cached = traceCache.get(session)
+  if (cached !== undefined) return cached
+  const trace = randomBytes(16).toString('hex')
+  if (traceCache.size >= SESSION_CACHE_LIMIT) {
+    const oldest = traceCache.keys().next()
+    if (oldest.done !== true) traceCache.delete(oldest.value)
+  }
+  traceCache.set(session, trace)
+  return trace
+}
+
+/**
+ * The client's OTel pair for one request (its HTTP client's trace-context
+ * writer): `b3: <trace>-<span>-1-<parent span>` and
+ * `traceparent: 00-<trace>-<span>-01`, sampled, with a fresh span and parent
+ * per request under the conversation's trace.
+ */
+export function traceHeaders(trace: string): { b3: string; traceparent: string } {
+  const span = randomBytes(8).toString('hex')
+  const parent = randomBytes(8).toString('hex')
+  return { b3: `${trace}-${span}-1-${parent}`, traceparent: `00-${trace}-${span}-01` }
+}
+
 /**
  * The full disguise header set sent with every upstream request
  * (design.md 2.4; gateway.go newUpstreamRequest) — the official 2.x
@@ -441,13 +461,14 @@ export function opencodeUserAgent(): string {
  * not a spent quota. These headers are unchanged by that gate: the relay
  * re-originates the CONNECTION, not the request.
  *
- * The OTel pair (`b3`/`traceparent`) is deliberately NOT fabricated: the
- * client mints it per request from its tracer, the gate ignores it (a set
- * without it passes), and a hand-rolled trace id would be one more shape to
- * keep coherent for no measured benefit.
+ * The OTel pair rides too ({@link traceHeaders}): the gate ignores it, but
+ * the wire carries the client's whole set. The names and their casing are
+ * the client's; the relay forwards them and drops what the Node HTTP stack
+ * adds on its own (relay/oc2dsh-relay.mjs).
  */
 export function disguiseHeaders(ids: RequestIDs): Record<string, string> {
   return zenRequestHeaders({
+    ...traceHeaders(ids.trace ?? traceIDFor(ids.session)),
     'x-opencode-session': ids.session,
     'x-opencode-session-id': ids.session,
     'x-session-affinity': ids.session,

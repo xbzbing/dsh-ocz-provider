@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { canonicalSessionID, conversationSeed, DEFAULT_PROJECT_ID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, resetSessionIDCache, setUserAgentOverride, ZEN_UA_CHANNEL, ZEN_UA_VERSION, zenRequestHeaders, zenUserAgent } from '../src/adapter/ids.ts'
+import { canonicalSessionID, conversationSeed, currentProjectID, deriveRequestIDs, disguiseHeaders, mintedMessageID, opencodeUserAgent, randomID, resetSessionIDCache, setUserAgentOverride, ZEN_UA_CHANNEL, ZEN_UA_VERSION, zenRequestHeaders, zenUserAgent } from '../src/adapter/ids.ts'
 
 test('randomID differs per call with the requested size', () => {
   const a = randomID('req', 16)
@@ -168,8 +168,8 @@ test('deriveRequestIDs keeps the session stable across turns and randomizes requ
   // client's prefix-less `ProjectID` — `req_*` and `prj_*` each answer 403
   // FreeTierError on their own against /inference/v1.
   assert.match(first.request, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
-  assert.equal(first.project, DEFAULT_PROJECT_ID)
-  assert.equal(first.project, 'global')
+  assert.equal(first.project, currentProjectID())
+  assert.match(first.project, /^([0-9a-f]{40}|global)$/)
   assert.equal(first.parentSession, '')
   // fallback: no user content at all still yields usable ids
   const empty = deriveRequestIDs([{ role: 'system', content: 'only system' }])

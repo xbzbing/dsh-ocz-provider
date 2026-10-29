@@ -43,16 +43,30 @@ async function putObject(home: string, sha: string, bytes: Buffer): Promise<void
   await writeFile(join(dir, sha), bytes)
 }
 
-test('system messages become leading user text', async () => {
+test('leading system messages become the system prompt', async () => {
   const context = await toPiContext(
     options({
       system: 'be helpful',
       messages: [{ role: 'system', content: [{ type: 'text', text: 'be helpful' }] }],
     }),
   )
-  assert.equal(context.systemPrompt, 'be helpful')
-  assert.equal(context.messages.length, 1)
-  assert.deepEqual(context.messages[0], { role: 'user', content: 'be helpful', timestamp: 0 })
+  assert.equal(context.systemPrompt, 'be helpful', 'the same text twice is sent once')
+  assert.equal(context.messages.length, 0)
+})
+
+test('a system message after the conversation started stays user-side text', async () => {
+  const context = await toPiContext(
+    options({
+      messages: [
+        { role: 'system', content: [{ type: 'text', text: 'identity' }] },
+        { role: 'system', content: [{ type: 'text', text: 'skills' }] },
+        { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+        { role: 'system', content: [{ type: 'text', text: 'reminder' }] },
+      ],
+    }),
+  )
+  assert.equal(context.systemPrompt, 'identity\n\nskills')
+  assert.deepEqual(context.messages.map((m) => m.role === 'user' ? m.content : m.role), ['hi', 'reminder'])
 })
 
 test('tool results become toolResult messages with the name from the prior toolCall', async () => {
@@ -458,7 +472,7 @@ test('ensureFreeLaneShape injects the genuine gate tools into toolless chat bodi
   const messages = next.messages as Array<{ role: string; content: string }>
   assert.equal(messages.length, 2)
   assert.equal(messages[0]!.role, 'system')
-  assert.match(messages[0]!.content, /^<env>\n/)
+  assert.match(messages[0]!.content, /^Today's date: [^\n]+\n\nHere is some useful information about the environment you are running in:\n<env>\n/)
   assert.deepEqual(messages[1], payload.messages[0])
   const tools = next.tools as Array<{ type: string; function: { name: string; description: string; parameters: unknown } }>
   // What gets injected is the genuine 2.1.4 OpenCode definition

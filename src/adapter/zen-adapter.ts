@@ -5,10 +5,10 @@ import * as openaiResponses from '@earendil-works/pi-ai/api/openai-responses'
 import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
 import { toStreamChunks, type HarnessChunk, type PiDoneMessage, type PiEvent } from './events.ts'
 import { conversationLabel, deriveRequestIDs, disguiseHeaders } from './ids.ts'
-import { isOriginFailure, laneOrigins } from './lane.ts'
+import { chatApiPath, isOriginFailure, laneOrigins } from './lane.ts'
 import { gateToolArgumentBridge } from './gate-tools.ts'
 import { nextRetryDelayMs, retryDelayKey } from './retry-delay.ts'
-import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
+import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, inClientKeyOrder, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
 import { routingContext, type RoutingContext } from '../pool/dispatcher.ts'
@@ -324,7 +324,10 @@ export function toPiModel(
     // reasoning_content for replayed turns that carried no thinking; turns
     // that DID think carry their text under the streamed field via the
     // signature on the reasoning block (events.ts -> messages.ts).
-    compat: { requiresReasoningContentOnAssistantMessages: true },
+    // Pinned rather than detected: behind the relay the base URL is loopback,
+    // so pi-ai's opencode.ai detection would add `store` and the `developer`
+    // role, neither of which the client sends.
+    compat: { requiresReasoningContentOnAssistantMessages: true, supportsStore: false, supportsDeveloperRole: false },
     input: isVisionModel(id, declaredModalities) ? ['text', 'image'] : ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: contextWindowFor(limits),
@@ -897,12 +900,11 @@ export class ZenAdapter {
             const normalized = normalizeResponsesPayload(payload, responseReasoning)
             return ensureResponsesFreeLaneShape(normalized ?? payload) ?? normalized
           }
-        : effortWire === undefined
-        ? ensureFreeLaneShape
         : (payload: unknown): unknown => {
             const shaped = ensureFreeLaneShape(payload)
             if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return shaped
-            return { ...((shaped ?? payload) as Record<string, unknown>), reasoning_effort: effortWire }
+            const body = (shaped ?? payload) as Record<string, unknown>
+            return inClientKeyOrder(effortWire === undefined ? body : { ...body, reasoning_effort: effortWire })
           }
     // Responses-only models (muse-spark-*) must hit /responses, not /chat/completions.
     const provider = isResponsesModel(model.id) && this.#responsesProvider
@@ -932,9 +934,11 @@ export class ZenAdapter {
       // of quietly putting this machine's address on the wire.
       return { stream: failedStream(refusal, model), meta }
     }
+    const laneOrigin = origin ?? this.#origins[0] ?? ZEN_BASE_URL
+    const apiPath = chatApiPath(laneOrigin)
     const targetBase = relayBase !== null
-      ? `${relayBase}/v1`
-      : `${(origin ?? this.#origins[0] ?? ZEN_BASE_URL).replace(/\/+$/, '')}/v1`
+      ? `${relayBase}${apiPath}`
+      : `${laneOrigin.replace(/\/+$/, '')}${apiPath}`
     const target = { ...model, baseUrl: targetBase }
     const headers = disguiseHeaders(ids)
     if (meta.egress !== null) headers[EGRESS_HEADER] = meta.egress.url

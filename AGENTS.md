@@ -97,7 +97,7 @@ argument itself.
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |
 | Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.2.0/cli`; the client flag is pinned to `cli` and no setting moves it (the header is plugin-managed). Read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep Node's happy-eyeballs fallback. Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts |
-| Upstream base URL | `https://opencode.ai/inference` (+ `/v1` per call), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
+| Upstream base URL | `https://opencode.ai/inference` (chats + `/openai/v1`, catalog/admission model list + `/v1`), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
 | Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Crashes restart with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr; the component contract (env vars, readiness handshake, timeouts, egress seam) is `docs/relay.md` | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
 | Config schema nodes must stay plain | NEVER put `.transform()` (or any callback-bearing node) in `Config`. dsh-settings rebuilds the served form from `Config.toJSON()` (`plainSchema`) and serializes it a SECOND time for the browser; a transform's `callback` survives the first `toJSON()` but is dropped on that rebuild, so the browser rehydrates a callback-less node, `ConfigFormController.decode()` throws `callback is not a function`, and the whole configuration card stays loading forever — invisible (live 2026-10-15, introduced with the Zen 请求头 field). Validate at the editor and request boundaries instead | src/config.ts, test/request-headers.test.ts, test/model-context.test.ts, scripts/smoke-dsh-compat.mjs |
@@ -125,11 +125,11 @@ Headlines:
 - one recipe, two origins: `/inference` (primary) and `/zen` (fallback) both
   accept this fingerprint, walked as a ladder on an origin-shaped failure
   (`src/adapter/lane.ts`; the console origin was re-probed live 2026-10-19).
-  The official 2.1.4 client routes chats to the FAMILY path
-  `/inference/openai/v1` (models.dev `api` field, byte-capture 2026-10-24);
-  that path and the flat `/inference/v1` answer identically, but the family
-  `/models` 404s, so the flat route stays the one origin for chat + catalog +
-  admission;
+  Chats go to the client's FAMILY path `/inference/openai/v1` (models.dev
+  `api` field; `src/adapter/lane.ts` `chatApiPath`). `/zen` has no family
+  route (`/zen/openai/v1/chat/completions` 404, live 2026-10-29), so the
+  fallback rung stays `/zen/v1`; the family `/models` 404s too, so the catalog
+  and the admission model list stay on flat `/inference/v1`;
 - body must be streaming with a NON-EMPTY `tools` array carrying an entry
   NAMED `read`. The injected pair is the genuine 2.1.4 `shell` + `read`
   (`src/adapter/gate-tools.ts`, byte-captured from the installed CLI —
@@ -148,8 +148,14 @@ Headlines:
   `x-opencode-session-id`, `x-session-affinity`, `x-session-id`) and
   `x-opencode-request` is ABSENT — both facts byte-captured 2026-10-24; the
   affinity pair was a foreign-client signal only under the 1.x header set;
-- `x-opencode-project` is prefix-less (`global` — the workspace dimension is
-  deliberately NOT simulated: no login, no 40-hex directory hash);
+- `x-opencode-project` is the client's own id for this host's working
+  directory (`src/adapter/project.ts`, a port of the 2.2.0 `Project.resolve`):
+  nearest `.git` -> `sha1("git-remote:" + host/path of origin)` ?? the
+  `<common dir>/opencode` file ?? the first root commit ?? `global`; nearest
+  `.hg` -> its file ?? root changeset ?? `global`; neither ->
+  `sha1("directory:" + abs path)`. The `<env>` block reads the SAME resolution
+  (`Workspace root folder`, `Is directory a git repo`), so header and prompt
+  name one place. `prj_*` is refused; `global` and any 40-hex also pass;
 - the UA version segment tracks the INSTALLED client and the shipped value is
   `2.2.0` (the desktop CLI landed 2.2.0 on 2026-10-27). The gate does not pin
   the version string (2.0.29 / the 1.19.0 app branch / the built-in all pass,
@@ -157,8 +163,31 @@ Headlines:
   (strings 2026-10-28: same header set with no `x-opencode-request`, the same
   `shell`+`read` pair — `read` byte-identical, `shell` assembled from the same
   fragments — and the `<env>` block), so only the UA version moves and the
-  2.1.4 capture stays the shipped recipe. A live 200 with the 2.2.0 UA is
-  still owed: this machine's own egress quota was spent at change time;
+  2.1.4 capture stays the shipped recipe. The 2.2.0 UA answered a live 200
+  on 2026-10-29 (see the wire-parity bullet below);
+- WIRE PARITY with the 2.2.0 client (TLS capture 2026-10-29,
+  `docs/local/capture-214/tls/`): the adapter -> relay path now emits the
+  client's 16 headers with the same names, casing and order, the same
+  request line, and the same body key order
+  (`model, messages, tools, stream, stream_options, max_completion_tokens`).
+  What it took: the relay drops what the Node stack adds (`x-stainless-*`,
+  `accept-language`, `sec-fetch-mode`, the SDK's `accept`) and lets Bun add
+  `Accept: */*` (docs/relay.md §3); `b3`/`traceparent` are minted in the
+  client's format (one trace per conversation, a fresh span and parent per
+  request); pi-ai's compat is pinned (`supportsStore: false`,
+  `supportsDeveloperRole: false`) because behind the loopback relay its
+  opencode.ai detection no longer fires and it added `store` and the
+  `developer` role; the leading system messages ride the system role (they
+  used to be sent as a user turn); the `<env>` block is appended as the
+  client's two instructions (`Today's date: …`, then `Here is some useful
+  information about the environment you are running in:` + the block), with
+  the temp line `realpath(os.tmpdir())/opencode`. The gate does NOT read the
+  extra Node headers (both sets answered 200 the same day); parity is kept so
+  no single header can become the next refusal. Live through
+  `http://127.0.0.1:1087`: plain chat and a tool call both 200 on
+  `/inference/openai/v1/chat/completions`. Re-check with a loopback capture
+  (drive `ZenAdapter` -> relay -> a local server, diff against
+  `tls-headers.log`) whenever pi-ai, the OpenAI SDK or Bun moves;
 - `tool_choice: 'none'` is rejected.
 - status codes, re-read 2026-10-25: `403 FreeTierError` still means the SHAPE
   was rejected (a body without `tools` still 403s that day), but `429

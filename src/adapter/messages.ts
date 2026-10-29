@@ -7,7 +7,7 @@ import {
   isGenuineGateTool,
   SUPERSEDED_GATE_TOOL_NAMES,
 } from './gate-tools.ts'
-import { hasEnvBlock, renderEnvBlock, withEnvBlock, type EnvFacts } from './env-block.ts'
+import { hasEnvBlock, renderEnvSection, withEnvBlock, type EnvFacts } from './env-block.ts'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -302,12 +302,21 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
   const providerId = options.provider
   const toolNames = new Map<string, string>()
   const messages: PiMessage[] = []
+  // The leading system messages ARE the system prompt (the loop puts it
+  // there), and the client sends its prompt in the system role; a system
+  // message after the conversation started stays user-side text.
+  const systemParts: string[] = []
+  if (typeof options.system === 'string' && options.system.length > 0) systemParts.push(options.system)
+  let leading = true
   for (const message of options.messages) {
     if (message.role === 'system') {
       const text = flattenText(message)
-      if (text.length > 0) messages.push({ role: 'user', content: text, timestamp: 0 })
+      if (text.length === 0) continue
+      if (leading) systemParts.push(text)
+      else messages.push({ role: 'user', content: text, timestamp: 0 })
       continue
     }
+    leading = false
     if (message.role === 'assistant') {
       const assistant = toPiAssistant(message, providerId)
       for (const block of assistant.content) {
@@ -344,7 +353,7 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
     }
   }
   const context: PiContext = { messages }
-  if (typeof options.system === 'string' && options.system.length > 0) context.systemPrompt = options.system
+  if (systemParts.length > 0) context.systemPrompt = [...new Set(systemParts)].join('\n\n')
   const tools = options.tools?.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))
   if (tools && tools.length > 0) context.tools = tools
   return context
@@ -354,19 +363,18 @@ export async function toPiContext(options: HarnessGenerateOptions): Promise<PiCo
  * The anonymous free-lane contract this file enforces
  * (`ensureFreeLaneShape` / `ensureResponsesFreeLaneShape` below):
  *
- *   1. endpoint: the flat `/inference/v1` (adapter/catalog.ts `ZEN_BASE_URL`);
- *      the official family path answers chat identically but its `/models`
- *      404s, so the flat route is the one origin for chat + catalog +
- *      admission, and `/zen` is the second door on an origin-shaped failure
- *      (adapter/lane.ts);
+ *   1. endpoint: chats go to the client's family path `/inference/openai/v1`,
+ *      the catalog to the flat `/inference/v1` (the family `/models` 404s),
+ *      and `/zen/v1` is the second door on an origin-shaped failure
+ *      (adapter/lane.ts `chatApiPath`);
  *   2. session id: one canonical `ses_*` (`ses_` + 12 lowercase hex + 14
  *      Base62) rides all FOUR spellings — `x-opencode-session`,
  *      `x-opencode-session-id`, `x-session-affinity`, `x-session-id` —
  *      `x-opencode-request` is ABSENT, and the 12-hex prefix must decode to a
  *      recent unix_ms (adapter/ids.ts mints it and caches one id per
  *      conversation);
- *   3. project: `x-opencode-project` is prefix-less (`global` or a 40-hex
- *      worktree hash); `prj_*` is refused (adapter/ids.ts);
+ *   3. project: `x-opencode-project` is prefix-less, the client's own id for
+ *      this host's directory (adapter/project.ts); `prj_*` is refused;
  *   4. body: `stream: true`, a NON-EMPTY `tools` array carrying an entry
  *      NAMED `read` (the genuine `shell` + `read` pair is injected,
  *      adapter/gate-tools.ts), and `tool_choice` never `'none'`;
@@ -468,15 +476,14 @@ function shapeEnvMessages(list: unknown[], partType: 'text' | 'input_text' = 'te
     break
   }
   if (index === -1) {
-    return { changed: true, list: [{ role: 'system', content: renderEnvBlock(facts) }, ...list] }
+    return { changed: true, list: [{ role: 'system', content: renderEnvSection(facts) }, ...list] }
   }
   const entry = list[index] as Record<string, unknown>
   const content = entry.content
   if (hasEnvBlock(contentText(content))) return { changed: false, list }
   const next = [...list]
-  const block = renderEnvBlock(facts)
   if (Array.isArray(content)) {
-    next[index] = { ...entry, content: [...content, { type: partType, text: block }] }
+    next[index] = { ...entry, content: [...content, { type: partType, text: renderEnvSection(facts) }] }
   } else {
     next[index] = { ...entry, content: withEnvBlock(typeof content === 'string' ? content : '', facts) }
   }
@@ -524,6 +531,20 @@ export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefi
     tools,
     tool_choice: 'auto',
   }
+}
+
+/** The client's chat-completions body keys, in its order. */
+const CLIENT_CHAT_KEY_ORDER = ['model', 'messages', 'tools', 'stream', 'stream_options', 'max_completion_tokens'] as const
+
+/**
+ * The same body with the client's key order: its six keys first, every other
+ * key after them in its original order. Values are untouched.
+ */
+export function inClientKeyOrder(body: Record<string, unknown>): Record<string, unknown> {
+  const ordered: Record<string, unknown> = {}
+  for (const key of CLIENT_CHAT_KEY_ORDER) if (key in body) ordered[key] = body[key]
+  for (const [key, value] of Object.entries(body)) if (!(key in ordered)) ordered[key] = value
+  return ordered
 }
 
 /**
