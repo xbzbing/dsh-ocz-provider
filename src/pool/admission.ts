@@ -147,7 +147,7 @@ export async function coarseScreen(
   } catch (err) {
     return { rejected: err instanceof Error ? err.message : String(err) }
   } finally {
-    void agent.close().catch(() => {})
+    releaseProbeAgent(agent)
   }
 }
 
@@ -188,6 +188,16 @@ const DEFAULT_IP_ECHO = 'http://ip-api.com/json/?fields=status,country,countryCo
 const DEFAULT_TIMEOUT_MS = 8_000
 /** critical-state relaxed latency gate (docs/ip-pool.md 4.6 maxResponseMs). */
 const RELAXED_RESPONSE_MS = 6_000
+
+/**
+ * Tear down a probe's ProxyAgent and every socket it opened. A probe only
+ * reads status codes, so it never drains a body, and a wild proxy may never
+ * answer: the graceful `close()` waits on both and holds the socket open for
+ * the life of the host. `destroy()` drops them as soon as the verdict is in.
+ */
+function releaseProbeAgent(agent: Dispatcher): void {
+  void agent.destroy().catch(() => {})
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -415,7 +425,7 @@ export async function admitCandidate(
   } catch (err) {
     return { admitted: false, reason: err instanceof Error ? err.message : String(err) }
   } finally {
-    void agent.close().catch(() => {})
+    releaseProbeAgent(agent)
   }
 }
 

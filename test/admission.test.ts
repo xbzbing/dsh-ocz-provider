@@ -443,3 +443,76 @@ test('admission: both doors failing rejects with the primary door\'s verdict', a
   assert.equal(result.admitted, false)
   assert.equal(result.reason, 'zen models HTTP 502')
 })
+
+/**
+ * Probe sockets must not outlive the verdict. A wild proxy that never answers,
+ * or an answer whose body the probe never reads, used to keep its socket open
+ * for the life of the host (hundreds of ESTABLISHED/CLOSED sockets to random
+ * proxy ports on a long-running host).
+ */
+async function proxyListener(onSocket: (socket: import('node:net').Socket) => void) {
+  const net = await import('node:net')
+  const open = new Set<import('node:net').Socket>()
+  const server = net.createServer((socket) => {
+    open.add(socket)
+    socket.on('close', () => open.delete(socket))
+    socket.on('error', () => {})
+    onSocket(socket)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  const port = (server.address() as { port: number }).port
+  const settled = async (): Promise<number> => {
+    for (let i = 0; i < 40 && open.size > 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 25))
+    return open.size
+  }
+  const stop = async () => {
+    for (const socket of open) socket.destroy()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+  return { port, settled, stop }
+}
+
+test('coarse screen: a proxy that never answers loses its socket at the timeout', async () => {
+  // Reads but never replies: the request stays pending past the probe timeout.
+  const proxy = await proxyListener((socket) => socket.resume())
+  try {
+    const verdict = await coarseScreen(
+      { undici: realUndici, ipEchoUrl: 'http://example.test/echo' } as never,
+      { address: `127.0.0.1:${proxy.port}`, protocol: 'http' },
+      { timeoutMs: 150 },
+    )
+    assert.ok('rejected' in verdict && /timed out/.test(verdict.rejected), JSON.stringify(verdict))
+    assert.equal(await proxy.settled(), 0, 'the probe left its proxy socket open')
+  } finally { await proxy.stop() }
+})
+
+test('admission: an unread lane body does not pin the proxy socket', async () => {
+  // Echo answers normally; the models probe gets a 503 whose chunked body never
+  // ends. The probe reads only the status, so the body is never drained.
+  const proxy = await proxyListener((socket) => {
+    socket.on('data', (chunk) => {
+      const line = chunk.toString('latin1')
+      if (line.includes('/echo')) {
+        const body = echoBody('5.5.5.5', 'US')
+        socket.write(`HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${Buffer.byteLength(body)}\r\n\r\n${body}`)
+      } else {
+        socket.write('HTTP/1.1 503 Busy\r\ncontent-type: text/plain\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n')
+      }
+    })
+  })
+  try {
+    const result = await admitCandidate(
+      {
+        pool: new ExitPool(),
+        undici: realUndici,
+        ipEchoUrl: 'http://example.test/echo',
+        zenBaseUrl: 'http://example.test',
+        timeoutMs: 1000,
+      } as never,
+      { address: `127.0.0.1:${proxy.port}`, protocol: 'http', source: 'free' },
+    )
+    assert.equal(result.admitted, false)
+    assert.equal(result.reason, 'zen models HTTP 503')
+    assert.equal(await proxy.settled(), 0, 'the unread body kept the proxy socket open')
+  } finally { await proxy.stop() }
+})

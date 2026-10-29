@@ -65,6 +65,7 @@ function makeStack(options: {
       }
       uri: string
       close() { return Promise.resolve() }
+      destroy() { return Promise.resolve() }
     },
     request: (async (url: string, init: { dispatcher: { uri: string } }) => {
       // the candidate address rides the dispatcher URI (http://addr)
