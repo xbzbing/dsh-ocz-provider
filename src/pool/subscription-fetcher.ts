@@ -187,7 +187,7 @@ export class SubscriptionFetcher {
     this.#supervisor = supervisor
   }
 
-  /** Manual refresh trigger (settings page 立即刷新, docs §5.3 /probe scope: 'refill' parity). */
+  /** Manual refresh trigger (settings page 立即刷新, docs §5.3 /probe scope 'subscription'). */
   async refreshNow(): Promise<SubscriptionState> {
     return this.refresh()
   }

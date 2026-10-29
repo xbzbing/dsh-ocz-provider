@@ -133,16 +133,10 @@ export interface PoolStatusView {
   zenUserAgent?: string
   enabled: boolean
   deferredReason: string
-  state: 'healthy' | 'warning' | 'critical' | 'emergency'
-  /** Which population produced `state`: the free-source machine while that
-   *  source is on, the whole pool once it is off. */
-  stateBasis: 'free' | 'pool'
   total: number
-  bySource: Record<'free' | 'manual' | 'subscription' | 'goproxy', number>
-  availableFree: number
+  bySource: Record<'manual' | 'subscription' | 'goproxy', number>
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
-  targetSize: number
   /** Whole-pool capacity in force (settings `poolSize`, default 10). */
   poolSize: number
   /** The pin in force. `local` marks the 本机 sentinel (no exit at all);
@@ -708,20 +702,16 @@ function ModelPicker(props: {
 function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps['t'] }): ReactNode {
   const { status, t } = props
   if (status === null) return null
-  /* No state badge up front: the headline `state` follows the FREE-lane subset
-     (stateBasis 'free') while the number beside it counts the WHOLE pool, so
-     the two can disagree — the counts carry the meaning. */
   return (
     <div className={styles.overviewBar} data-testid="ip-pool-overview">
       {status.deferredReason !== '' && (
         <Tag tone="danger">{t('deferredNotice').replace('{reason}', status.deferredReason)}</Tag>
       )}
-      {/* The headline number is the WHOLE pool's usable count, not the
-          free-source subset. */}
+      {/* The headline number is the whole pool's usable count. */}
       <span>{t('poolAvailable')
         .replace('{available}', String(status.availableTotal))
         .replace('{total}', String(status.total))
-        .replace('{poolSize}', String(status.poolSize ?? status.targetSize))}</span>
+        .replace('{poolSize}', String(status.poolSize))}</span>
       <span>
         {t('poolSources')
           .replace('{manual}', String(status.bySource.manual))

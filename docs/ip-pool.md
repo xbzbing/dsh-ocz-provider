@@ -1,6 +1,7 @@
 # oc2dsh IP 池与出口路由 — 架构设计
 
 > 状态：v1 草案（2026-09-04）。实现前定稿；上游锚点在编写时逐一核实。
+> **2026-10-29：免费代理来源已移除**（公开清单抓取、refill 调度、四态状态机、粗筛暴力并发），池子只剩手填和订阅两个来源，见 §3.5。下文 §0/§1 里「三来源同池」的说法是当初的需求记录。
 > 关联：`docs/design.md`（总体架构，特别是 §9.2 多出口收缩）。当前实现是 TS adapter（仓库根 `src/adapter/`）。
 > 参考项目（两个均在本地临时目录读过源码）：
 > - [isboyjc/GoProxy](https://github.com/isboyjc/GoProxy)（智能代理池：免费源抓取 + Clash/V2ray 订阅导入 + 探活 + 对外 HTTP/SOCKS5）
@@ -97,7 +98,7 @@ design.md §9.2 曾把「多出口」定为灰色能力并默认关闭（当时�
 | 协议链接 | vmess://、vless://、trojan://、ss:// 等前缀 | 逐行解析 URI（vmess 是 base64 JSON，其余是 URI 参数） |
 | Base64 | 整体 base64 解码后再按协议链接解析 | 两跳解码 |
 
-解析产物统一为 `ParsedNode { name, type, server, port, raw }`（GoProxy 同构），分两路：`type ∈ {http, socks5}` → 直接进出口表走**测速准入**（`admitBySpeed`，只打 ip-api，§4.5）；其余 → 待转换清单（§1.2.2）。订阅刷新（默认 30min + 手动）只重拉 URL 重跑解析，断路器同免费源。**订阅链路永不主动探测 OpenCode**（2026-10-24 决定：添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟）——models 列表与 1-token 冒烟只属于免费源准入（§4.5）与设置页的手动探活动作。
+解析产物统一为 `ParsedNode { name, type, server, port, raw }`（GoProxy 同构），分两路：`type ∈ {http, socks5}` → 直接进出口表走**测速准入**（`admitBySpeed`，只打 ip-api，§4.5）；其余 → 待转换清单（§1.2.2）。订阅刷新（默认 30min + 手动）只重拉 URL 重跑解析。**订阅链路永不主动探测 OpenCode**（2026-10-24 决定：添加订阅后，不对 OpenCode 进行任何主动探测，只显示测速的延迟）——models 列表与 1-token 冒烟只属于设置页的手动探活动作（§4.5）。
 
 拉取请求的 **User-Agent 是设置项**（`subscription.userAgent`，默认 `clash-verge/v2.4.2`）：机场普遍按 UA 做白名单，不在名单里的 UA 拿回来的是错误页而不是订阅体（实测同一机场对 `clash-verge/1.6.0` 返回 502 Bad Gateway；`clash-verge/v2.0` 长期正常，2026-10-13 起被抬高的下限挡成 `403 PLEASE UPGRADE CLIENT`）。**这个默认值会随时间过期**，设置页改掉即可（立即生效）。UA 还可能决定**返回哪种格式**——Clash 形状的 UA 给 `proxies:` YAML，v2ray 形状的给 base64 链接，后者会让所有节点都需要 sing-box 转换。所以换 UA 后要顺带确认解析出的 `detected` 格式与节点数。
 
@@ -331,30 +332,15 @@ loop:
 
 **不做**「流中断后自动从断点续写」：匿名通道无幂等语义，做不到安全重放。
 
-### 3.5 池状态机与 refill 调度（内建免费池必需，抄 GoProxy 四态思想）
+### 3.5 ~~池状态机与 refill 调度~~（2026-10-29 随免费源一并移除）
 
-**「自动路由」确实需要池状态机**——路由负责「此刻选哪个 IP」，状态机负责「池子里还有没有 IP 可选、要不要去抓新的」。免费节点的死亡率极高（公开清单分钟级腐烂），没有它：池子慢慢漏空 → pick 永远返回 null → 静默退化成直连，用户毫无感知。抄 GoProxy pool/manager.go 的四态设计（determineState/NeedsFetch 的阈值思想），简化为单池单协议口径：
+免费源（`sources.ts` 的 40 多个公开代理清单）、refill 调度（`refill.ts`，固定 10min 节拍）和四态状态机（healthy/warning/critical/emergency，以免费池目标容量 `free.targetSize` 为分母）已删除。移除原因：
 
-```
-healthy ──可用数<95%──► warning ──可用数<30%──► critical ──可用数<10%──► emergency
-   ▲                        │ 每轮 refill 后回升                                  │
-   └────────────────────────┴─────────────────────────────────────────────────────┘
-```
+- 没有产出：2026-10-29 重启后的一轮补池，粗筛通过 791 个候选，细筛全部被拒；可用的 10 个出口全部来自订阅和手填。
+- 代价不小：每轮拉约 33.5 万个候选、300 并发探测，宿主身上常年挂着几百条到野生代理的连接（§4.5 末条）。
+- 状态误导：卡片拿到的 `emergency` 只反映免费池（0/20），真正承载流量的整池是健康的。
 
-| 状态 | 判定（「可用」= 非 dead、非冷却、非全模型封禁） | 动作 |
-| --- | --- | --- |
-| healthy | 可用 ≥ 95% 目标容量 | 不抓取；存活由真实请求判定（§4.3 被动，2026-10-23 起无周期探活） |
-| warning | 可用 < 95% | refill：快源抓取（fast 源清单）+ 准入探测 |
-| critical | 可用 < 30% | refill + 放宽准入（延迟阈值放宽） |
-| emergency | 可用 < 10% | 全源强抓（忽略源断路器，GoProxy emergency 同义） |
-
-- **目标容量**（poolTargetSize，默认 20）：免费池不求大，够路由轮换即可——节点越多探测与巡检成本越高（R5 的消耗公式）。
-- **准入-替换**（抄 GoProxy TryAddProxy/tryReplace）：新验证节点优于池内最差节点（C 级/最老）则替换；满员时拒绝准入（emergency 除外）。
-- **淘汰**：dead 连续 N 次直接出池（2026-10-23 起无 deadRetryMs 周期复探——死行由真实请求判死，活行由真实请求判活）；被封禁到「无任何可用模型」的节点同判。**只有 free 来源节点即删**（GoProxy removeOrDisable 对 free 同义），其余来源只禁用不删（见下条）。
-- **manual/subscription 来源特殊对待**：手填与订阅节点**不参与淘汰替换**、不占目标容量配额（用户的东西不动）、dead 只禁用不删除（手动探测成功自动回池）。pinned 节点叠加同款豁免（§3.6）。
-- 触发时机：refill 检查独立节拍（固定 10min，src/pool/refill.ts）；探活不再是任何循环的节拍器（2026-10-23 起周期探活移除，存活判定见 §4.3 被动）。
-
-免费源抓取本身（`src/pool/sources.ts`）只是状态机的执行器：按状态选源档（fast/slow/all）→ 拉文本清单 → 解析 host:port → 交给 §4.5 准入探测。**源断路器**照抄 GoProxy SourceManager（连续 3 次失败禁源 + 10min 冷却自动恢复，SQLite 换内存 Map）；emergency 态无视断路器强抓。
+保留下来的规则：手填与订阅节点不参与淘汰替换，dead 只禁用不删除（手动探测成功或真实请求 2xx 即回池）；pinned 叠加同款豁免（§3.6）。整池容量由 `poolSize` 约束（§4.7）。`/status` 不再带 `state`/`stateBasis`/`availableFree`/`targetSize`/`refill`，`/probe` 不再接受 `scope: 'refill'`；旧 profile 里残留的 `ipPool.free` 键被忽略。
 
 ### 3.6 固定出口（pinned）：专线/主力节点，两种固定强度
 
@@ -388,7 +374,7 @@ healthy ──可用数<95%──► warning ──可用数<30%──► critic
 - **strict 的存在理由**：不是所有限流规避都该自动兜底——有的用户出口选择是**安全/合规要求**（公司专线、只信任特定司法区出口），静默换到免费公共代理反而违背用户意图。strict 把「换不换」的决定权还给用户，代价是失败可见（这是 feature 不是 bug：诚实报错优于静默走未授权出口）。
 - **固定本机（`local` 哨兵）**：`pinnedExitId: 'local'` 表示「所有流量都从本机出口走」，一个出口都不用。`pick()` 见到哨兵直接返回 `null`（§3.3 的直连路径），**不**回落到轮换池——否则用户点下「固定」却看到流量照旧走出口，等于这个按钮没接上。它不与任何真实出口 id 冲突：出口 id 是 `host:port` 或 `scheme://host:port`，`local` 两者都不是；`syncManualExits()` 因此必须在 manual 解析**之前**识别它（`parseManualProxy('local')` 会拒绝，静默退化成「没有固定」）。语义上它是「绝对固定」的极端形态（不换、不兜底），设置页填 `local` 与弹窗点按钮等价。
 - **只 pin 一个**（MVP）：多 pinned 策略是 backlog（见 §8）。
-- pinned 节点**永不淘汰**、不占 poolTargetSize 配额（§3.5 豁免）。
+- pinned 节点**永不淘汰**（§3.5 豁免）。
 - 语义 honesty：`strict: false` 不是「绕过限流」——专线 429 一样冷却换路。文案：「固定主力出口，其余来源作为备胎」/「绝对固定：失败也不切换出口」。
 
 ### 3.7 本机出口协议族（localIpFamily，2026-10-18）
@@ -420,10 +406,10 @@ healthy ──可用数<95%──► warning ──可用数<30%──► critic
 硬约束，实现时不要「优化」掉：
 
 1. **同一出口（IP）串行**：同一出口的探测任务（哪怕测不同模型）排队执行，上一发返回（或超时）才发下一发。同一个 IP 的配额是共享桶，并发打它就是自己挤兑自己。
-2. **不同出口并发，但有全局上限**：不同出口 IP 的配额各自独立，可以并发；`maxConcurrentProbes`（默认 **3**）封顶。**修订（2026-09-05）：此约束的保护对象是「碰 Zen 匿名通道的请求」（探活步骤 3/4、细筛），不适用于粗筛**——粗筛（步骤 1/2，只打野生候选与公共 IP 服务）走独立的暴力并发 `admissionFanout`（§4.5 分层修订），野生代理无账号无封号风险（GoProxy ValidateConcurrency=300 同判）。**订阅/机场节点永不参与暴力并发**（用户付费账号资源，封号风险），它们只以受控方式探活。
+2. **不同出口并发，但有全局上限**：不同出口 IP 的配额各自独立，可以并发；`maxConcurrentProbes`（默认 **3**）封顶。此约束保护的是「碰 Zen 匿名通道的请求」（探活步骤 3/4）。**订阅/机场节点永不参与暴力并发**（用户付费账号资源，封号风险），它们只以受控方式探活。（免费源时代的粗筛暴力并发 `admissionFanout` 已于 2026-10-29 移除，§3.5。）
 3. **探活模型是小集合，默认 1 个**：`probeModels` 默认取 S3 静态清单第一个（`catalog.ts:staticFreeModels[0]`，当前 `big-pickle`）。用户可以加（比如主用 muse，就把 `muse-spark-1.2-contributor-free` 填进去）——多个探活模型在**同一出口内仍串行**（约束 1 覆盖）。不做全模型 × 全出口扫描（50×100=5000 请求 = 配额自杀）；想验证别的模型就发一条真实消息，被动信号会记进健康表。
 
-实现要点：Prober 是一个**两级调度队列**——外层 `maxConcurrentProbes` 个工位，内层 per-exit FIFO（出口在飞探测数 ≤ 1，由 §3.2 `inflight` 锁位表达）。探测顺序：同一出口的多个模型连续探完（省得反复抢同一出口的锁），不同出口交错推进。设置页点「批量探活」看到的是队列进度（x/y），点单出口「探测」是该出口的一次插队（仍遵守串行与全局上限）。粗筛（§4.5）不经 Prober——它是纯代理侧的 TCP/HTTP 探测，不碰匿名通道，用独立的 fanout 池执行。
+实现要点：Prober 是一个**两级调度队列**——外层 `maxConcurrentProbes` 个工位，内层 per-exit FIFO（出口在飞探测数 ≤ 1，由 §3.2 `inflight` 锁位表达）。探测顺序：同一出口的多个模型连续探完（省得反复抢同一出口的锁），不同出口交错推进。设置页点「批量探活」看到的是队列进度（x/y），点单出口「探测」是该出口的一次插队（仍遵守串行与全局上限）。
 
 ### 4.2 探测请求与判定规则
 
@@ -457,7 +443,7 @@ POST {zen}/v1/chat/completions
 
 > **2026-10-23 运维决策：取消周期探测（原 30min 节拍 + 2min dead 复试），存活由真实请求判定。**
 > 理由：被动信号（§4.2 同一张规则表）在每次真实请求上零成本地给出与探测相同的结论，定时探测只是在烧匿名配额复核流量已经回答过的问题。代价（有意接受）：
-> ① dead 行不再自愈——free 靠连续 N 次出池 + refill 换新（淘汰时 dead 尸体永远先走），subscription 靠 onDead 换储备，手动/pinned 靠卡片「探测」按钮；
+> ① dead 行不再自愈——subscription 靠 onDead 换储备，手动/pinned 靠卡片「探测」按钮；
 > ② banned 的 (出口, 模型) 配对只由真实 2xx 或手动探测解除；
 > ③ 新入池后从未走过流量的行在表里保持「未知」，直到被 pick 到或手动探测。
 
@@ -467,35 +453,28 @@ POST {zen}/v1/chat/completions
 | 按需 | 设置页单出口「探测」/「批量探活」按钮 | 用户点击 |
 | 被动 | 真实请求的成败写入两级健康（免费的探活） | 每次请求 |
 
-### 4.5 准入探测（admission probe，免费候选节点进池前的验证）
+### 4.5 准入探测（admission probe）
 
-免费源拉来的候选不直接进池——**准入探测通过才成为 ExitNode**。抄 GoProxy validator/validator.go 的验证链，压缩为我们需要的最小序列（每步失败即弃，不浪费后续步骤）：
+出口经准入探测验证后才算 verified ExitNode。抄 GoProxy validator/validator.go 的验证链，压缩为我们需要的最小序列（每步失败即弃，不浪费后续步骤）：
 
 | # | 步骤 | 打的是谁 | 拿什么 | 弃用条件 |
 | --- | --- | --- | --- | --- |
-| 1 | 连通 + 延迟 | **野生候选 + 公共 IP 服务**（无账号、无封号风险） | 经候选代理 GET ip-api.com（一石二鸟） | 连不上 / 超过 maxResponseMs（默认 3000，critical 态放宽到 6000） |
-| 2 | 出口 IP + 地理 | 同上 | 同一响应体（query=IP + countryCode/city） | 拿不到 exitIP（§3.1 必填）；地理黑名单命中（blockedCountries，默认 `['CN']`） |
+| 1 | 连通 + 延迟 | **候选出口 + 公共 IP 服务** | 经候选代理 GET ip-api.com（一石二鸟） | 连不上 / 超过 maxResponseMs（3000） |
+| 2 | 出口 IP + 地理 | 同上 | 同一响应体（query=IP + countryCode/city） | 拿不到 exitIP（§3.1 必填）；地理黑名单命中（固定 `['CN']`） |
 | 3 | HTTPS 隧道 | **Zen 匿名通道（碰配额）** | 经代理 GET `{zen}/v1/models` | 隧道建立失败 |
 | 4 | 匿名通道冒烟 | **Zen 匿名通道（烧 1 token）** | §4.2 的 1-token chat | 4xx/5xx |
 
 > **订阅链路不走步骤 3+4**（2026-10-24）：添加订阅/刷新/换人一律只跑步骤 1-2
 > （`admitBySpeed` 的测速），测试与延迟表展示的就是这一步的结果；步骤 3+4 只属于
-> 免费源准入（`admitCandidate`）与设置页的「探测/批量探活」手动动作。
+> 设置页的「探测/批量探活」手动动作。
 > 出口 IP 是否被 OpenCode 接受，交由真实请求的被动判定（`recordPassive`）。
 
-**并发边界按「打的是谁」分层（2026-09-05 修订，修正此前一刀切）**：并发约束的存在理由是**保护要保护的目标**，而不是保护候选本身——
+**并发**：所有碰 Zen 的探测（步骤 3+4）走 Prober 两级调度（同出口串行 + 全局 `maxConcurrentProbes` 上限，§4.1）。免费源时代的粗筛暴力并发（`admissionFanout` 300）随免费源一起移除（2026-10-29，§3.5）；订阅/机场节点是用户付费的账号资源，从来不走暴力并发。
 
-- **粗筛（步骤 1+2）：暴力高并发**。`admissionFanout`（默认 **300**，与 GoProxy ValidateConcurrency 对齐）并行扫候选。理由：野生免费代理没有账号体系、没有封号风险、发布即被全世界爬虫扫描，它们本来就是拿来消耗的一次性资源；ip-api 的请求经各候选各自的出口 IP 发出，不共享我们的本机限流。
-- **细筛（步骤 3+4）：维持克制**。只有粗筛幸存者（实测 ~1-3%）才走到碰 Zen 的步骤，且走 Prober 两级调度（同出口串行 + 全局 `maxConcurrentProbes` 上限）——这两步烧的是匿名通道配额，我们的核心资产。
-- **订阅/机场节点永远不暴力**：它们是用户付费的账号资源，有封号风险；粗筛并发只作用于 free 来源候选（trusted 来源跳过粗筛直接细筛，见下）。
-
-这个分层让「一轮 48k 候选」从不可能变成可行：粗筛 100 并发 × 3s 超时几分钟扫完一轮全量，幸存的几十个再花细筛的几十次配额请求。免费代理约 98%+ 死在步骤 1（TCP 不可达），烧配额的步骤只碰幸存者。
-
-- **细筛并发**：与手动探活共享 `maxConcurrentProbes` 工位与两级调度（§4.1；同一候选地址在飞 ≤ 1）。状态机（§3.5）按「目标容量 - 现可用数」计算本轮准入额度，够了就提前终止。
-- **manual/subscription 来源**：（2026-10-24 起分两条路）**订阅的添加/刷新/换人**只跑步骤 1-2 测速（`admitBySpeed`），不碰 OpenCode——测速失败不拒收（只标 unverified，§4.5 安全网）；**设置页的「探测/批量探活」**是用户显式动作，仍走 `admitTrusted` 的冒烟（manual 来源照旧：跳过粗筛与步骤 3，只跑第 4 步）；失败不禁用（可能是暂时的），只标 suspect。**pinned 节点例外**：准入失败也收（exitIP 留空、路由键退化为 address，§3.1），只在冒烟失败时警告——专线场景用户判断优先。
-- **429 入池即冷却（2026-09-05 实测定案）**：冒烟 429 的候选是「好代理、Zen 隧道已验证、只是匿名配额此刻被别处消耗」（免费代理是全球共享出口，实测隧道通过者的一半以上死于 429）。这类候选**入池并立即 markLimited**：占池位但不计入可用配额（状态机保持饥饿，继续补真正可用的）、冷却到期后由真实请求重判（2xx 即 markOk 回满血，2026-10-23 起无周期探活复核）——别人的配额消耗是波动的，冷却后大概率恢复。产出效果：可用出口产量约翻倍。
+- **manual/subscription 来源**：（2026-10-24 起分两条路）**订阅的添加/刷新/换人**只跑步骤 1-2 测速（`admitBySpeed`），不碰 OpenCode——测速失败不拒收（只标 unverified，§4.5 安全网）；**设置页的「探测/批量探活」**是用户显式动作，仍走 `admitTrusted` 的冒烟；失败不禁用（可能是暂时的），只标 suspect。**pinned 节点例外**：准入失败也收（exitIP 留空、路由键退化为 address，§3.1），只在冒烟失败时警告——专线场景用户判断优先。
+- **429 入池即冷却（2026-09-05 实测定案）**：冒烟 429 的候选是「好代理、Zen 隧道已验证、只是匿名配额此刻被别处消耗」（出口常被多人共用）。这类候选**入池并立即 markLimited**：占池位、冷却到期后由真实请求重判（2xx 即 markOk 回满血，2026-10-23 起无周期探活复核）——别人的配额消耗是波动的，冷却后大概率恢复。产出效果：可用出口产量约翻倍。
 - 准入通过的节点写 ExitNode + ExitHealth.ok，立即可被 pick。
-- **探测连接随判定一起销毁（2026-10-29 实测定案）**：每个候选的 ProxyAgent 在判定出来后 `destroy()`，不用 `close()`。探测只读状态码、从不读完响应体，野生代理也可能永不回包；`close()` 要等在途请求和响应体结束，于是 socket 一直挂着。实测一个跑了约 40 分钟的宿主：粗筛一轮扫完后仍留着 49 条 ESTABLISHED、16 条 CLOSED 的野生代理连接，其中到 `:8443` 的两条从排查开始一直没断。这些连接会让 `lsof -ti tcp:<端口>` 这类按端口找进程的命令把宿主自己也列出来（当天一次 `… | xargs kill -9` 因此杀掉了宿主）。`test/admission.test.ts` 用真实 undici 和本地假代理覆盖「永不回包」和「响应体没读」两种情形。
+- **探测连接随判定一起销毁（2026-10-29 实测定案）**：每个候选的 ProxyAgent 在判定出来后 `destroy()`，不用 `close()`。探测只读状态码、从不读完响应体，代理也可能永不回包；`close()` 要等在途请求和响应体结束，于是 socket 一直挂着。实测一个跑了约 40 分钟的宿主（当时免费源还在）：粗筛一轮扫完后仍留着 49 条 ESTABLISHED、16 条 CLOSED 的野生代理连接，其中到 `:8443` 的两条从排查开始一直没断。这些连接会让 `lsof -ti tcp:<端口>` 这类按端口找进程的命令把宿主自己也列出来（当天一次 `… | xargs kill -9` 因此杀掉了宿主）。`test/admission.test.ts` 用真实 undici 和本地假代理覆盖「永不回包」和「响应体没读」两种情形。
 
 ### 4.6 参数（默认值）
 
@@ -505,20 +484,16 @@ POST {zen}/v1/chat/completions
 | probeContents | `['hello']` | 冒烟探测的**用户那句话**的候选池：每个出口每次探测随机取一条（同出口多模型共用）；留空 = `hello`（§4.2） |
 | maxConcurrentProbes | **3** | 细筛/探活全局并发上限（碰 Zen 的请求，§4.1） |
 | poolSize | **10** | **整池容量**（任何来源合计同时在线数，§4.7）。它同时是本地监听数的上限：上线时先全量转换测速，取最快的前 N 个后重建配置只保留它们 |
-| admissionFanout | **300** | 粗筛暴力并发（只打野生候选+IP 服务，不碰 Zen，§4.5；GoProxy ValidateConcurrency 同值） |
 | probeTimeoutMs | 8000 | 单探测超时 |
-| maxResponseMs | 3000 | 准入延迟门槛（critical 态放宽 6000） |
-| ~~probeIntervalMs~~ | ~~30min~~ | **已移除（2026-10-23）**：周期探测取消，存活由真实请求判定（§4.3）。refill 状态检查节拍独立，固定 10min（src/pool/refill.ts） |
+| maxResponseMs | 3000 | 准入延迟门槛 |
+| ~~probeIntervalMs~~ | ~~30min~~ | **已移除（2026-10-23）**：周期探测取消，存活由真实请求判定（§4.3） |
 | limitedCooldownBase | 60s | 首次 429 冷却 |
 | limitedCooldownMax | 30min | 指数退避上限 |
 | ~~deadRetryMs~~ | ~~2min~~ | **已移除（2026-10-23）**：dead 出口不再定时重探；出池/换储备/手动探测见 §4.3 决策注记 |
 | modelBanConfirmations | 2 | suspect → banned 确认次数（防瞬时抖动误杀） |
 | maxRotateAttempts | 3 | 单请求换出口上限（§3.4） |
-| poolTargetSize | 20 | 免费池目标容量（§3.5） |
-| poolSize | 10 | **整池容量**（订阅+手填+免费合计，§4.7）：同时在线出口数上限，也是本地监听数上限。免费重填的准入额度同时受它与 targetSize 约束；pinned/手填是用户显式配置，永不因容量被淘汰 |
-| blockedCountries | `['CN']` | 准入地理黑名单（国家代码） |
-| freeSourceEnabled | true | 免费源抓取总开关（关掉 = 只用 manual/subscription 来源） |
-| subscriptionRefreshMs | 30min | 订阅刷新间隔（拉 URL 重跑解析，断路器同免费源） |
+| blockedCountries | `['CN']` | 准入地理黑名单（固定值；2026-10-29 起不再是设置项） |
+| subscriptionRefreshMs | 30min | 订阅刷新间隔（拉 URL 重跑解析） |
 | subscription.userAgent | `clash-verge/v2.4.2` | 订阅拉取的 User-Agent。机场普遍按 UA 做白名单：不在名单里会返回错误页。**这个值会过期**（它是客户端版本号，panel 会抬高下限）：实测同一机场 `clash-verge/1.6.0` → 502、`clash-verge/v2.0` 长期 200，2026-10-13 起 `v2.0` → `403 PLEASE UPGRADE CLIENT`，而 `clash-verge/v2.4.2` / `mihomo/1.19.8` / `clash.meta/1.19.8` 均 200。默认留在 Clash-Verge 家族：**家族决定返回格式**，换家族会静默改变其它机场拿到的体形状。部分机场按 UA 决定返回格式（Clash 形状给 `proxies:` YAML，v2ray 形状给 base64 链接）。空值回落默认值，设置页可改（立即生效，不用重启）。 |
 | pinnedStrict | false | 绝对固定模式（§3.6）：true 时 pinned 失败透传、不换出口不直连 |
 | localFallback | **false** | **本地出口兜底**（§3.3，2026-10-18）：池里没有可用出口时，true = 退回本机直连（暴露本机 IP），false = 请求失败。显式固定本机不受它限制 |
@@ -528,7 +503,7 @@ POST {zen}/v1/chat/completions
 
 ### 4.7 池子上线（bounded onboarding，2026-10-13）
 
-**目标**：池子有明确容量（`poolSize`，默认 10；区别于免费池的 `free.targetSize`，默认 20），且**本地连接数有界**——容量就是本地监听数的上限。
+**目标**：池子有明确容量（`poolSize`，默认 10），且**本地连接数有界**——容量就是本地监听数的上限。
 
 **为什么必须先全量转换再收缩**：加密节点只有经 sing-box 才能拨通，而本机实测的机场（`*.edge.0443.me.uk`）把多个不同节点挂在**同一个 edge 主机:端口**上，靠 TLS SNI（anytls `server_name`）区分——裸 TCP 握手对它们完全一样，**只有走隧道内的请求才能测速排名**。所以上线是两相：
 
@@ -544,7 +519,7 @@ POST {zen}/v1/chat/completions
 - 没有候补：**保留但降到池尾**（`demoteToTail`）——`pick()` 把它排在最后（其它都不可用时仍可用），`markOk()` 在后续探活验证通过时清除降级，表格状态显示「已降级」。池子维持 `poolSize` 个，不因一次拒绝掉到 0。
 - 运行期同样生效：手动/启用探活对订阅出口返回 refused/unverified 时，回落到 `SubscriptionFetcher.replaceExit()` 走同一套换人/降级逻辑；真实请求判死（dead 跃迁）经 `onDead()` 走同一入口（2026-10-23 起无周期探活）。
 
-**dead 出口（2026-10-14 追加）**：出口因传输失败转为 `dead` 时（`markDeadStrike`/`markDead` 的状态跃迁，每次跃迁一次）：① **自动轮换** —— 运行时通过 `ExitPool.onDead()` 回调把该出口交给订阅层的 `replaceExit(id, {defer: true})`，用下一个候补补位（没有候补则降级到池尾）；仅订阅来源参与轮换（免费源归 refill 循环管，手填/pinned 是用户显式配置）。**重建锁被占时（`#replacing`，一次只允许一个换人/裁剪）这次换人排队而不是丢弃**——锁一释放就补跑并写日志 `rebuild lock freed; running the deferred swap of <id>`，否则行会一直 dead 而没有任何东西再试它；**手动「轮换」按钮不排队**，锁占用时照旧回 false，bridge 因此显示「轮换进行中」（§5.3）。② **沉到列表末尾** —— 池内顺序 = `Map` 插入顺序，`#moveToTail()` 用「删除+重插」把它移到末尾，表格里 dead 出口因此排在最后；探活验证通过后 `markOk()` 清除降级标记，但它不会自动回到原位（顺序只影响展示与降级排序，`pick()` 本来就按健康度重排）。
+**dead 出口（2026-10-14 追加）**：出口因传输失败转为 `dead` 时（`markDeadStrike`/`markDead` 的状态跃迁，每次跃迁一次）：① **自动轮换** —— 运行时通过 `ExitPool.onDead()` 回调把该出口交给订阅层的 `replaceExit(id, {defer: true})`，用下一个候补补位（没有候补则降级到池尾）；仅订阅来源参与轮换（手填/pinned 是用户显式配置）。**重建锁被占时（`#replacing`，一次只允许一个换人/裁剪）这次换人排队而不是丢弃**——锁一释放就补跑并写日志 `rebuild lock freed; running the deferred swap of <id>`，否则行会一直 dead 而没有任何东西再试它；**手动「轮换」按钮不排队**，锁占用时照旧回 false，bridge 因此显示「轮换进行中」（§5.3）。② **沉到列表末尾** —— 池内顺序 = `Map` 插入顺序，`#moveToTail()` 用「删除+重插」把它移到末尾，表格里 dead 出口因此排在最后；探活验证通过后 `markOk()` 清除降级标记，但它不会自动回到原位（顺序只影响展示与降级排序，`pick()` 本来就按健康度重排）。
 
 **容量下调要收敛（2026-10-14 追加）**：`poolSize` 是**当前在线数**的上限，不只是下次上线的准入额度。运行时在每次实时重配置末尾检查「池内总数 > poolSize」，超了就调 `Onboarder.trim()`：按 `evictWorst()`（质量→延迟→最旧）淘汰最差的几个到容量为止，并用剩下的槽位重建配置——**连同它们的本地监听一起关掉**。否则把容量从 20 改成 10 只约束了下一轮上线，池子照旧服务 16 个、16 个端口照旧开着（实测 2026-10-14：设置卡改成 10，池内仍是 16）。
 
@@ -557,7 +532,7 @@ POST {zen}/v1/chat/completions
 
 **安全网**：若测速**一个都没测出来**（echo 端点被专线屏蔽、瞬时网络故障），不按「44 个全死」处理——候选按订阅顺序保持未排名，池子仍占满容量并把它们放在池尾，避免测量失败把付费线路清空。
 
-**容量口径**：`poolSize` 是**整池**上限（订阅+手填+免费合计）。免费重填的准入额度 = `min(targetSize - 可用免费数, poolSize - 池内总数)`；上线需要槽位时淘汰最差的可淘汰出口（`evictWorst`：按质量等级→延迟→最旧），**pinned 与手填行是用户显式配置，永不淘汰**。
+**容量口径**：`poolSize` 是**整池**上限（订阅+手填合计）。上线需要槽位时淘汰最差的可淘汰出口（`evictWorst`：按质量等级→延迟→最旧），**pinned 与手填行是用户显式配置，永不淘汰**。
 
 ## 5. 设置页（DSH 设置 → 插件 → oc2dsh 详情）
 
@@ -565,7 +540,7 @@ POST {zen}/v1/chat/completions
 
 - **settings 读写走官方通道，不建兜底**：宿主 `settings.describe/mutate` 对**所有已注册 namespace** 服务（源码核实无 allowlist；rc.6 才有硬编码清单），所以 dsh-llm-proxy 那套「官方 scope 不可用时切自建 bridge」的 compat 层我们**不做**。**2026-09-19 修订**：`ctx.settingsScope` 服务已被 DSH 移除，0.1.7 起改由 `@deepseek-ai/dsh-client-ui-settings` 提供的 `configForms` 服务承担；注入令牌必须同步改成 `configForms`，否则客户端停在 `pending (waiting for service: settingsScope)`、插件整体不激活。**0.1.7 终版修订**：卡片不再自己 `ctx.configForms.get(...)`，改用插件页交给 `view:'page'` 的 `ConfigPageForm`（`{ state, mutate }`），写路径 `form.mutate(ops, state.revision)`（字段级 path op，revision fencing 由 ConfigFormController 负责）；页面挂载门控用 `ctx.configForms.whileServed(['oc2dsh'], …)`，宿主不提供该 entry 设置时整张卡片不出现。
 - **可编辑字段是顶层 volatile 节点**（`ipPool`、`requestHeaders`、`modelContextWindows`）：宿主 `volatileForm(schema)` 只保留**最近一个 volatile 祖先**下的字段（`packages/settings/settings/src/schema.ts`），所以被服务的表单值是这些节点组成的对象而非 namespace 本身——IP 池每条写路径都带 `ipPool` 前缀（`['ipPool', field]`），Zen 请求头与模型上下文各用自己的根路径。namespace 也是 Loader entry id（`oc2dsh`），不再是单独的 `ip-pool` id。
-- **bridge 只补官方通道做不到的两件事**：池运行时没有 settings 对应物的读（`/status`：四态、出口表、封禁表、Prober 进度 x/y）与动作（`/probe`：批量探活/单出口探活/手动 refill 入队）。**探测与状态必须宿主侧跑**：要走真实 undici/凭据路径。
+- **bridge 只补官方通道做不到的两件事**：池运行时没有 settings 对应物的读（`/status`：可用/容量、出口表、封禁表、Prober 进度 x/y）与动作（`/probe`：批量探活/单出口探活/订阅重拉）。**探测与状态必须宿主侧跑**：要走真实 undici/凭据路径。
 - 平台 seeds 实测（web-frontend dist 内核表）：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`。`@deepseek-ai/dsh-client-runtime/client` 在 0.1.7 宿主上已不在 seed 表内，客户端半也不再引用它（Context 类型直接取自 `@deepseek-ai/cordis`），故 externals 收敛为上表七项。
 
 ```
@@ -586,11 +561,6 @@ Config = Schema.object({
   probeModels: Schema.array(Schema.string()).default([]),  // 空 = [S3 首个]；可填主用模型（如 muse-…-free）
   probeContents: Schema.array(Schema.string()).default([]),  // 探测文案池；空 = ['hello']，每个出口每次探测随机取一条（§4.2）
   maxConcurrentProbes: Schema.number().min(1).max(8).default(3),  // 跨出口并发上限（探活+准入共享）
-  free: Schema.object({
-    enabled: Schema.boolean().default(true),      // 免费源抓取总开关（§1.2 来源 1）
-    targetSize: Schema.number().default(20),      // 池目标容量（§3.5）
-    blockedCountries: Schema.array(Schema.string()).default(['CN']),
-  }),
   manual: Schema.array(Schema.string()).default([]),  // 手填明文代理（§1.2 来源 2），'http://h:p' 或 'socks5://h:p'
   subscription: Schema.object({                   // 机场/自建订阅（§1.2 来源 3）
     urls: Schema.array(Schema.string()).default([]),   // 订阅 URL（回显脱敏）
@@ -618,8 +588,8 @@ Config = Schema.object({
 
 | 区块 | 内容 |
 | --- | --- |
-| 总开关 | enabled 开关；「池状态」概览条（四态徽章 + 可用/容量 + 来源计数 free/manual/subscription + pinned 主力徽章） |
-| 出口来源 | 三个来源子区块：免费源（开关 + 目标容量 + 地理黑名单 + 「立即补充」）；手填代理（textarea，增删）；订阅（URL 列表脱敏回显 + 刷新间隔 + 「立即刷新」+ 转换核心状态：sing-box 检测结果/待转换节点数） |
+| 总开关 | enabled 开关；「池状态」概览条（可用/容量 + 来源计数 manual/subscription + pinned 主力徽章） |
+| 出口来源 | 两个来源子区块（免费源已于 2026-10-29 移除）：手填代理（textarea，增删）；订阅（URL 列表脱敏回显 + 刷新间隔 + 「立即刷新」+ 转换核心状态：sing-box 检测结果/待转换节点数） |
 | 固定主力出口 | 直填地址框（placeholder：`http://127.0.0.1:7897`（Clash 混合端口）/ `http://专线:端口`，即填即 pin 为 manual 来源节点；填 `local` = 固定本机直连，§3.6）+ 当前 pinned 展示（地址/出口 IP/状态；本机固定显示「固定本机（直连）」徽章）+ strict 单选（「主力+备胎（429/断线自动切换，恢复回归）」/「绝对固定（失败也不换出口、不直连）」）+ 解除固定按钮 |
 | 探活模型 | 多选：当前免费目录（catalog.list()）+ S3 清单，默认选 S3 首个；说明文案「探测结论按出口计，建议加主用模型；同一出口内多模型串行探测」 |
 | 探测文案 | 字符串列表（增删），placeholder「例如：hello」；说明文案「冒烟探测发给上游的那句话：每个出口每次探测随机挑一条（同一出口本轮多模型共用）；留空 = 默认 hello」（§4.2） |
@@ -637,9 +607,9 @@ Config = Schema.object({
 
 dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两个是 rc.6 allowlist 逼出来的 settings 兜底。rc.2 宿主无 allowlist，我们只保留后两类面的思路：
 
-- `POST /status`：池状态机快照——四态徽章 + 可用/容量 + 来源计数（free/manual/subscription）+ 两级健康（出口表：地址/来源/位置/延迟/质量/出口 IP/状态/冷却到期时刻 + 封禁表：(出口, 模型, bannedAt)）+ Prober 队列进度（enqueued/completed/inFlight/queued）+ refill 上轮摘要 + 订阅层状态（pendingConversion 数、convertedAdmitted、lastFetch、lastError——**不含 URL 明文**）。返回结构化 JSON，卡片 3s 轮询（探活进行中 1s）。
+- `POST /status`：池快照——可用/容量 + 来源计数（manual/subscription/goproxy）+ 两级健康（出口表：地址/来源/位置/延迟/质量/出口 IP/状态/冷却到期时刻 + 封禁表：(出口, 模型, bannedAt)）+ Prober 队列进度（enqueued/completed/inFlight/queued）+ 订阅层状态（pendingConversion 数、convertedAdmitted、lastFetch、lastError——**不含 URL 明文**）。返回结构化 JSON，卡片 3s 轮询（探活进行中 1s）。
 - `POST /exit`：`{action: 'pin'|'pin-local'|'unpin'|'rotate', exitId?}` —— 两张出口表的行内动作（2026-10-14 新增）。`pin` 把 `pinnedExitId` 写进本插件的设置命名空间（`ctx.settings.mutate('oc2dsh', [{op:'set', path:['ipPool','pinnedExitId'], value}])`，与卡片自己的写路径同形；空值走 `unset`，让 schema 默认值生效）并即时 `pool.pin()`；`pin-local` 是弹窗本机行的按钮——**哨兵值由宿主侧拼**，前端只表达意图（`pin-local`），这样浏览器半永远不需要拼写 `local`；`unpin` 清空。只读配置下写失败不阻断：点击仍然即时生效（live pin），响应里 `persisted: false`，弹窗据此显示「已生效，但未写入配置（重启后失效）」。`rotate` = 用户主动轮换一行（动作名原为 `remove`，2026-10-14 按语义更正：什么都没被删除）：交给订阅层的候选表 `replaceExit()`——有候补就补位（`promoted: true`），候补用尽就把该出口沉到池尾（§4.7），没有 onboarder（本进程还没跑过订阅轮）时退化为 `demoteToTail()`；若正好有上线/裁剪轮占着重建互斥量，`replaceExit()` 会在**没查候补**的情况下返回 false，这时回 `busy: true` 而**不**沉底（弹窗提示「轮换进行中，请稍后重试」）——否则「先补位、无候补才沉底」的约定会在这一窗口被违反；若被删的正是当前 pinned，先解除固定再删（否则下一次提交会把一个已不在池里的 id 重新 pin 回来，而订阅出口 id `127.0.0.1:30001` 恰好能通过 manual 地址解析，会被当成手填节点重新入池）。
-- `POST /probe`：`{scope: 'all'|'exit'|'refill'|'subscription', exitId?}`。`all`：对全池出口 × probeModels 各探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`exit`：单出口插队探测；`refill`：手动触发一次状态机 refill 轮（免费源抓取+准入）；`subscription`：手动重拉订阅 URL（§5.2「立即刷新」，刷新定时器之外唯一的重拉入口）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
+- `POST /probe`：`{scope: 'all'|'exit'|'subscription', exitId?}`。`all`：对全池出口 × probeModels 各探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`exit`：单出口插队探测；`subscription`：手动重拉订阅 URL（§5.2「立即刷新」，刷新定时器之外唯一的重拉入口）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
 - `POST /usage`：`{action: 'reset'}` —— 台账的**清空按钮**（2026-10-14 新增：「总量统计保留 90 天，自然过期，增加一个清空的功能按钮」）。它**不需要池子在跑**：台账在池子关闭时也照记（每个请求落进本机桶，§5.6），所以清空也不能依赖运行中的池子。清空同时抹掉持久台账与「本次重启」两套桶（只清一半会让两个口径对不上，读起来像 bug），并且**把空文档写进磁盘**——否则重启会把数字带回来（`UsageStore.clear()`，先 `load()` 再重置再 flush，避免 flush 内部的 load 把旧文档合并回来）。响应 `{cleared: true}`，弹窗随后重读 `/status`，chips、每天柱状图与左下角入口一起归零。
 - 路由护栏照抄 dsh-llm-proxy settings.js：loopback socket + 规范 Host + same-origin 三重校验、JSON body 上限、`{ok, code, message}` 信封。**不做 settings 代理面**（官方通道在）。
 - 页面注册进 `plugins.item`（`@deepseek-ai/dsh-client-ui-plugin-manager` 拥有的 list slot，`id: 'oc2dsh'`）；插件页拥有卡片外框、标题、one-liner 与保存按钮，`view:'summary'` 返回描述、`view:'page'` 返回表单，保存走共享 `SettingsForm` 外框。挂载门控 `ctx.configForms.whileServed(['oc2dsh'], …)`，官方 form ready 之前不渲染。0.1.7 之前的 keyed `settings.plugin.item` 与双形态兼容分支都已删除。
@@ -734,11 +704,9 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 │   ├── pool/                          # 已交付（IP-0..4）
 │   │   ├── dispatcher.ts              # PoolRoutingDispatcher（undici Dispatcher 子集）
 │   │   ├── installer.ts               # setGlobalDispatcher 装卸/热更新（仿 makeInstaller）
-│   │   ├── pool.ts                     # ExitPool（出口表+两层健康+四态状态机+pinned）
+│   │   ├── pool.ts                     # ExitPool（出口表+两层健康+pinned）
 │   │   ├── prober.ts                   # 探活引擎（两级调度）
-│   │   ├── admission.ts                # 准入探测（§4.5 粗筛+细筛）
-│   │   ├── refill.ts                   # 状态机 refill 调度
-│   │   ├── sources.ts                 # 免费源清单（26 URL）+ 拉取 + 解析 + 源断路器
+│   │   ├── admission.ts                # 准入探测（§4.5）
 │   │   ├── subscription.ts             # 订阅解析（Clash/链接/Base64 三格式，抄 GoProxy parser §1.2.1）
 │   │   ├── subscription-fetcher.ts     # 订阅拉取+节点分路+受控探活
 │   │   └── singbox.ts                 # sing-box 子进程托管（配置生成/端口映射/重载，§1.2.2）
@@ -816,12 +784,12 @@ zen-adapter.ts 改动极小：`stream()` 里把 pi-ai 的 `maxRetries: 0` 保持
 | # | 风险 | 处置 |
 | --- | --- | --- |
 | R1 | 全局 dispatcher 与 dsh-llm-proxy（或其它装 dispatcher 的插件）共存 | **谁后装谁生效**对两者都是灾难（对方把我们的路由层整个短路）。缓解：installer 记录 previous 并在 dispose 恢复（dsh-llm-proxy 同款）；文档标注冲突可能；长期靠 DSH 官方提供 per-request dispatcher 注入点。**同装两个此类插件属不支持配置**，README 写明。 |
-| R2 | 免费公共代理的安全风险（中间人、注入） | 上游是 HTTPS，出口代理只能看到 CONNECT 隧道目标域名，不能读内容；准入地理黑名单 + 设置页文案明示风险；freeSourceEnabled 可关。 |
+| R2 | ~~免费公共代理的安全风险（中间人、注入）~~ | 免费源已移除（2026-10-29）。手填/订阅出口同理：上游是 HTTPS，出口代理只能看到 CONNECT 隧道目标域名，不能读内容。 |
 | R3 | 上游把「多 IP + 同 session id」识别为滥用 | 会话粘性（§3.3）+ 探活低频 + 诚实文案；若被封禁，退路是关掉本功能（enabled off 回直连）。 |
 | R4 | ~~GoProxy API 变动~~（来源已摘牌，风险随之下线；重审时再评估） | — |
 | R5 | 探活消耗配额反噬正常使用 | 同出口串行（同一配额桶不自己挤兑自己）；跨出口并发默认仅 3 且可调回 1（准入共享该上限）；被动信号优先；probeModels 小集合 + 池目标容量 20 封顶巡检面；冷却期不重探。稳态单轮消耗 ≈ 池容量 × probeModels 数 × 1 token。 |
 | R6 | undici 8.x ProxyAgent keep-alive 坑 | 已由 dsh-llm-proxy 踩平并给出修法（clientFactory + pipelining:0），照抄。 |
-| R7 | 免费源 URL 腐烂（GitHub raw 限流/仓库跑路） | 26 源分散在 fast/slow 两档 + 源断路器自动跳死源；清单做成常量表随版本更新（抄 GoProxy 的清单维护方式）；全部源挂掉时状态机 emergency 暴力重试有上限，最终回直连不挂死。 |
+| R7 | ~~免费源 URL 腐烂~~（免费源已移除，2026-10-29）（GitHub raw 限流/仓库跑路） | 26 源分散在 fast/slow 两档 + 源断路器自动跳死源；清单做成常量表随版本更新（抄 GoProxy 的清单维护方式）；全部源挂掉时状态机 emergency 暴力重试有上限，最终回直连不挂死。 |
 | R8 | 免费代理把我们的请求代理到恶意中转（DNS 污染、假 200） | 准入第 3/4 步直探 Zen 真实端点（非通用测试站），假 200 过不了 chat 冒烟；HTTPS 证书校验不开（undici 默认校验 CONNECT 隧道内 TLS，代理无法伪造上游证书）。 |
 | R9 | sing-box 子进程稳定性（崩溃/挂死/端口泄漏） | spawn 看护复用 agent-process.ts 的成熟模式（指数退避重启 + 连续崩溃熔断）；转换映射内存态，子进程重启后整表重建（本地端口重新分配，出口 agent 惰性重建）；插件 dispose 时整树回收。 |
 | R10 | 订阅 URL 是用户敏感信息（机场账号凭证通常编码在 URL） | 只存 settings 文档（DSH 用户目录）；bridge describe 回显脱敏（仅尾段）；日志永不打印完整 URL；不回传任何远端。 |

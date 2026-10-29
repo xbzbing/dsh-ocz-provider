@@ -5,8 +5,7 @@
  * once the first exit lands (subscription admissions included).
  *
  * The real startIpPool runs here; only the installer is faked, so nothing
- * touches a global dispatcher or the network (the free refill loop is off in
- * every config below).
+ * touches a global dispatcher or the network.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -124,7 +123,7 @@ test('relay transport failure relabels and revives a manual row the listener dis
   // allowed only for rows with NO measured facts.
   let probes = 0
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false }, manual: ['127.0.0.1:30035'] } },
+    { ipPool: { enabled: true, manual: ['127.0.0.1:30035'] } },
     quiet,
     {
       makeInstaller: () => fakeInstaller(),
@@ -168,7 +167,7 @@ test('relay transport failure never relabels a row that has measured facts', asy
   // there means the exit is gone, not that its scheme was mistyped.
   let probes = 0
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false } } },
+    { ipPool: { enabled: true } },
     quiet,
     {
       makeInstaller: () => fakeInstaller(),
@@ -202,7 +201,7 @@ test('assembly: an empty pool still installs the dispatcher (本地出口兜底 
   // deferral.
   const installer = fakeInstaller()
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false } } },
+    { ipPool: { enabled: true } },
     quiet,
     { makeInstaller: () => installer },
   )
@@ -219,7 +218,7 @@ test('assembly: 本地出口兜底 reaches the installer at assembly and on ever
   const installer = fakeInstaller()
   let deps: { localFallback?: boolean } | undefined
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false }, localFallback: true } },
+    { ipPool: { enabled: true, localFallback: true } },
     quiet,
     { makeInstaller: (next) => { deps = next as { localFallback?: boolean }; return installer } },
   )
@@ -227,11 +226,11 @@ test('assembly: 本地出口兜底 reaches the installer at assembly and on ever
   assert.equal(deps?.localFallback, true, 'the switch is part of the installer wiring')
   assert.deepEqual(installer.fallbacks, [true], 'and it is applied to the running router at assembly')
 
-  await runtime.reconfigure({ ipPool: { enabled: true, free: { enabled: false }, localFallback: false } })
+  await runtime.reconfigure({ ipPool: { enabled: true, localFallback: false } })
   assert.deepEqual(installer.fallbacks, [true, false], 'a settings commit flips it live, no restart')
 
   // Absent means OFF: the schema default is the strict reading.
-  await runtime.reconfigure({ ipPool: { enabled: true, free: { enabled: false } } })
+  await runtime.reconfigure({ ipPool: { enabled: true } })
   assert.deepEqual(installer.fallbacks, [true, false, false], 'an absent field resolves to the strict default')
   await runtime.dispose()
 })
@@ -244,19 +243,19 @@ test('assembly: 本地出口兜底 reaches the installer at assembly and on ever
 test('assembly: manual rows and the pin apply live through reconfigure', async () => {
   const installer = fakeInstaller()
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false } } },
+    { ipPool: { enabled: true } },
     quiet,
     { makeInstaller: () => installer },
   )
   assert.ok(runtime !== null)
 
   await runtime.reconfigure({
-    ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'], pinnedExitId: 'http://127.0.0.1:7890' },
+    ipPool: { enabled: true, manual: ['http://127.0.0.1:7890'], pinnedExitId: 'http://127.0.0.1:7890' },
   })
   assert.deepEqual(ids(runtime.pool), ['http://127.0.0.1:7890'])
   assert.equal(runtime.pool.pinnedId, 'http://127.0.0.1:7890')
 
-  await runtime.reconfigure({ ipPool: { enabled: true, free: { enabled: false }, manual: [], pinnedExitId: '' } })
+  await runtime.reconfigure({ ipPool: { enabled: true, manual: [], pinnedExitId: '' } })
   assert.deepEqual(ids(runtime.pool), [], 'the removed row leaves the live table')
   assert.equal(runtime.pool.pinnedId, '', 'and the pin is released')
   await runtime.dispose()
@@ -315,7 +314,6 @@ test('one probe content is drawn per exit pass, and a commit swaps the pool', as
     {
       ipPool: {
         enabled: true,
-        free: { enabled: false },
         manual: ['http://127.0.0.1:7890'],
         probeModels: ['model-a', 'model-b'],
         probeContents: ['alpha', 'beta'],
@@ -340,7 +338,6 @@ test('one probe content is drawn per exit pass, and a commit swaps the pool', as
   await runtime.reconfigure({
     ipPool: {
       enabled: true,
-      free: { enabled: false },
       manual: ['http://127.0.0.1:7890'],
       probeModels: ['model-a', 'model-b'],
       probeContents: ['gamma'],
@@ -353,7 +350,7 @@ test('one probe content is drawn per exit pass, and a commit swaps the pool', as
 test('an unconfigured probe content pool sends the default turn', async (t) => {
   const transport = fakeProbeTransport()
   const runtime = await startIpPool(
-    { ipPool: { enabled: true, free: { enabled: false }, manual: ['http://127.0.0.1:7890'] } },
+    { ipPool: { enabled: true, manual: ['http://127.0.0.1:7890'] } },
     quiet,
     { makeInstaller: () => fakeInstaller(), undici: transport.undici },
   )

@@ -1,6 +1,6 @@
 /**
- * Admission probe — the gate a free-source candidate must pass before it
- * becomes an ExitNode (docs/ip-pool.md 4.5). Four steps, fail-fast:
+ * Admission probe — the gate a candidate exit must pass before it becomes a
+ * verified ExitNode (docs/ip-pool.md 4.5). Four steps, fail-fast:
  *
  *   1. connectivity + latency   (via the candidate, GET an IP echo endpoint)
  *   2. exit IP + geo            (same response; also the pool's routing key)
@@ -14,7 +14,6 @@
  * dispatcher.
  *
  * Which steps a source runs:
- *   - free candidates        -> the full chain (steps 1-4)
  *   - manual/subscription/   -> admitTrusted: smoke only (their node facts
  *     goproxy probe action     already exist) — this is the SETTINGS CARD's
  *                              探测/批量探活 action, an explicit user request
@@ -92,22 +91,19 @@ export interface EchoFacts {
 }
 
 /**
- * Coarse screen (admission steps 1+2, docs/ip-pool.md 4.5 修订): one request
- * through the candidate to the ip echo. This step touches only the wild
- * candidate and a public IP service — never the anonymous lane — so callers
- * may fan it out at high concurrency (admissionFanout; GoProxy uses 300 for
- * the same reason). Steps 3-4 (which spend anonymous-lane quota) stay on the
- * bounded Prober.
+ * Coarse screen (admission steps 1+2, docs/ip-pool.md 4.5): one request
+ * through the candidate to the ip echo. It touches only the candidate and a
+ * public IP service, never the anonymous lane.
  */
 export async function coarseScreen(
   deps: Pick<AdmissionDeps, 'undici' | 'ipEchoUrl' | 'blockedCountries' | 'logger'>,
   candidate: { address: string; protocol: 'http' | 'socks5' },
-  options: { relaxed?: boolean; pinned?: boolean; timeoutMs?: number } = {},
+  options: { pinned?: boolean; timeoutMs?: number } = {},
 ): Promise<EchoFacts | { rejected: string }> {
   const ipEcho = deps.ipEchoUrl ?? DEFAULT_IP_ECHO
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const blocked = new Set(deps.blockedCountries ?? ['CN'])
-  const maxResponseMs = options.relaxed ? RELAXED_RESPONSE_MS : 3_000
+  const maxResponseMs = 3_000
 
   let agent: Dispatcher | null = null
   try {
@@ -151,32 +147,6 @@ export async function coarseScreen(
   }
 }
 
-/** Bounded fan-out helper for the coarse screen (wild candidates only).
- *  onProgress reports (screensCompleted, survivorsSoFar) as the fan-out runs
- *  (settings-page refill progress, docs §5.3). */
-export async function coarseScreenBatch(
-  deps: Parameters<typeof coarseScreen>[0],
-  candidates: Array<{ address: string; protocol: 'http' | 'socks5' }>,
-  options: { fanout?: number; relaxed?: boolean; timeoutMs?: number; onProgress?: (done: number, passed: number) => void } = {},
-): Promise<Map<string, EchoFacts>> {
-  const fanout = Math.max(1, options.fanout ?? 300)
-  const results = new Map<string, EchoFacts>()
-  const queue = [...candidates]
-  let done = 0
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      const candidate = queue.shift()
-      if (candidate === undefined) return
-      const verdict = await coarseScreen(deps, candidate, options)
-      done += 1
-      if ('exitIP' in verdict) results.set(candidate.address, verdict)
-      options.onProgress?.(done, results.size)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(fanout, candidates.length) }, () => worker()))
-  return results
-}
-
 interface EchoResponse {
   status: string
   query: string
@@ -186,12 +156,10 @@ interface EchoResponse {
 
 const DEFAULT_IP_ECHO = 'http://ip-api.com/json/?fields=status,country,countryCode,city,query'
 const DEFAULT_TIMEOUT_MS = 8_000
-/** critical-state relaxed latency gate (docs/ip-pool.md 4.6 maxResponseMs). */
-const RELAXED_RESPONSE_MS = 6_000
 
 /**
  * Tear down a probe's ProxyAgent and every socket it opened. A probe only
- * reads status codes, so it never drains a body, and a wild proxy may never
+ * reads status codes, so it never drains a body, and a proxy may never
  * answer: the graceful `close()` waits on both and holds the socket open for
  * the life of the host. `destroy()` drops them as soon as the verdict is in.
  */
@@ -216,7 +184,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 /** One admission probe for one candidate address. Pure effects: returns the
- *  verdict; the caller (refill scheduler) applies it to the pool. */
+ *  verdict; the caller applies it to the pool. */
 export interface AdmissionResult {
   admitted: boolean
   node?: ExitNode
@@ -225,7 +193,7 @@ export interface AdmissionResult {
   /**
    * The candidate passed every step except quota: alive proxy, working Zen
    * tunnel, 429 at smoke — these are good exits whose quota is consumed
-   * elsewhere (free proxies are shared worldwide). The caller admits them and
+   * elsewhere (exits are often shared). The caller admits them and
    * immediately cools them (markLimited); once the cooldown expires they
    * return to rotation, where real traffic re-judges them.
    */
@@ -248,7 +216,6 @@ export async function admitCandidate(
   deps: AdmissionDeps,
   candidate: { address: string; protocol: 'http' | 'socks5'; source: ExitNode['source'] },
   options: {
-    relaxed?: boolean
     pinned?: boolean
     timeoutMs?: number
     /** Pre-screened echo facts (coarseScreen output): skips steps 1-2. */
@@ -315,8 +282,7 @@ export async function admitCandidate(
 
   try {
     // Steps 1+2 run inline only when the caller has not pre-screened the
-    // candidate (coarseScreen/batch output = echoFacts; the refill loop
-    // always pre-screens free candidates at high fan-out).
+    // candidate (coarseScreen output = echoFacts).
     let facts: EchoFacts
     if (options.echoFacts) {
       facts = options.echoFacts

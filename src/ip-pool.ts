@@ -23,7 +23,6 @@ import { resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
 import { Prober } from './pool/prober.ts'
-import { RefillScheduler } from './pool/refill.ts'
 import { SubscriptionFetcher } from './pool/subscription-fetcher.ts'
 import { SingBoxSupervisor } from './pool/singbox.ts'
 import { createRotateDelegate, setRotateDelegate } from './pool/rotate.ts'
@@ -93,8 +92,8 @@ function manualNode(id: string, protocol: 'http' | 'socks5'): ExitNode {
  * Make the pool's manual rows and its pin match `ipPool` exactly: add what the
  * config names, drop what it no longer names, then pin/unpin.
  *
- * Idempotent, and scoped to `source === 'manual'` rows (free and subscription
- * rows are never touched). Runs at assembly AND on every live commit, so a
+ * Idempotent, and scoped to `source === 'manual'` rows (subscription rows are
+ * never touched). Runs at assembly AND on every live commit, so a
  * 手填/固定主力 edit takes effect without a restart (docs §5.1).
  *
  * A pinned address that is not in the pool is admitted as a manual row (the
@@ -190,8 +189,6 @@ export interface IpPoolRuntime {
   prober: Prober
   /** Subscription layer (null when no URLs configured). */
   subscriptions: SubscriptionFetcher | null
-  /** Free-source refill loop (null when free.enabled false). */
-  refill: RefillScheduler | null
   /** Hot-apply one committed settings value onto the live runtime (docs §5.1).
    *  Every knob lands without restart; enabled toggles the dispatcher. */
   reconfigure(next: Opencode2dshConfig): Promise<void>
@@ -200,8 +197,6 @@ export interface IpPoolRuntime {
   probeAll(): Promise<number>
   /** Enqueue one exit's probe (bridge /probe scope 'exit'). */
   probeExit(exitId: string): Promise<number>
-  /** One manual refill round (bridge /probe scope 'refill'). */
-  refillNow(): Promise<void>
   /** One subscription refresh round (bridge 立即刷新, docs §5.2). */
   refreshSubscriptions(): Promise<void>
   dispose(): Promise<void>
@@ -302,7 +297,6 @@ export async function startIpPool(
     pool,
     undici: undici as unknown as AdmissionDeps['undici'],
     logger,
-    blockedCountries: ipPool.free?.blockedCountries,
     smokeModel: (ipPool.probeModels ?? [])[0],
     smokeContents: ipPool.probeContents ?? [],
     ...(deps.relayBaseUrl !== undefined ? { relayBaseUrl: deps.relayBaseUrl } : {}),
@@ -314,10 +308,6 @@ export async function startIpPool(
   // setting in and the admission deps keep pointing at this array.
   const probeContents = ipPool.probeContents ?? []
   const prober = new Prober({ pool, maxConcurrentProbes: ipPool.maxConcurrentProbes ?? 3 })
-
-  // Free-source refill loop (docs/ip-pool.md 3.5/4.5): periodic state
-  // check -> tiered fetch -> admission probes through the Prober queue.
-  let refill: RefillScheduler | null = null
 
   // Subscriptions (docs 1.2 source 3): pull + parse + trusted
   // smoke; encrypted nodes convert via sing-box when a binary is configured.
@@ -355,14 +345,12 @@ export async function startIpPool(
   const applyConfig = (): void => {
     const current = config.ipPool ?? {}
     // Manual rows and the pin FIRST: they are table membership, and the
-    // subscription/free layers below must see the post-edit table (docs §5.1).
+    // subscription layer below must see the post-edit table (docs §5.1).
     syncManualExits(pool, current)
-    pool.setTargetSize(current.free?.targetSize ?? 20)
     // Whole-pool capacity (settings `poolSize`; the settings schema defaults it
     // to 10): the onboarding keeps the fastest N and shrinks the sing-box config
-    // to them, and the free refill's admissionQuota() honours the same ceiling.
+    // to them.
     pool.setPoolSize(current.poolSize ?? 10)
-    admissionDeps.blockedCountries = current.free?.blockedCountries
     admissionDeps.smokeModel = probeModels[0]
     admissionDeps.smokeContents = probeContents
     prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3)
@@ -374,16 +362,6 @@ export async function startIpPool(
     // 本机出口协议族 is the same kind of policy: it decides which family the
     // local-egress socket dials with, live, without touching the exit table.
     installer.setLocalIpFamily?.(resolveLocalIpFamily(current.localIpFamily))
-
-    // Free loop on/off (interval fixed 10min, docs 4.6).
-    const wantRefill = (current.free?.enabled ?? true) && current.enabled !== false
-    if (wantRefill && refill === null) {
-      refill = new RefillScheduler(pool, { ...admissionDeps, prober })
-      refill.start()
-    } else if (!wantRefill && refill !== null) {
-      refill.stop()
-      refill = null
-    }
 
     // Subscription layer: (re)create on URL change, keep the fetcher across
     // refresh-interval edits.
@@ -439,8 +417,7 @@ export async function startIpPool(
    * it at the pool tail — the pool holds its size either way (docs §4.7).
    * A rebuild holding the lock queues the swap instead of dropping it, so the
    * row is still exchanged once the lock frees.
-   * Only subscription exits rotate: free rows belong to the refill loop (they
-   * evict after repeated strikes) and manual/pinned rows are explicit user
+   * Only subscription exits rotate: manual/pinned rows are explicit user
    * config.
    */
   pool.onDead((id) => {
@@ -464,31 +441,23 @@ export async function startIpPool(
    * the enable-flip kick below) so the paths can never drift apart.
    */
   const probeOne = async (entry: ReturnType<ExitPool['list']>[number], models: string[]): Promise<void> => {
-    const { admitCandidate, admitTrusted } = await import('./pool/admission.ts')
+    const { admitTrusted } = await import('./pool/admission.ts')
     // ONE probe content per exit pass: the models of a single pass are the
     // SAME exit, so they all send the same sentence, and the next exit draws
     // its own (docs §4.2). The copy keeps that draw out of the shared deps
-    // the onboarding/refill/subscription smokes also read.
+    // the onboarding/subscription smokes also read.
     const deps: AdmissionDeps = { ...admissionDeps, smokeContent: pickSmokeContent(probeContents) }
     for (const model of models) {
       // Point the smoke's model at the current probe-model before each pass
       // (per-exit serial, §4.1).
       deps.smokeModel = model
-      // Free exits re-run the full candidate chain (echo→tunnel→smoke) —
-      // their facts may have drifted; trusted exits run the smoke only
-      // (docs §4.5 manual/subscription path). Pinned rides the trusted
-      // path so a blocked echo endpoint never evicts the user's line.
-      const verdict = entry.source === 'free'
-        ? await admitCandidate(deps, {
-          address: entry.id,
-          protocol: entry.protocol,
-          source: 'free',
-        })
-        : await admitTrusted(deps, {
-          address: entry.id,
-          protocol: entry.protocol,
-          source: entry.source === 'manual' ? 'manual' : 'subscription',
-        }, { pinned: entry.pinned, previous: { exitIP: entry.exitIP, exitLocation: entry.exitLocation, latencyMs: entry.latencyMs, quality: entry.quality } })
+      // Every exit is a trusted source and runs the trusted path (docs §4.5):
+      // a failed probe marks the row instead of evicting it.
+      const verdict = await admitTrusted(deps, {
+        address: entry.id,
+        protocol: entry.protocol,
+        source: entry.source === 'manual' ? 'manual' : 'subscription',
+      }, { pinned: entry.pinned, previous: { exitIP: entry.exitIP, exitLocation: entry.exitLocation, latencyMs: entry.latencyMs, quality: entry.quality } })
       if (verdict.admitted && verdict.node) {
         // Refresh the facts on a row that is STILL in the table. `add()` is an
         // upsert and this probe holds a snapshot from before it ran, so writing
@@ -637,7 +606,6 @@ export async function startIpPool(
     installer,
     prober,
     get subscriptions() { return subscriptions },
-    get refill() { return refill },
     async reconfigure(next: Opencode2dshConfig) {
       const wasEnabled = config.ipPool?.enabled !== false
       // splice the new ipPool section into the config object the runtime closes over
@@ -674,9 +642,6 @@ export async function startIpPool(
     },
     probeAll,
     probeExit,
-    async refillNow() {
-      if (refill !== null) await refill.tick()
-    },
     async refreshSubscriptions() {
       await subscriptions?.refreshNow()
     },
@@ -687,7 +652,6 @@ export async function startIpPool(
       // surface as a profile with no pool at all).
       setRelayEgressSeams(null)
       subscriptions?.stop()
-      refill?.stop()
       installer.dispose()
     },
   }

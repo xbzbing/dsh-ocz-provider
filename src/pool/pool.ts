@@ -1,6 +1,6 @@
 /**
- * ExitPool — the exit-node table plus two-tier health and the four-state
- * refill machine (docs/ip-pool.md section 3).
+ * ExitPool — the exit-node table plus two-tier health (docs/ip-pool.md
+ * section 3).
  *
  * Tier 1, per-exit (ExitHealth): 429 cooldown + dead marking. Anonymous
  * quota is metered per exit IP (design.md section 3), so a 429 cools the
@@ -11,14 +11,14 @@
  * catalog.ts), so they ban only that pairing and never cool the exit.
  *
  * The pool is pure state: no IO, no timers. The prober, the dispatcher and
- * the refill scheduler all drive it through the mark* methods and read it
+ * the subscription layer all drive it through the mark* methods and read it
  * through pick()/snapshot(). injectable now() keeps the cooldown math
  * unit-testable.
  */
 
 import { LOCAL_EXIT_ID } from './usage.ts'
 
-export type ExitSource = 'free' | 'manual' | 'subscription' | 'goproxy'
+export type ExitSource = 'manual' | 'subscription' | 'goproxy'
 
 export interface ExitNode {
   /** host:port, unique inside the pool (the address we dial). */
@@ -61,7 +61,7 @@ interface ExitHealth {
   cooldownUntil: number
   /** Serial-probe lock slot: at most one in-flight probe per exit (4.1). */
   inflight: boolean
-  /** Consecutive strikes; a free row evicts after deadEvictions (3.5). */
+  /** Consecutive transport strikes since the exit last proved alive. */
   deadStrikes: number
   /**
    * When the exit was last struck dead (epoch ms); 0 = not dead. Diagnostic
@@ -79,19 +79,15 @@ interface ModelBan {
   consecutiveFailures: number
 }
 
-export type PoolState = 'healthy' | 'warning' | 'critical' | 'emergency'
-
 export interface PoolOptions {
-  /** Free-pool target capacity (docs/ip-pool.md 3.5). Free-source nodes only. */
-  targetSize?: number
   /**
    * Whole-pool capacity: how many exits the pool keeps online at once, any
    * source (settings `poolSize`, default 10). This is the number that bounds
    * local connections too, because the onboarding shrinks the sing-box config
    * to the selected exits.
    *
-   * Enforced by the ADMISSION paths (`admissionQuota()` for free,
-   * `isFull()`/`evictWorst()` for the onboarding), not by `add()`: `add()` stays
+   * Enforced by the onboarding (`isFull()`/`evictWorst()`), not by `add()`:
+   * `add()` stays
    * a pure upsert so a hand-configured manual row or the user's pinned line is
    * never silently dropped — those are explicit config, and the onboarding
    * evicts a slower unpinned row to make room instead.
@@ -103,8 +99,6 @@ export interface PoolOptions {
   limitedCooldownMaxMs?: number
   /** Suspect -> banned after this many consecutive 401/403. */
   modelBanConfirmations?: number
-  /** Dead exits are evicted after this many strikes (free source only). */
-  deadEvictions?: number
   now?: () => number
 }
 
@@ -155,21 +149,17 @@ export class ExitPool {
    * pool keeps its size instead of draining to zero (docs/ip-pool.md §4.7).
    */
   readonly #demoted = new Set<string>()
-  #targetSize: number
   #poolSize: number
   #cooldownBase: number
   #cooldownMax: number
   #banConfirmations: number
-  #deadEvictions: number
   #now: () => number
 
   constructor(options: PoolOptions = {}) {
-    this.#targetSize = options.targetSize ?? 20
     this.#poolSize = options.poolSize ?? 10
     this.#cooldownBase = options.limitedCooldownBaseMs ?? 60_000
     this.#cooldownMax = options.limitedCooldownMaxMs ?? 30 * 60_000
     this.#banConfirmations = options.modelBanConfirmations ?? 2
-    this.#deadEvictions = options.deadEvictions ?? 2
     this.#now = options.now ?? Date.now
   }
 
@@ -225,7 +215,7 @@ export class ExitPool {
   /**
    * Evict the worst exit to make room for a better candidate (whole pool, any
    * source, pinned never). Worst = lowest quality grade, then slowest, then
-   * oldest — the same ordering `evictWorstFree()` uses, minus the source filter.
+   * oldest.
    * Returns the evicted id (null when nothing can be evicted), because the
    * caller has to close that exit's local listener too — see `Onboarder.trim()`.
    */
@@ -249,16 +239,6 @@ export class ExitPool {
     return worst.id
   }
 
-  /** Live re-apply of the free-pool target capacity (settings page, §5.1). */
-  setTargetSize(value: number): void {
-    this.#targetSize = Math.max(1, value)
-  }
-
-  /** The effective target capacity (diagnostics / status bridge). */
-  get targetSize(): number {
-    return this.#targetSize
-  }
-
   // -- table management ------------------------------------------------------
 
   /**
@@ -266,10 +246,9 @@ export class ExitPool {
    *
    * The runtime assembly uses it to engage routing the moment a pool that
    * assembled EMPTY stops being empty. Without a source-agnostic hook here, a
-   * profile that fills up after boot (subscription-only, free disabled) keeps
-   * the dispatcher uninstalled and reports "enabled" while every request still
-   * goes direct; free, subscription and manual admissions all reach this hook
-   * through add().
+   * profile that fills up after boot keeps the dispatcher uninstalled and
+   * reports "enabled" while every request still goes direct; subscription and
+   * manual admissions both reach this hook through add().
    */
   onAdmitted(callback: () => void): void {
     this.#admittedCallbacks.push(callback)
@@ -374,7 +353,7 @@ export class ExitPool {
     return this.#nodes.get(id)
   }
 
-  /** Drop a node entirely (dead eviction for free nodes, cleanup otherwise). */
+  /** Drop a node entirely. */
   remove(id: string): void {
     this.#nodes.delete(id)
     this.#health.delete(id)
@@ -589,12 +568,10 @@ export class ExitPool {
     return current.state
   }
 
-  /** Transport failure / 5xx / probe timeout: dead, with free-source eviction
-   *  after repeated strikes (3.5). Returns true when the node was evicted. */
-  markDeadStrike(id: string): boolean {
-    const node = this.#nodes.get(id)
+  /** Transport failure / 5xx / probe timeout: the exit is struck dead. */
+  markDeadStrike(id: string): void {
     const health = this.#health.get(id)
-    if (!node || !health) return false
+    if (!this.#nodes.has(id) || !health) return
     const wasDead = health.state === 'dead'
     health.state = 'dead'
     health.inflight = false
@@ -607,11 +584,6 @@ export class ExitPool {
       this.#moveToTail(id)
       this.#notifyDead(id)
     }
-    if (node.source === 'free' && health.deadStrikes >= this.#deadEvictions) {
-      this.remove(id)
-      return true
-    }
-    return false
   }
 
   /** Death from a mid-flight stream (no retry path): same strike accounting. */
@@ -882,93 +854,18 @@ export class ExitPool {
     return true
   }
 
-  /** Count usable free-source nodes toward the refill thresholds. */
-  availableFreeCount(): number {
-    let count = 0
-    for (const node of this.#nodes.values()) {
-      if (node.source === 'free' && this.#isAvailable(node.id)) count += 1
-    }
-    return count
-  }
-
-  /** Determine the pool state over the free-source pool (3.5 thresholds). */
-  state(): PoolState {
-    if (this.#targetSize <= 0) return 'healthy'
-    const available = this.availableFreeCount()
-    const ratio = available / this.#targetSize
-    if (ratio < 0.1) return 'emergency'
-    if (ratio < 0.3) return 'critical'
-    if (ratio < 0.95) return 'warning'
-    return 'healthy'
-  }
-
-  /** Admission quota for a refill round: how many free nodes to accept.
-   *  Bounded by BOTH the free target and the whole-pool capacity, so a free
-   *  refill can never push the pool past `poolSize` (settings §5.1). */
-  admissionQuota(): number {
-    const freeRoom = Math.max(0, this.#targetSize - this.availableFreeCount())
-    const poolRoom = Math.max(0, this.#poolSize - this.#nodes.size)
-    return Math.min(freeRoom, poolRoom)
-  }
-
-  /**
-   * Replace the worst free node to make room (3.5). A DEAD row ranks worse
-   * than any live one — with no periodic probe a corpse only leaves through
-   * this eviction or the strike threshold, and ranking by grade alone would
-   * let refill evict a live C-grade exit while a dead S-grade corpse keeps its
-   * slot. Ties keep the C-grade/oldest rule.
-   */
-  evictWorstFree(): boolean {
-    let worst: ExitNode | null = null
-    const deadRank = (node: ExitNode): number => (this.#health.get(node.id)?.state === 'dead' ? 1 : 0)
-    for (const node of this.#nodes.values()) {
-      if (node.source !== 'free') continue
-      if (!worst) {
-        worst = node
-        continue
-      }
-      const byDeath = deadRank(node) - deadRank(worst)
-      if (byDeath > 0) {
-        worst = node
-        continue
-      }
-      if (byDeath < 0) continue
-      const byGrade = GRADE_RANK[node.quality] - GRADE_RANK[worst.quality]
-      if (byGrade > 0 || (byGrade === 0 && node.addedAt < worst.addedAt)) worst = node
-    }
-    if (!worst) return false
-    this.remove(worst.id)
-    return true
-  }
-
-  /** Is the pool full for free-source admission? (pinned and non-free nodes
-   *  never count against the target, 3.5/3.6.) */
-  isFreeFull(): boolean {
-    return this.freeCount() >= this.#targetSize
-  }
-
-  freeCount(): number {
-    let count = 0
-    for (const node of this.#nodes.values()) if (node.source === 'free') count += 1
-    return count
-  }
-
   // -- diagnostics ------------------------------------------------------------
 
   snapshot(): {
-    state: PoolState
     total: number
     bySource: Record<ExitSource, number>
-    availableFree: number
     pinned: string
   } {
-    const bySource: Record<ExitSource, number> = { free: 0, manual: 0, subscription: 0, goproxy: 0 }
+    const bySource: Record<ExitSource, number> = { manual: 0, subscription: 0, goproxy: 0 }
     for (const node of this.#nodes.values()) bySource[node.source] += 1
     return {
-      state: this.state(),
       total: this.#nodes.size,
       bySource,
-      availableFree: this.availableFreeCount(),
       pinned: this.pinnedId,
     }
   }

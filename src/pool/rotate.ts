@@ -88,7 +88,7 @@ export function classifyStreamFailure(errorMessage: string): RotateFailure | nul
   // a response". Same taxonomy the adapter applies (events.ts classifyError).
   if (/\bwebsocket\b|other side closed|http2 request did not get a response/.test(text)) return 'transport'
   if (/\b(?:network|connection|socket|fetch|terminated|premature close)\b|\beconn[a-z]+\b|timeout|timed out/.test(text)) return 'transport'
-  // 5xx joins the rotate set: through a wild proxy a 500 is as often the
+  // 5xx joins the rotate set: through a proxy a 500 is as often the
   // proxy mangling the tunnel as the upstream itself — one exit change
   // before taking the error at face value (bounded by maxRotateAttempts).
   if (/\b5\d\d\b|internal server error|server error/.test(text)) return 'transport'

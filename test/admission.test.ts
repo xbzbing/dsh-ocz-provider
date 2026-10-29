@@ -82,11 +82,11 @@ function smokeContentOf(transport: ReturnType<typeof fakeTransport>): string {
 
 test('admission: the four-step happy path admits with exit facts and grade', async () => {
   const transport = fakeTransport(okScript())
-  const result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
+  const result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' })
   assert.ok(result.admitted, result.reason)
   assert.equal(result.node?.exitIP, '5.5.5.5')
   assert.equal(result.node?.exitLocation, 'US city')
-  assert.equal(result.node?.source, 'free')
+  assert.equal(result.node?.source, 'manual')
   assert.equal(result.node?.quality, 'S') // latency ~0
   // exactly the three scripted requests, in chain order
   assert.deepEqual(transport.calls, [ECHO_URL, MODELS_URL, CHAT_URL])
@@ -97,39 +97,39 @@ test('admission: the four-step happy path admits with exit facts and grade', asy
 test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async () => {
   // step 1-2: non-200 echo
   let transport = fakeTransport({ ...okScript(), [ECHO_URL]: { status: 503, body: '' } })
-  let result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
+  let result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /echo HTTP 503/)
 
   // step 2: echo without an exit IP
   transport = fakeTransport({ ...okScript(), [ECHO_URL]: { status: 200, body: '{"status":"fail"}' } })
-  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
+  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /exit IP/)
 
   // step 2: geo-blocked country
   transport = fakeTransport({ ...okScript(), [ECHO_URL]: { status: 200, body: echoBody('5.5.5.5', 'CN') } })
-  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
+  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' }, { timeoutMs: 1000 })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /geo-blocked CN/)
 
   // step 3: HTTPS tunnel to the real upstream fails
   transport = fakeTransport({ ...okScript(), [MODELS_URL]: { status: 403, body: '' } })
-  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
+  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' }, { timeoutMs: 1000 })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /zen models HTTP 403/)
 
   // step 4: anonymous-lane smoke 429 -> admitted with `limited` (good exit,
   // quota consumed elsewhere; the caller cools it, docs 4.5)
   transport = fakeTransport({ ...okScript(), [CHAT_URL]: { status: 429, body: '' } })
-  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
+  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' }, { timeoutMs: 1000 })
   assert.ok(result.admitted, result.reason)
   assert.ok(result.limited)
   assert.equal(result.node?.exitIP, '5.5.5.5')
 
   // step 4: any other smoke failure still rejects outright
   transport = fakeTransport({ ...okScript(), [CHAT_URL]: { status: 403, body: '' } })
-  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
+  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' }, { timeoutMs: 1000 })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /zen smoke HTTP 403/)
 
@@ -137,7 +137,7 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
   // GENUINE bash+read definitions, and a canonical ses_* session header.
   // `tool_choice` is left to the model — the gate rejects `'none'`.
   const okTransport = fakeTransport(okScript())
-  const okResult = await admitCandidate(deps(okTransport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
+  const okResult = await admitCandidate(deps(okTransport), { address: 'h:1', protocol: 'http', source: 'manual' }, { timeoutMs: 1000 })
   assert.ok(okResult.admitted)
   const smokeBody = JSON.parse(okTransport.bodies.get(CHAT_URL)!) as {
     stream?: boolean
@@ -169,7 +169,7 @@ test('admission: fail-fast at each step (echo/geo/latency/models/smoke)', async 
 
   // transport errors surface as reasons (timeout / reset)
   transport = fakeTransport({ '*': new Error('connect ECONNREFUSED') })
-  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' }, { timeoutMs: 1000 })
+  result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' }, { timeoutMs: 1000 })
   assert.ok(!result.admitted)
   assert.match(result.reason!, /ECONNREFUSED/)
 })
@@ -179,34 +179,33 @@ test('admission: the probe content is drawn at random from the configured pool',
   // of them at random.
   const pool = ['alpha', 'beta', 'gamma']
   const first = fakeTransport(okScript())
-  await admitCandidate(deps(first, { smokeContents: pool, random: () => 0 }), { address: 'h:1', protocol: 'http', source: 'free' })
+  await admitCandidate(deps(first, { smokeContents: pool, random: () => 0 }), { address: 'h:1', protocol: 'http', source: 'manual' })
   assert.equal(smokeContentOf(first), 'alpha')
 
   const last = fakeTransport(okScript())
-  await admitCandidate(deps(last, { smokeContents: pool, random: () => 0.99 }), { address: 'h:2', protocol: 'http', source: 'free' })
+  await admitCandidate(deps(last, { smokeContents: pool, random: () => 0.99 }), { address: 'h:2', protocol: 'http', source: 'manual' })
   assert.equal(smokeContentOf(last), 'gamma')
 
   // A hand-typed list with blanks and duplicates still yields a valid turn.
   const messy = fakeTransport(okScript())
-  await admitCandidate(deps(messy, { smokeContents: ['  ', 'only'], random: () => 0.5 }), { address: 'h:3', protocol: 'http', source: 'free' })
+  await admitCandidate(deps(messy, { smokeContents: ['  ', 'only'], random: () => 0.5 }), { address: 'h:3', protocol: 'http', source: 'manual' })
   assert.equal(smokeContentOf(messy), 'only')
 
   // A pre-drawn pass value wins: one random probe content per exit — the
   // caller probing ONE exit across several models draws once and hands the
   // same turn to every model of that pass.
   const pinned = fakeTransport(okScript())
-  await admitCandidate(deps(pinned, { smokeContents: pool, smokeContent: 'drawn-once', random: () => 0.99 }), { address: 'h:4', protocol: 'http', source: 'free' })
+  await admitCandidate(deps(pinned, { smokeContents: pool, smokeContent: 'drawn-once', random: () => 0.99 }), { address: 'h:4', protocol: 'http', source: 'manual' })
   assert.equal(smokeContentOf(pinned), 'drawn-once', 'the pass value is not re-drawn')
 })
 
-test('admission: latency gate (relaxed for critical/emergency states)', async () => {
-  // The fast gate rejects a candidate whose echo answers slower than 3000 ms
-  // (relaxed for critical/emergency states, docs/ip-pool.md 4.6). The gate
+test('admission: latency gate', async () => {
+  // The gate rejects a candidate whose echo answers slower than 3000 ms. It
   // reads latencyMs from Date.now(), so this pins only the fast path: a
   // latency-~0 answer admits.
   const transport = fakeTransport(okScript())
   // fast path admits (latency ~0)
-  const fastResult = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
+  const fastResult = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' })
   assert.ok(fastResult.admitted)
 })
 
@@ -360,7 +359,7 @@ test('admission end-to-end: real undici.request through a real local proxy', asy
     zenBaseUrl: `http://example.test:${port}`, // steps 3-4 hit the same echo server
     timeoutMs: 3000,
   }
-  const result = await admitCandidate(depsReal as never, { address: `127.0.0.1:${port}`, protocol: 'http', source: 'free' })
+  const result = await admitCandidate(depsReal as never, { address: `127.0.0.1:${port}`, protocol: 'http', source: 'manual' })
   // All four steps answered 200 by the echo server, so the candidate is
   // admitted with the echo-reported exit facts — and every step rode the
   // candidate proxy (absolute-form requests), with no global dispatcher.
@@ -392,7 +391,7 @@ test('admission reads Zen header edits between model-list and smoke requests', a
     return response
   }) as never
   try {
-    const result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'free' })
+    const result = await admitCandidate(deps(transport), { address: 'h:1', protocol: 'http', source: 'manual' })
     assert.ok(result.admitted)
     assert.equal(transport.headers.get(MODELS_URL)?.['user-agent'], 'catalog-agent')
     assert.equal(transport.headers.get(CHAT_URL)?.['user-agent'], 'smoke-agent')
@@ -418,7 +417,7 @@ test('admission: walks the ladder and admits an exit that only reaches the conso
   })
   const result = await admitCandidate(
     deps(transport, { zenBaseUrl: 'https://primary.test', fallbackBaseUrl: 'https://console.test' }),
-    { address: 'h:9', protocol: 'http', source: 'free' },
+    { address: 'h:9', protocol: 'http', source: 'manual' },
   )
   assert.ok(result.admitted, result.reason)
   assert.deepEqual(transport.calls, [
@@ -438,7 +437,7 @@ test('admission: both doors failing rejects with the primary door\'s verdict', a
   })
   const result = await admitCandidate(
     deps(transport, { zenBaseUrl: 'https://primary.test', fallbackBaseUrl: 'https://console.test' }),
-    { address: 'h:10', protocol: 'http', source: 'free' },
+    { address: 'h:10', protocol: 'http', source: 'manual' },
   )
   assert.equal(result.admitted, false)
   assert.equal(result.reason, 'zen models HTTP 502')
@@ -509,7 +508,7 @@ test('admission: an unread lane body does not pin the proxy socket', async () =>
         zenBaseUrl: 'http://example.test',
         timeoutMs: 1000,
       } as never,
-      { address: `127.0.0.1:${proxy.port}`, protocol: 'http', source: 'free' },
+      { address: `127.0.0.1:${proxy.port}`, protocol: 'http', source: 'manual' },
     )
     assert.equal(result.admitted, false)
     assert.equal(result.reason, 'zen models HTTP 503')

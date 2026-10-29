@@ -243,11 +243,6 @@ export function applyIpPoolSettings(
           proxyPathPrefixes: controller.runtime?.installer?.proxyPathPrefixes !== undefined
             ? [...controller.runtime.installer.proxyPathPrefixes]
             : (controller.settings().proxyPathPrefixes.length > 0 ? controller.settings().proxyPathPrefixes : [...DEFAULT_PROXY_PATH_PREFIXES]),
-          // The card's state badge follows the free-source machine only while
-          // that source is on; with free disabled the same thresholds apply to
-          // the whole pool, or a profile with no free nodes reads "emergency"
-          // forever.
-          freeEnabled: controller.settings().free.enabled,
           // 本地出口兜底 (docs §3.3): the router's answer wins, this stands in
           // while no dispatcher is installed (pool off in this process).
           localFallback: controller.settings().localFallback,

@@ -32,15 +32,13 @@ function resetCalls(): void {
 /** Test assembly seam: a runtime face with just what apply.ts touches. */
 const assemble: AssembleIpPool = async (config) => {
   const runtime = {
-    pool: { snapshot: () => ({ total: 1 }), targetSize: 20, list: () => [], has: () => true, get: () => undefined },
+    pool: { snapshot: () => ({ total: 1 }), list: () => [], has: () => true, get: () => undefined },
     installer: { enabled: false, install() { this.enabled = true }, disable() { this.enabled = false }, dispose() {} },
     prober: { stats: { queued: 0, inFlight: 0, enqueued: 0, completed: 0 }, setMaxConcurrent() {} },
-    refill: null,
     subscriptions: null,
     reconfigure: async (next: Record<string, unknown>) => { reconfigures.push(next) },
     probeAll: async () => 0,
     probeExit: async () => 1,
-    refillNow: async () => {},
     refreshSubscriptions: async () => {},
     dispose: async () => {},
   }
@@ -271,7 +269,6 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
   const runtimeAssemble: AssembleIpPool = async () => ({
     pool: {
       snapshot: () => ({ total: 2, pinned: '' }),
-      targetSize: 20,
       list: () => [],
       has: () => true,
       // A row with measured facts: the pin path then skips the protocol probe
@@ -295,12 +292,10 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
     },
     installer: { enabled: true, install() {}, disable() {}, dispose() {} },
     prober: { stats: { queued: 0, inFlight: 0, enqueued: 0, completed: 0 }, setMaxConcurrent() {} },
-    refill: null,
     subscriptions: null,
     reconfigure: async () => {},
     probeAll: async () => 0,
     probeExit: async () => 1,
-    refillNow: async () => {},
     refreshSubscriptions: async () => {},
     dispose: async () => {},
   }) as never

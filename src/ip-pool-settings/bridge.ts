@@ -15,7 +15,7 @@
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import { resolveLocalIpFamily, type LocalIpFamily } from '../pool/local-family.ts'
 import { opencodeUserAgent, zenRequestHeaders } from '../adapter/ids.ts'
-import type { PoolState, ExitSource } from '../pool/pool.ts'
+import type { ExitSource } from '../pool/pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTotals } from '../pool/usage.ts'
 import { localDay, type UsageScope, type UsageStore } from '../pool/usage-store.ts'
 import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titles.ts'
@@ -159,17 +159,6 @@ export interface ProberView {
   completed: number
 }
 
-export interface RefillView {
-  admitted: number
-  rejected: number
-  fetched: number
-  coarsePassed: number
-  state: string
-  at: number
-  /** Live in-flight round progress (docs §5.3, 立即补充 feedback). */
-  progress: { running: boolean; stage: 'fetch' | 'coarse' | 'admit' | 'idle'; sourcesDone: number; sourcesTotal: number; fetched: number; candidates: number; coarsePassed: number; coarseDone: number; admissions: number; admitted: number }
-}
-
 export interface SubscriptionView {
   /** URL count only — the URLs themselves never ride the bridge (§5.1 redaction). */
   urlCount: number
@@ -185,22 +174,10 @@ export interface PoolStatusView {
   /** Non-empty when the pool runs but the routing layer deferred to another
    *  dispatcher-level plugin (R1 coexistence policy). */
   deferredReason: string
-  state: PoolState
-  /**
-   * Which population produced {@link state}. `free` = the documented 3.5
-   * four-state machine over the free-source pool (only meaningful while the
-   * free source is on); `pool` = the same thresholds applied to the whole pool
-   * once the free source is disabled — a profile with no free nodes would
-   * otherwise read "emergency" forever.
-   */
-  stateBasis: 'free' | 'pool'
   total: number
   bySource: Record<ExitSource, number>
-  /** Usable FREE-source exits — a subset of availableTotal, not the pool total. */
-  availableFree: number
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
-  targetSize: number
   /** Whole-pool capacity in force (settings `poolSize`, default 10). */
   poolSize: number
   /**
@@ -223,7 +200,6 @@ export interface PoolStatusView {
   proxyPathPrefixes: string[]
   exits: ExitRowView[]
   prober: ProberView
-  refill: RefillView | null
   subscription: SubscriptionView | null
   /** Pool-host requests that fell back to direct (empty pool / no agent) with
    *  the tokens attributed there — the stats modal's 直连兜底 chip. */
@@ -269,28 +245,12 @@ export interface PoolStatusView {
   at: number
 }
 
-/**
- * The four-state thresholds (docs 3.5) applied to a usable/capacity ratio.
- * An empty population reads `warning`, never `emergency`: an enabled pool
- * whose exits have not landed yet (subscription still fetching) is not the
- * same failure as a pool that drained.
- */
-function stateOfRatio(available: number, capacity: number): PoolState {
-  if (capacity <= 0) return 'warning'
-  const ratio = available / capacity
-  if (ratio < 0.1) return 'emergency'
-  if (ratio < 0.3) return 'critical'
-  if (ratio < 0.95) return 'warning'
-  return 'healthy'
-}
-
 /** Build the /status view over the live runtime (or a disabled stub). */
 export function buildStatusView(
   runtime: IpPoolRuntime | null,
   pinnedStrict: boolean,
   proxyHosts: string[],
   options: {
-    freeEnabled?: boolean
     proxyPathPrefixes?: string[]
     /** The persistent ledger (absent = a composition without one). */
     usage?: UsageStore
@@ -313,7 +273,6 @@ export function buildStatusView(
     now?: number
   } = {},
 ): PoolStatusView {
-  const freeEnabled = options.freeEnabled ?? true
   const proxyPathPrefixes = options.proxyPathPrefixes ?? [...DEFAULT_PROXY_PATH_PREFIXES]
   const store = options.usage
   const scope: UsageScope = options.usageScope ?? 'total'
@@ -336,7 +295,7 @@ export function buildStatusView(
     store === undefined || scope === 'run' ? live : store.exitLastUsedAt(id, 'total')
   const snapshot = runtime
     ? runtime.pool.snapshot()
-    : { state: 'healthy' as PoolState, total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, availableFree: 0, pinned: '' }
+    : { total: 0, bySource: { manual: 0, subscription: 0, goproxy: 0 } as Record<ExitSource, number>, pinned: '' }
   const now = options.now ?? Date.now()
   const exits: ExitRowView[] = runtime
     ? runtime.pool.list().map((entry) => {
@@ -369,14 +328,8 @@ export function buildStatusView(
       }
     })
     : []
-  /**
-   * Usable exits across the WHOLE pool, any source. `availableFree` is only
-   * the free-source subset, so a bare "可用 n/capacity" built from it reads
-   * as "nothing is usable" on a profile running only subscription/manual
-   * exits.
-   */
+  /** Usable exits across the whole pool, any source. */
   const availableTotal = exits.filter((exit) => exit.state === 'ok').length
-  const stateBasis: 'free' | 'pool' = freeEnabled ? 'free' : 'pool'
   /**
    * Is the pin actually carrying traffic? Only the two states that stop
    * `isUsable()` on their own are reported: dead and a live cooldown. A
@@ -396,13 +349,9 @@ export function buildStatusView(
     deferredReason: runtime !== null && !runtime.installer.enabled
       ? (runtime.installer as unknown as { deferredReason?: string }).deferredReason ?? ''
       : '',
-    state: stateBasis === 'free' ? snapshot.state : stateOfRatio(availableTotal, snapshot.total),
-    stateBasis,
     total: snapshot.total,
     bySource: snapshot.bySource,
-    availableFree: snapshot.availableFree,
     availableTotal,
-    targetSize: runtime ? runtime.pool.targetSize : 20,
     poolSize: runtime ? runtime.pool.poolSize : 10,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict, local: snapshot.pinned === LOCAL_EXIT_ID }
@@ -414,9 +363,6 @@ export function buildStatusView(
     prober: runtime
       ? runtime.prober.stats
       : { queued: 0, inFlight: 0, enqueued: 0, completed: 0 },
-    refill: runtime?.refill
-      ? { ...runtime.refill.lastRound, progress: runtime.refill.progress }
-      : null,
     subscription: runtime?.subscriptions
       ? {
         urlCount: runtime.subscriptions.urlCount,
@@ -712,7 +658,6 @@ export function makeBridgeHandlers(
     pinnedStrict: boolean
     proxyHosts: string[]
     proxyPathPrefixes?: string[]
-    freeEnabled?: boolean
     /** 'total' (ledger) or 'run' (this process) — the card's switch. */
     usageScope?: UsageScope
   },
@@ -758,7 +703,6 @@ export function makeBridgeHandlers(
       return {
         ok: true,
         value: buildStatusView(runtime(), current.pinnedStrict, current.proxyHosts, {
-          freeEnabled: current.freeEnabled,
           proxyPathPrefixes: current.proxyPathPrefixes,
           usage: deps.usage,
           usageScope: current.usageScope,
@@ -776,10 +720,6 @@ export function makeBridgeHandlers(
         const queued = await rt.probeAll()
         return { ok: true, value: { queued } }
       }
-      if (scope === 'refill') {
-        await rt.refillNow()
-        return { ok: true, value: { refilled: true } }
-      }
       if (scope === 'subscription') {
         // docs §5.2 订阅「立即刷新」: re-pull the subscription URLs on demand —
         // the fetcher's refresh timer is the only other way they are re-pulled.
@@ -792,7 +732,7 @@ export function makeBridgeHandlers(
         const count = await rt.probeExit(exitId)
         return { ok: true, value: { queued: count } }
       }
-      return { ok: false, code: 'settings-rejected', message: "probe scope must be 'all', 'exit', 'refill' or 'subscription'" }
+      return { ok: false, code: 'settings-rejected', message: "probe scope must be 'all', 'exit' or 'subscription'" }
     },
     async models() {
       const { staticFreeModels } = await import('../adapter/catalog.ts')
@@ -907,7 +847,7 @@ export function makeBridgeHandlers(
         if (!promoted && rt.pool.has(exitId)) {
           // A running onboarding/trim holds the rebuild mutex and replaceExit()
           // answers false without consulting the reserve. Sinking the row then
-          // would violate the request ("refill first, sink only when there is
+          // would violate the request ("promote first, sink only when there is
           // nothing to promote"), so say busy instead and leave the row alone.
           if (rt.subscriptions?.busy === true) {
             return { ok: true, value: { rotated: false, promoted: false, busy: true, remaining: rt.pool.snapshot().total } }

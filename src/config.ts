@@ -94,14 +94,6 @@ export interface IpPoolConfig {
    * unaffected.
    */
   localIpFamily?: LocalIpFamily
-  /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
-  free?: {
-    enabled?: boolean
-    /** Target capacity for the free pool (docs 3.5). */
-    targetSize?: number
-    /** Admission geo blocklist (country codes). */
-    blockedCountries?: string[]
-  }
   /** Airport/Clash subscriptions (docs 1.2 source 3, IP-3). */
   subscriptions?: string[]
   /** Subscription refresh interval ms (docs 4.6, default 30min) and the fetch

@@ -22,7 +22,7 @@ import type { ModelCatalog } from '../src/adapter/catalog.ts'
 
 function node(overrides: Partial<ExitNode> = {}): ExitNode {
   return {
-    id: 'h:1', protocol: 'http', source: 'free', pinned: false,
+    id: 'h:1', protocol: 'http', source: 'subscription', pinned: false,
     exitIP: '1.1.1.1', exitLocation: '', latencyMs: 100, quality: 'S', addedAt: 0,
     ...overrides,
   }

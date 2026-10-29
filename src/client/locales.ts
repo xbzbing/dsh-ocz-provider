@@ -87,7 +87,7 @@ export const zh = {
   bansEmpty: '没有已封禁的 (出口 × 模型) 对。',
   banBanned: '已封禁',
   banSuspect: '疑似',
-  copyCompliance: '匿名配额受上游限流；多出口不绕过配额，只在出口间调度。固定/订阅节点优先；公共免费代理有安全与合规风险。',
+  copyCompliance: '匿名配额受上游限流；多出口不绕过配额，只在出口间调度。',
   // —— 左下角入口 + 出口统计弹窗 ——
   footerLabel: '出口',
   footerTitle: 'IP 池出口统计',
@@ -300,7 +300,7 @@ export const en: Record<keyof typeof zh, string> = {
   bansEmpty: 'No banned (exit × model) pairs.',
   banBanned: 'banned',
   banSuspect: 'suspect',
-  copyCompliance: 'Anonymous quota is upstream-rate-limited; multiple exits do not bypass quota, they schedule across it. Pinned/subscription nodes first; public free proxies carry security and compliance risk.',
+  copyCompliance: 'Anonymous quota is upstream-rate-limited; multiple exits do not bypass quota, they schedule across it.',
   footerLabel: 'exits',
   footerTitle: 'IP pool exit stats',
   footerUsable: '{usable}/{total} usable',

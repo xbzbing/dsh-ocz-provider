@@ -12,7 +12,7 @@ function node(overrides: Partial<ExitNode> = {}): ExitNode {
   return {
     id: 'h:1',
     protocol: 'http',
-    source: 'free',
+    source: 'subscription',
     pinned: false,
     exitIP: '1.1.1.1',
     exitLocation: 'US city',

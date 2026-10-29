@@ -81,14 +81,6 @@ export const IpPoolConfigSchema = Schema.object({
    * also the number of local SOCKS listeners the pool opens.
    */
   poolSize: Schema.number().min(1).max(100).step(1).default(10),
-  free: Schema.object({
-    /** Free-source fetching master switch (docs §1.2 source 1). */
-    enabled: Schema.boolean().default(true),
-    /** Free-pool target capacity (docs §3.5). */
-    targetSize: Schema.number().min(1).max(100).step(1).default(20),
-    /** Admission geo blocklist (ISO country codes). */
-    blockedCountries: Schema.array(Schema.string()).default(['CN']),
-  }),
   /** Manually added plain proxies: 'http://h:p' or 'socks5://h:p' (§1.2 source 2). */
   manual: Schema.array(Schema.string()).default([]),
   /**
@@ -172,7 +164,6 @@ export interface IpPoolSettings {
   probeContents: string[]
   maxConcurrentProbes: number
   poolSize: number
-  free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   manual: string[]
   subscription: { urls: string[]; refreshMs: number; userAgent: string }
   singbox: { path: string }
@@ -232,7 +223,6 @@ export interface AnyIpPoolSection {
   proxyPathPrefixes?: string[]
   localFallback?: boolean
   localIpFamily?: string
-  free?: Partial<IpPoolSettings['free']>
   /** Settings spelling: nested. */
   subscription?: Partial<IpPoolSettings['subscription']>
   /** Entry-config spelling: flat list, legacy key. */
@@ -272,11 +262,6 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     probeContents: raw.probeContents ?? [],
     maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
     poolSize: raw.poolSize ?? 10,
-    free: {
-      enabled: raw.free?.enabled ?? true,
-      targetSize: raw.free?.targetSize ?? 20,
-      blockedCountries: raw.free?.blockedCountries ?? ['CN'],
-    },
     manual: raw.manual ?? [],
     subscription: {
       urls,
@@ -309,7 +294,6 @@ export function toIpPoolConfig(value: IpPoolSettings): {
   proxyPathPrefixes: string[]
   localFallback: boolean
   localIpFamily: LocalIpFamily
-  free: { enabled: boolean; targetSize: number; blockedCountries: string[] }
   subscriptions: string[]
   subscription: { refreshMs: number; userAgent: string }
   singbox: { path: string }
@@ -329,11 +313,6 @@ export function toIpPoolConfig(value: IpPoolSettings): {
     proxyPathPrefixes: value.proxyPathPrefixes,
     localFallback: value.localFallback,
     localIpFamily: value.localIpFamily,
-    free: {
-      enabled: value.free.enabled,
-      targetSize: value.free.targetSize,
-      blockedCountries: value.free.blockedCountries,
-    },
     subscriptions: value.subscription.urls,
     subscription: { refreshMs: value.subscription.refreshMs, userAgent: value.subscription.userAgent },
     singbox: { path: value.singbox.path },

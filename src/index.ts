@@ -227,7 +227,7 @@ function applyAdapter(
   }
 
   // IP-pool exit routing (docs/ip-pool.md IP-1..IP-5): manual proxies, pinned,
-  // free sources, subscriptions, and the volatile `ipPool` settings field with
+  // subscriptions, and the volatile `ipPool` settings field with
   // live apply + the /status /models /probe bridge. Opt-in via settings page or
   // cordis.patch.yml; disabled keeps the process byte-for-byte on direct.
   // Lifecycle (assembly on first enable, live reconfigure, dispose) is owned by

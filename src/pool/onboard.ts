@@ -32,9 +32,8 @@
  *      to nothing (docs §4.5's "never evict a paid line over one probe
  *      failure").
  *
- * What still probes OpenCode: the settings card's 探测/批量探活 actions and
- * the free-source refill — explicit user actions or a different source class,
- * outside this module.
+ * What still probes OpenCode: the settings card's 探测/批量探活 actions —
+ * explicit user actions, outside this module.
  */
 
 import { coarseScreen, type AdmissionDeps, type EchoFacts } from './admission.ts'

@@ -30,9 +30,7 @@ test('schema fills every default from an empty section', () => {
   assert.deepEqual(value.probeModels, [])
   assert.equal(value.maxConcurrentProbes, 3)
   assert.equal(value.poolSize, 10, 'whole-pool capacity defaults to 10')
-  assert.equal((value.free as Record<string, unknown>).enabled, true)
-  assert.equal((value.free as Record<string, unknown>).targetSize, 20)
-  assert.deepEqual((value.free as Record<string, unknown>).blockedCountries, ['CN'])
+  assert.equal('free' in value, false, 'there is no free-proxy source')
   assert.deepEqual(value.manual, [])
   assert.deepEqual((value.subscription as Record<string, unknown>).urls, [])
   // The built-in fetch UA is the airport allow-listed spelling, not 1.6.0 —
@@ -158,8 +156,7 @@ test('toIpPoolConfig maps the settings value onto the plugin config shape', () =
  *  row's health without re-declaring the whole table. */
 function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Record<string, unknown> = {}): unknown {
   const pool = {
-    snapshot: () => ({ state: 'warning', total: 2, bySource: { free: 1, manual: 1, subscription: 0, goproxy: 0 }, availableFree: 1, pinned: 'http://10.0.0.1:3128' }),
-    targetSize: 20,
+    snapshot: () => ({ total: 2, bySource: { manual: 1, subscription: 1, goproxy: 0 }, pinned: 'http://10.0.0.1:3128' }),
     poolSize: 20,
     demoted: (id: string) => id === '1.2.3.4:8080',
     list: () => [
@@ -170,7 +167,7 @@ function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Rec
         bans: [],
       },
       {
-        id: '1.2.3.4:8080', source: 'free', protocol: 'http', pinned: false,
+        id: '1.2.3.4:8080', source: 'subscription', protocol: 'http', pinned: false,
         exitIP: '1.2.3.4', exitLocation: 'SG test', latencyMs: 410, quality: 'S',
         health: { state: 'ok', cooldownUntil: Date.now() + 60_000, consecutiveLimited: 1 },
         bans: [{ model: 'muse-spark-1.2-contributor-free', ban: { state: 'banned', bannedAt: 123, consecutiveFailures: 2 } }],
@@ -189,14 +186,12 @@ function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Rec
     pool,
     installer: { enabled: true, deferredReason: null, install() {}, disable() {}, dispose() {} },
     prober: { stats: { queued: 0, inFlight: 1, enqueued: 5, completed: 4 } },
-    refill: { lastRound: { admitted: 2, rejected: 30, fetched: 1600, coarsePassed: 8, state: 'warning', at: 456 } },
     subscriptions: {
       urlCount: 2,
       state: { pendingConversion: [{}, {}], convertedAdmitted: 1, plaintextAdmitted: 0, lastFetch: 789, lastError: '' },
     },
     probeAll: async () => 2,
     probeExit: async () => 1,
-    refillNow: async () => {},
     refreshSubscriptions: async () => {},
     reconfigure: async () => {},
     dispose: async () => {},
@@ -204,7 +199,7 @@ function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Rec
   }
 }
 
-test('status view projects the four-state machine, exits, bans and prober progress', () => {
+test('status view projects counts, exits, bans and prober progress', () => {
   const view = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
   assert.equal(view.enabled, true)
   // The routing scope is part of the answer to "what is this pool carrying?",
@@ -212,12 +207,8 @@ test('status view projects the four-state machine, exits, bans and prober progre
   // otherwise proxy another provider's lane).
   assert.deepEqual(view.proxyHosts, ['opencode.ai'])
   assert.deepEqual(view.proxyPathPrefixes, ['/inference/v1'], 'the path scope defaults to this plugin lane')
-  assert.equal(view.state, 'warning')
   assert.equal(view.total, 2)
-  assert.equal(view.availableFree, 1)
-  // The whole-pool usable count must count across sources: the free-source
-  // subset alone renders "可用 0/20" on a subscription-only profile whose
-  // exits are all healthy, which reads as "nothing is usable".
+  assert.deepEqual(view.bySource, { manual: 1, subscription: 1, goproxy: 0 })
   assert.equal(view.availableTotal, 2, 'both healthy exits count, whatever their source')
   assert.equal(view.pinned?.id, 'http://10.0.0.1:3128')
   assert.equal(view.pinned?.strict, true)
@@ -229,7 +220,6 @@ test('status view projects the four-state machine, exits, bans and prober progre
   assert.deepEqual(cooling?.bannedModels, [{ model: 'muse-spark-1.2-contributor-free', state: 'banned', bannedAt: 123 }])
   assert.deepEqual(cooling?.passive, { ok: 12, limited: 2, refused: 0, dead: 1, transport: 0 })
   assert.deepEqual(view.prober, { queued: 0, inFlight: 1, enqueued: 5, completed: 4 })
-  assert.equal(view.refill?.admitted, 2)
   // URL count only — subscription URLs never ride the bridge.
   assert.equal(view.subscription?.urlCount, 2)
   assert.equal(view.subscription?.pendingConversion, 2)
@@ -271,7 +261,7 @@ test('status view: a pin that is not carrying traffic says so', () => {
   // (there is no exit row to be out of service).
   assert.equal(buildStatusView(fakeRuntime() as never, true, ['opencode.ai']).pinnedSkip, null)
   assert.equal(buildStatusView(fakeRuntime({
-    pool: { ...((fakeRuntime() as { pool: object }).pool), snapshot: () => ({ state: 'healthy', total: 0, bySource: { free: 0, manual: 0, subscription: 0, goproxy: 0 }, availableFree: 0, pinned: 'local' }) },
+    pool: { ...((fakeRuntime() as { pool: object }).pool), snapshot: () => ({ total: 0, bySource: { manual: 0, subscription: 0, goproxy: 0 }, pinned: 'local' }) },
   }) as never, true, ['opencode.ai']).pinnedSkip, null)
 })
 
@@ -381,25 +371,6 @@ test('status view: 本地出口兜底 reports the router, the setting stands in 
   assert.equal(buildStatusView(null, false, []).localFallback, false, 'and absent means strict')
 })
 
-test('status view: with the free source off the badge follows the whole pool', () => {
-  // With the free source off the badge follows the whole pool: the
-  // free-source machine (0 free nodes against a target of 20) would read
-  // "emergency" forever on a subscription-only profile.
-  const view = buildStatusView(fakeRuntime() as never, false, [], { freeEnabled: false })
-  assert.equal(view.stateBasis, 'pool')
-  assert.equal(view.state, 'healthy', '2 of 2 exits are usable')
-
-  const freeBasis = buildStatusView(fakeRuntime() as never, false, [], { freeEnabled: true })
-  assert.equal(freeBasis.stateBasis, 'free')
-  assert.equal(freeBasis.state, 'warning', 'the documented free-source machine is untouched')
-})
-
-test('status view: an empty pool is never "emergency" on the whole-pool basis', () => {
-  const view = buildStatusView(null, false, [], { freeEnabled: false })
-  assert.equal(view.state, 'warning', 'an enabled pool whose exits have not landed yet is not a drained pool')
-  assert.equal(view.stateBasis, 'pool')
-})
-
 test('status view reports the R1 deferral when routing is deferred', () => {
   const rt = fakeRuntime() as never
   ;(rt as { installer: { enabled: boolean; deferredReason: string | null; install(): void; disable(): void; dispose(): void } }).installer = {
@@ -422,7 +393,7 @@ test('status view degrades to a disabled stub without a runtime', () => {
 
 // -- bridge: handlers ------------------------------------------------------------
 
-test('probe handlers: scope all/refill/exit/subscription dispatch and reject unknowns', async () => {
+test('probe handlers: scope all/exit/subscription dispatch and reject unknowns', async () => {
   const refreshed: number[] = []
   const rt = fakeRuntime({ refreshSubscriptions: async () => { refreshed.push(1) } }) as never
   const handlers = makeBridgeHandlers(() => rt, () => ({ pinnedStrict: false, proxyHosts: [] }))
@@ -431,7 +402,7 @@ test('probe handlers: scope all/refill/exit/subscription dispatch and reject unk
   const one = await handlers.probe({ scope: 'exit', exitId: 'http://10.0.0.1:3128' })
   assert.deepEqual(one, { ok: true, value: { queued: 1 } })
   const refill = await handlers.probe({ scope: 'refill' })
-  assert.deepEqual(refill, { ok: true, value: { refilled: true } })
+  assert.equal((refill as { code: string }).code, 'settings-rejected', 'the free-proxy refill scope is gone')
   // The card's 订阅「立即刷新」 button needs a scope of its own: without one,
   // no scope reaches refreshSubscriptions() and a subscription can never be
   // re-pulled on demand — filling singbox.path then appears to do nothing.

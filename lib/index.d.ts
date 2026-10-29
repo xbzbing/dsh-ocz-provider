@@ -28,11 +28,6 @@ interface IpPoolSettings {
   probeContents: string[];
   maxConcurrentProbes: number;
   poolSize: number;
-  free: {
-    enabled: boolean;
-    targetSize: number;
-    blockedCountries: string[];
-  };
   manual: string[];
   subscription: {
     urls: string[];
@@ -263,14 +258,6 @@ interface IpPoolConfig {
    * unaffected.
    */
   localIpFamily?: LocalIpFamily;
-  /** Free-source pool (docs/ip-pool.md 1.2 source 1, 3.5, 4.5). */
-  free?: {
-    enabled?: boolean;
-    /** Target capacity for the free pool (docs 3.5). */
-    targetSize?: number;
-    /** Admission geo blocklist (country codes). */
-    blockedCountries?: string[];
-  };
   /** Airport/Clash subscriptions (docs 1.2 source 3, IP-3). */
   subscriptions?: string[];
   /** Subscription refresh interval ms (docs 4.6, default 30min) and the fetch
@@ -345,15 +332,6 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
-    free: Schema<Schemastery.ObjectS<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, "plain">;
     manual: Schema<string[], string[], "defined">;
     subscriptions: Schema<string[], string[], "plain">;
     subscription: Schema<Schemastery.ObjectS<NoInfer<{
@@ -384,15 +362,6 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
-    free: Schema<Schemastery.ObjectS<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, "plain">;
     manual: Schema<string[], string[], "defined">;
     subscriptions: Schema<string[], string[], "plain">;
     subscription: Schema<Schemastery.ObjectS<NoInfer<{
@@ -460,15 +429,6 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
-    free: Schema<Schemastery.ObjectS<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, "plain">;
     manual: Schema<string[], string[], "defined">;
     subscriptions: Schema<string[], string[], "plain">;
     subscription: Schema<Schemastery.ObjectS<NoInfer<{
@@ -499,15 +459,6 @@ declare const Config: Schema<Schemastery.ObjectS<NoInfer<{
     probeContents: Schema<string[], string[], "defined">;
     maxConcurrentProbes: Schema<number, number, "defined">;
     poolSize: Schema<number, number, "defined">;
-    free: Schema<Schemastery.ObjectS<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-      enabled: Schema<boolean, boolean, "defined">;
-      targetSize: Schema<number, number, "defined">;
-      blockedCountries: Schema<string[], string[], "defined">;
-    }>>, "plain">;
     manual: Schema<string[], string[], "defined">;
     subscriptions: Schema<string[], string[], "plain">;
     subscription: Schema<Schemastery.ObjectS<NoInfer<{

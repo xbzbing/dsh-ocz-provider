@@ -312,7 +312,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const poolOff = status !== null && status.enabled === false
   /**
    * The 订阅 refresh button exists only while subscriptions are configured:
-   * a pool fed by the free source or manual rows alone has nothing to re-pull,
+   * a pool fed by manual rows alone has nothing to re-pull,
    * and a button that answers "nothing to refresh" is noise.
    */
   const hasSubscriptions = (status?.subscription?.urlCount ?? 0) > 0

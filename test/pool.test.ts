@@ -14,7 +14,7 @@ function node(overrides: Partial<ExitNode> = {}): ExitNode {
   return {
     id: 'h:1',
     protocol: 'http',
-    source: 'free',
+    source: 'subscription',
     pinned: false,
     exitIP: '1.1.1.1',
     exitLocation: 'US city',
@@ -86,18 +86,17 @@ test('401/403 is model-level: suspect -> banned, never cools the exit (rule tabl
   assert.ok(p.isUsable('a:1', 'muse'))
 })
 
-test('dead strikes: free nodes are evicted, other sources only disabled (3.5)', () => {
-  const p = pool({ deadEvictions: 2 })
-  p.add(node({ id: 'free:1', source: 'free' }))
+test('dead strikes disable an exit but never evict it', () => {
+  const p = pool()
+  p.add(node({ id: 'sub:1' }))
   p.add(node({ id: 'manual:1', source: 'manual', exitIP: '3.3.3.3' }))
-
-  assert.equal(p.markDeadStrike('free:1'), false)
-  assert.equal(p.markDeadStrike('manual:1'), false)
-  assert.ok(p.has('manual:1'))
+  for (let i = 0; i < 3; i++) {
+    p.markDeadStrike('sub:1')
+    p.markDeadStrike('manual:1')
+  }
+  assert.ok(p.has('sub:1') && p.has('manual:1'))
+  assert.ok(!p.isUsable('sub:1', 'm'))
   assert.ok(!p.isUsable('manual:1', 'm'))
-
-  assert.equal(p.markDeadStrike('free:1'), true)
-  assert.ok(!p.has('free:1'))
 })
 
 test('pick: pinned wins while usable; rotation otherwise (3.3/3.6)', () => {
@@ -162,90 +161,16 @@ test('pick: null when everything is unusable (direct fallback decision, 3.3)', (
   assert.equal(p.pick('ses', 'm'), null)
 })
 
-test('four-state machine thresholds over the free pool (3.5)', () => {
-  const p = pool({ targetSize: 10 })
-  const addFree = (n: number) => {
-    for (let i = 0; i < n; i++) p.add(node({ id: `f:${i}`, exitIP: `10.0.0.${i}`, latencyMs: 100 + i }))
-  }
-  assert.equal(p.state(), 'emergency') // 0 usable of 10
-
-  addFree(10)
-  for (let i = 0; i < 10; i++) p.markOk(`f:${i}`)
-  assert.equal(p.state(), 'healthy') // 10/10
-
-  p.markLimited('f:0') // 9/10 = 0.9 < 0.95
-  assert.equal(p.state(), 'warning')
-
-  for (let i = 1; i < 8; i++) p.markLimited(`f:${i}`) // 2/10 = 0.2
-  assert.equal(p.state(), 'critical')
-
-  for (let i = 8; i < 10; i++) p.markLimited(`f:${i}`) // 0/10
-  assert.equal(p.state(), 'emergency')
-
-  // manual/pinned nodes never count toward the free pool state
-  p.add(node({ id: 'm:1', source: 'manual', exitIP: '8.8.8.8' }))
-  p.markOk('m:1')
-  assert.equal(p.state(), 'emergency')
-})
-
-test('admission quota, capacity and worst-free eviction (3.5)', () => {
-  const p = pool({ targetSize: 2 })
-  p.add(node({ id: 'f:0', exitIP: '1.1.1.1', latencyMs: 100, quality: 'S' }))
-  p.add(node({ id: 'f:1', exitIP: '2.2.2.2', latencyMs: 200, quality: 'A' }))
-  p.markOk('f:0')
-  p.markOk('f:1')
-  assert.ok(p.isFreeFull())
-  assert.equal(p.admissionQuota(), 0)
-
-  // a dead node frees quota for admission
-  p.markLimited('f:0')
-  assert.equal(p.admissionQuota(), 1)
-
-  // replace flow: with the pool full again, evict the worst (C-grade)
-  p.markOk('f:0')
-  p.markOk('f:1')
-  p.add(node({ id: 'f:2', exitIP: '3.3.3.3', latencyMs: 3000, quality: 'C' }))
-  assert.ok(p.evictWorstFree())
-  assert.ok(!p.has('f:2'))
-  assert.ok(p.has('f:0') && p.has('f:1'))
-})
-
-test('evictWorstFree drops C-grade before S-grade', () => {
-  const p = pool({ targetSize: 5 })
-  p.add(node({ id: 's:1', exitIP: '1.1.1.1', latencyMs: 100, quality: 'S' }))
-  p.add(node({ id: 'c:1', exitIP: '2.2.2.2', latencyMs: 3000, quality: 'C' }))
-  assert.ok(p.evictWorstFree())
-  assert.ok(!p.has('c:1'))
-  assert.ok(p.has('s:1'))
-})
-
-test('evictWorstFree drops a dead corpse before any live row', () => {
-  // With the periodic probe gone, a dead free row only leaves the pool through
-  // this eviction or the strike threshold — grading alone would evict a live
-  // C-grade exit while the dead S-grade corpse kept its slot.
-  const p = pool({ targetSize: 5 })
-  p.add(node({ id: 's:1', exitIP: '1.1.1.1', latencyMs: 100, quality: 'S' }))
-  p.add(node({ id: 'c:1', exitIP: '2.2.2.2', latencyMs: 3000, quality: 'C' }))
-  p.markOk('s:1')
-  p.markOk('c:1')
-  p.recordPassiveTransport('s:1') // dead S-grade corpse
-  assert.ok(p.evictWorstFree())
-  assert.ok(!p.has('s:1'), 'the corpse goes first')
-  assert.ok(p.has('c:1'), 'the live C-grade exit survives')
-})
-
-test('snapshot reports state, per-source counts and pinned (diagnostics, 5.3)', () => {
+test('snapshot reports per-source counts and pinned (diagnostics, 5.3)', () => {
   const p = pool()
-  p.add(node({ id: 'a:1', source: 'free' }))
   p.add(node({ id: 'b:2', source: 'manual', exitIP: '2.2.2.2' }))
   p.add(node({ id: 'c:3', source: 'subscription', exitIP: '3.3.3.3' }))
   p.add(node({ id: 'd:4', source: 'goproxy', exitIP: '4.4.4.4' }))
   p.pin('b:2')
   const snap = p.snapshot()
-  assert.equal(snap.total, 4)
-  assert.deepEqual(snap.bySource, { free: 1, manual: 1, subscription: 1, goproxy: 1 })
+  assert.equal(snap.total, 3)
+  assert.deepEqual(snap.bySource, { manual: 1, subscription: 1, goproxy: 1 })
   assert.equal(snap.pinned, 'b:2')
-  assert.equal(snap.state, 'emergency') // 0 usable free of 20 default target
 })
 
 test('unpinning/removing the pinned node clears the pointer', () => {
@@ -261,7 +186,7 @@ test('unpinning/removing the pinned node clears the pointer', () => {
 
 test('recordPassive classifies by the rule table and writes two-tier health', () => {
   const p = pool()
-  p.add(node({ id: 'e:1', source: 'free', exitIP: '9.9.9.9' }))
+  p.add(node({ id: 'e:1', exitIP: '9.9.9.9' }))
   // 2xx -> ok + model ok + counter
   assert.equal(p.recordPassive('e:1', 200, 'big-pickle'), 'ok')
   assert.equal(p.isUsable('e:1', 'big-pickle'), true)
@@ -286,17 +211,18 @@ test('recordPassive classifies by the rule table and writes two-tier health', ()
   assert.equal(p.passiveStats('e:1').dead, 1)
 })
 
-test('recordPassive transport failures strike dead and free nodes get evicted', () => {
+test('recordPassive transport failures strike the exit dead and keep the row', () => {
   const p = pool()
-  p.add(node({ id: 'e:1', source: 'free', exitIP: '9.9.9.9' }))
+  p.add(node({ id: 'e:1', exitIP: '9.9.9.9' }))
   p.recordPassiveTransport('e:1')
-  p.recordPassiveTransport('e:1') // second consecutive strike -> eviction (deadEvictions = 2)
-  assert.equal(p.has('e:1'), false)
+  p.recordPassiveTransport('e:1')
+  assert.equal(p.has('e:1'), true)
+  assert.equal(p.isDead('e:1'), true)
 })
 
 test('rerouteSession drops the sticky exit (degraded exit loses the session)', () => {
   const p = pool()
-  p.add(node({ id: 'a:1', source: 'free', exitIP: '1.1.1.1' }))
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
   const first = p.pick('ses', 'm')
   assert.equal(first, 'a:1')
   p.recordPassive('a:1', 429, 'm')
@@ -366,8 +292,7 @@ test('markUnverified: keeps the node, drops the ok claim, and yields to verified
 test('no periodic probe: a dead exit stays parked until a real-request or manual verdict', () => {
   // There is no due-probe loop (no periodic recheck, no deadRetryMs revival):
   // liveness is judged by real requests only, and the recovery paths are the
-  // strike threshold (free), the reserve swap (subscription), and the card's
-  // 探测 action. Asserted here: a dead row serves nothing, and a passing
+  // reserve swap (subscription) and the card's 探测 action. Asserted here: a dead row serves nothing, and a passing
   // manual probe revives it.
   const p = pool()
   p.add(node({ id: 'x:1', source: 'subscription', exitIP: '5.5.5.5' }))
@@ -422,19 +347,6 @@ test('pin/unpin keep the row flag in step with the pinned slot', () => {
 })
 
 // -- whole-pool capacity + tail demotion -------------
-
-test('poolSize bounds the admission quota across every source, not just free', () => {
-  const p = pool({ poolSize: 3 })
-  assert.equal(p.isFull(), false)
-  assert.equal(p.admissionQuota(), 3, 'free room and pool room agree on an empty pool')
-  p.add(node({ id: 'sub:1', source: 'subscription', exitIP: '3.3.3.1' }))
-  p.add(node({ id: 'sub:2', source: 'subscription', exitIP: '3.3.3.2' }))
-  // The free target alone would still ask for 20 more; the pool capacity caps it.
-  assert.equal(p.admissionQuota(), 1)
-  p.add(node({ id: 'sub:3', source: 'subscription', exitIP: '3.3.3.3' }))
-  assert.equal(p.isFull(), true)
-  assert.equal(p.admissionQuota(), 0)
-})
 
 test('evictWorst drops the slowest unpinned exit and never the pinned one', () => {
   const p = pool({ poolSize: 2 })
@@ -501,8 +413,6 @@ test('remove() forgets the demotion with the node', () => {
 
 test('a dead exit moves to the end of the pool order, once per transition', () => {
   const p = pool()
-  // Subscription rows: free ones are evicted after deadEvictions strikes, which
-  // would empty the row before the ordering assertion could look at it.
   p.add(node({ id: 'a:1', source: 'subscription', exitIP: '1.1.1.1' }))
   p.add(node({ id: 'b:2', source: 'subscription', exitIP: '2.2.2.2' }))
   p.add(node({ id: 'c:3', source: 'subscription', exitIP: '3.3.3.3' }))
@@ -514,7 +424,8 @@ test('a dead exit moves to the end of the pool order, once per transition', () =
   const deaths: string[] = []
   p.onDead((id) => deaths.push(id))
 
-  assert.equal(p.markDeadStrike('a:1'), false, 'a subscription/manual row is never evicted')
+  p.markDeadStrike('a:1')
+  assert.ok(p.has('a:1'), 'a struck row is never evicted')
   assert.deepEqual(p.list().map((entry) => entry.id), ['b:2', 'c:3', 'a:1'], 'the dead exit sinks to the tail')
   assert.deepEqual(deaths, ['a:1'], 'and the runtime is told to rotate')
   assert.equal(p.isDead('a:1'), true)
@@ -535,7 +446,7 @@ test('a throwing dead watcher never fails the strike bookkeeping', () => {
   const p = pool()
   p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
   p.onDead(() => { throw new Error('watcher blew up') })
-  assert.equal(p.markDeadStrike('a:1'), false)
+  p.markDeadStrike('a:1')
   assert.equal(p.isDead('a:1'), true)
   assert.equal(p.list().length, 1)
 })
