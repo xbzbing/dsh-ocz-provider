@@ -28,6 +28,11 @@ export function fieldWrite(field: string, next: unknown, current: unknown, base:
   return { field, op: 'set', value: next }
 }
 
+/** The usage-scope switch writes immediately, outside the draft save. */
+export function usageScopeWriteOps(scope: 'total' | 'run') {
+  return [{ op: 'set' as const, path: ['ipPool', 'usageScope'], value: scope }]
+}
+
 /** Keep a pool edit inside its entry and migrate the old flat URL alias. */
 export function poolWriteOps(writes: FieldWrite[]) {
   return writes.flatMap((write) => {

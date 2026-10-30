@@ -1,0 +1,128 @@
+/* The settings card's exit table and its model-ban list. */
+
+.table {
+  display: block;
+  overflow-x: auto;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 8px;
+}
+
+.tableGrid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tableGrid th,
+.tableGrid td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  text-align: left;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  white-space: nowrap;
+}
+
+.tableGrid th {
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.tableGrid tr:last-child td {
+  border-bottom: none;
+}
+
+/* Row hover keeps the eye on one line across a wide numeric row. */
+.tableGrid tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+/* The action cell mixes a text button (探测) with the icon group: the gap goes
+   between the two things, never inside the group. */
+.tableGrid td > * + * {
+  margin-left: 4px;
+}
+
+.stateCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stateCooling {
+  color: var(--dsw-alias-state-warning-primary, #9a6700);
+}
+
+.stateDead {
+  color: var(--dsw-alias-state-error-primary, #d1242f);
+}
+
+/* The 固定/轮换 icon actions, sized to the text button beside them (探测). */
+.rowIcon {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  line-height: 0;
+  cursor: pointer;
+}
+
+.rowIcon:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.rowIcon:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* -- model-ban list ------------------------------------------------------------- */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2, rgba(246, 248, 254, .5));
+}
+
+.rowList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rowLabel {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-primary, #1f2329);
+  font-size: 13px;
+}
+
+.collapseToggle {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+  font-size: 12px;
+  cursor: pointer;
+}

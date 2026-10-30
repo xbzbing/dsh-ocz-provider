@@ -1,0 +1,285 @@
+/* The exit-stats modal: dialog sizing, tab placement, the exit table, row
+   actions and the outcome toast. */
+
+/* The primitives' Modal defaults to a 380px confirmation card; the exit table
+   needs a data-table width. The double class wins regardless of stylesheet
+   order. One FIXED box for both tabs, so a tab switch never resizes the
+   dialog; 100% (never a viewport calc) keeps it inside the root's padding,
+   per the Modal contract. */
+.statsModal.statsModal {
+  width: min(1040px, 100%);
+  height: min(640px, 100%);
+  max-height: 100%;
+}
+
+/* The Modal's content column (header, optional description, body) only
+   stretches; the pane below scrolls, so title and close stay parked. */
+.statsContent {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The primitives' body is the content column's last DIV, whatever its hashed
+   class: the flex column holding the tab bar plus the ONE scrolling pane. */
+.statsContent > div:last-child {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* The 订阅 refresh button rides the chip row at the trailing edge. */
+.statsSummaryAction {
+  margin-left: auto;
+}
+
+/* Placement for the platform SegmentedTabs bar (its chrome is module-scoped
+   in the primitives). */
+.statsTabs {
+  margin-bottom: 12px;
+}
+
+/* The only scrolling region in the card. */
+.statsPane {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.statsWrap {
+  /* The table is fixed-layout against the dialog width: no sideways scroll. */
+  overflow-x: hidden;
+}
+
+.statsTable {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+/* Column budget (sums to 100%), one rule per <th>: IP, region, state,
+   requests, input, output, cache, latency, last-used, actions. An extra rule
+   silently squeezes the first column. 输出 holds the count and the tok/s note. */
+.statsTable th:nth-child(1) { width: 20%; }
+.statsTable th:nth-child(2) { width: 7%; }
+.statsTable th:nth-child(3) { width: 9%; }
+.statsTable th:nth-child(4) { width: 8%; }
+.statsTable th:nth-child(5) { width: 7%; }
+.statsTable th:nth-child(6) { width: 13%; }
+.statsTable th:nth-child(7) { width: 6%; }
+.statsTable th:nth-child(8) { width: 7%; }
+.statsTable th:nth-child(9) { width: 11%; }
+.statsTable th:nth-child(10) { width: 12%; }
+
+/* 6px side gutters: ten columns of 8px padding would cost the numeric run. */
+.statsTable th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  padding: 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  white-space: normal;
+}
+
+/* Sortable header: a bare button inheriting the th ink; the arrow slot is
+   always rendered so columns do not shift on click. */
+.statsSortButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.statsSortButton:hover {
+  color: var(--dsw-alias-label-primary, #1f2329);
+}
+
+.statsSortButton:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, #4f8cff);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+.statsSortArrow {
+  font-size: 9px;
+  line-height: 1;
+  min-width: 10px;
+  text-align: center;
+}
+
+.statsTable td {
+  padding: 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* The 输出 cell keeps the count and the "N tok/s" note on ONE line. */
+.statsOutputCell {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.statsRowMuted td {
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.statsTable tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+/* The 本机 row closes the table: not an exit, so a heavier top border and
+   muted ink keep it apart from the sorted exits. */
+.statsRowLocal td {
+  border-top: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-bottom: none;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  font-weight: 500;
+}
+
+/* A muted suffix: the local endpoint of a never-verified exit, or a speed
+   note that never breaks between number and unit. */
+.statsEndpoint {
+  margin-left: 4px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  font-size: 0.86em;
+  white-space: nowrap;
+}
+
+.statsDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: middle;
+}
+
+.statsDotOk {
+  background: var(--dsw-alias-state-success-primary, #1a7f37);
+}
+
+.statsDotWarn {
+  background: var(--dsw-alias-state-warning-primary, #9a6700);
+}
+
+.statsDotBad {
+  background: var(--dsw-alias-state-error-primary, #d1242f);
+}
+
+/* The 地区 code never wraps ("SGP" must not break into "SG / P"). */
+.statsRegion {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Two ICON buttons per row (固定/取消固定 + 轮换); the words live in the
+   tooltip and the aria-label. */
+.statsActions {
+  white-space: nowrap;
+}
+
+.rowAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 5px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 5px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+  /* No baseline leading, so both buttons have one height. */
+  line-height: 0;
+  cursor: pointer;
+}
+
+.rowAction:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.rowAction:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The pinned row's toggle paints filled; declared after the hover rule so
+   hovering it does not wash the fill out. */
+.rowActionActive,
+.rowActionActive:hover:not(:disabled) {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: #fff;
+}
+
+.statsInflight {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* The action outcome toast docks at the modal card's bottom-right corner (the
+   nearest positioned ancestor), fades out and unmounts on the same clock. */
+.statsToast {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 2;
+  max-width: min(360px, calc(100% - 40px));
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--dsw-alias-toast-bg, #1f2937);
+  color: var(--dsw-alias-toast-label, #f9fafb);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: var(--dsw-shadow-lv3, 0 8px 24px rgba(0, 0, 0, 0.18));
+  /* `--stats-toast-hold` comes from the component, so one value drives both
+     the unmount timer and this fade delay. */
+  animation:
+    stats-toast-in 160ms ease-out,
+    stats-toast-fade 300ms ease var(--stats-toast-hold, 3000ms) forwards;
+}
+
+/* Warn tone (failure / volatile pin): the same surface, amber label. */
+.statsToastWarn {
+  color: var(--dsw-alias-state-warning-primary, #d29922);
+}
+
+@keyframes stats-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes stats-toast-fade {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* Reduced motion drops the slide; the delayed fade still ends the toast. */
+@media (prefers-reduced-motion: reduce) {
+  .statsToast {
+    animation: stats-toast-fade 300ms ease var(--stats-toast-hold, 3000ms) forwards;
+  }
+}

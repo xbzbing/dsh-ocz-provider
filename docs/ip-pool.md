@@ -730,8 +730,12 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 │   └── client/                        # IP-5 浏览器半边（新）
 │       ├── index.ts                   # configForms.whileServed + slots.inject('plugins.item', id: 'oc2dsh')
 │       ├── IpPoolCard.tsx             # 页给的 ConfigPageForm；写路径 ['ipPool', field]
+│       ├── form-model.ts              # 草稿/已存值对比、跟随与冲突、校验（纯函数）
+│       ├── bridge-client.ts           # postBridge / exitAction（pin 只走 bridge）
+│       ├── usePoolStatus.ts           # 共享 /status 轮询（单请求、隐藏页暂停）
+│       ├── fields/ groups/            # 表单控件与分组
 │       ├── locales.ts                 # zh/en
-│       ├── ip-pool.module.css
+│       ├── *.module.css               # shared / form / exit-table / stats-modal / usage-panel / footer
 │       └── css-modules.d.ts           # 类型 shim
 ├── test/
 │   ├── …（已交付 16 个套件）

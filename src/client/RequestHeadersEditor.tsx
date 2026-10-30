@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
-import type { IpPoolCardLocale } from './IpPoolCard.tsx'
-import styles from './ip-pool.module.css'
+import { useId, type ReactNode } from 'react'
+import type { IpPoolCardLocale } from './types.ts'
+import shared from './shared.module.css'
+import styles from './form.module.css'
 
 /**
  * Zen headers editor body — no section chrome of its own: the collapsible
@@ -15,6 +16,7 @@ export function RequestHeadersEditor(props: {
   onChange(text: string): void
 }): ReactNode {
   const { text, effectiveUserAgent, disabled, t, onChange } = props
+  const hintId = useId()
   return (
     <>
       <label className={styles.field}>
@@ -22,17 +24,17 @@ export function RequestHeadersEditor(props: {
         <textarea
           className={styles.textarea}
           data-testid="field-requestHeaders"
-          aria-describedby="zen-headers-hint"
+          aria-describedby={hintId}
           rows={4}
           spellCheck={false}
           disabled={disabled}
           value={text}
-          placeholder={'User-Agent: opencode/1.19.3 ai/6.0.168 ai-sdk/openai-compatible/2.0.41'}
+          placeholder={'User-Agent: opencode/latest/2.2.0/cli'}
           onChange={(event) => onChange(event.target.value)}
         />
       </label>
-      <span id="zen-headers-hint" className={styles.fieldHint}>{t('requestHeadersHint')}</span>
-      <p className={styles.status} data-testid="zen-effective-user-agent" aria-live="polite">
+      <span id={hintId} className={styles.fieldHint}>{t('requestHeadersHint')}</span>
+      <p className={shared.status} data-testid="zen-effective-user-agent" aria-live="polite">
         {t('requestHeadersEffectiveUA')} <code className={styles.headerValue}>{effectiveUserAgent ?? t('statusLoading')}</code>
       </p>
     </>

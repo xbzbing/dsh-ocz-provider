@@ -3,11 +3,10 @@
  * (usable exits) with a request-count subline, click to open a centered modal
  * that lists every pool exit sorted BY REQUEST COUNT — per-exit tokens,
  * latency, in-flight markers and last-used stamps, plus pool-wide totals and
- * the direct-fallback bucket. Data rides the plugin's own loopback bridge
- * (the same /status POST the settings card polls), so the entry works whether
- * or not the settings card is mounted and never touches host internals.
- * Counters are process-lifetime: they reset when the host restarts, and the
- * modal says so.
+ * the 本机 row. Data rides the shared /status poller (usePoolStatus), so the
+ * entry works whether or not the settings card is mounted. Request counts are
+ * process-lifetime; per-exit tokens follow the card's usage scope (default:
+ * the persisted ledger).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -16,21 +15,16 @@ import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import { BRIDGE_PREFIX, type PoolStatusView, type TokenTotalsView } from './IpPoolCard.tsx'
+import { bridgeErrorText, exitAction, postBridge, probeAction, type ExitAction } from './bridge-client.ts'
+import type { ExitRowView, TokenTotalsView } from './types.ts'
 import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import { UsagePanel } from './UsagePanel.tsx'
 import { compact, grandTotal } from './usage-format.ts'
-import styles from './ip-pool.module.css'
-
-/**
- * The display total: input + output + cacheRead + cacheWrite. The tracker's
- * `totalTokens` is only input + output (net-new tokens), which reads ~3x
- * smaller than the Agent's own all-in count, so the footer and the modal show
- * the all-in number and the breakdown stays in the table notes.
- * (The figure itself lives in usage-format.ts so the footer, modal and usage
- * panel render the same number.)
- */
+import { usePoolStatus } from './usePoolStatus.ts'
+import shared from './shared.module.css'
+import footer from './footer.module.css'
+import styles from './stats-modal.module.css'
 
 /** Cache share of one bucket, for the per-row note (0 hides the note). */
 function cacheTotal(tokens: TokenTotalsView): number {
@@ -57,35 +51,15 @@ function timeLabel(epoch: number, never: string): string {
 
 /** An exit row reads "usable" when it is probed healthy (state ok) and not
  *  cooling; bans are per-model, so they never hide a whole row. */
-function isUsable(exit: PoolStatusView['exits'][number]): boolean {
+function isUsable(exit: ExitRowView): boolean {
   return exit.state === 'ok' && !exit.cooling
 }
 
 /** The sortable columns: request count, the three token buckets, latency. */
 type SortKey = 'requests' | 'input' | 'output' | 'cache' | 'latency'
 
-/**
- * One row action the modal can send. `pin-local` is the 本机 row's button:
- * the host owns the sentinel value, so the bundle names the intent, never the
- * spelling (mirrors SETTINGS_NAMESPACE's literal-only rule in client/index.ts).
- * `rotate` deletes nothing: a reserve takes the row's place, or it sinks to
- * the pool tail.
- */
-type ExitAction = 'pin' | 'pin-local' | 'unpin' | 'rotate'
-
-/** The /exit response's value shape. */
-interface ExitActionResult {
-  pinned?: string
-  local?: boolean
-  persisted?: boolean
-  /** A reserve was promoted into the rotated row's slot. */
-  promoted?: boolean
-  /** A rotation round held the rebuild mutex: nothing moved. */
-  busy?: boolean
-}
-
 /** One exit's value under a sort key. */
-function sortMetric(exit: PoolStatusView['exits'][number], key: SortKey): number {
+function sortMetric(exit: ExitRowView, key: SortKey): number {
   if (key === 'input') return exit.tokens.inputTokens
   if (key === 'output') return exit.tokens.outputTokens
   if (key === 'cache') return cacheTotal(exit.tokens)
@@ -98,18 +72,15 @@ function sortMetric(exit: PoolStatusView['exits'][number], key: SortKey): number
  * @returns the button and (when open) the portaled stats dialog.
  */
 export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
-  const [status, setStatus] = useState<PoolStatusView | null>(null)
   const [open, setOpen] = useState(false)
-  const [failed, setFailed] = useState(false)
+  // Gentle while closed (the button carries live numbers too), tighter while open.
+  const { status, error, updatedAt, refresh } = usePoolStatus(open ? 2_000 : 10_000)
+  const stale = error !== null && status !== null
   /** Headline ordering contract: newest click wins, request count is home. */
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'requests', dir: 'desc' })
   /** Which pane the modal shows: the exit table, or the traffic breakdown. */
   const [tab, setTab] = useState<'exits' | 'usage'>('exits')
-  /**
-   * The pane's own scroll container: the tab bar sits OUTSIDE the scrolling
-   * region, and a pane switch resets the offset — a pane is a new view, not a
-   * continuation of the previous one's scroll position.
-   */
+  /** The pane's own scroll container; a pane switch resets its offset. */
   const paneRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (paneRef.current !== null) paneRef.current.scrollTop = 0
@@ -130,88 +101,36 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     setNote({ text, warn, seq: noteSeq.current })
   }, [])
 
-  // Auto-dismiss: the toast fades out (CSS delay matches) and unmounts, so no
-  // outcome text survives into the next glance at the table.
   useEffect(() => {
     if (note === null) return
     const timer = window.setTimeout(() => setNote(null), TOAST_HOLD_MS + TOAST_FADE_MS)
     return () => window.clearTimeout(timer)
   }, [note])
 
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const response = await fetch(`${BRIDGE_PREFIX}/status`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      })
-      const body = await response.json() as { ok: boolean; value?: PoolStatusView }
-      if (body.ok && body.value) {
-        setStatus(body.value)
-        setFailed(false)
-      } else {
-        setFailed(true)
-      }
-    } catch {
-      setFailed(true)
-    }
-  }, [])
-
-  // The button carries live numbers too: poll gently while closed (10s),
-  // tighter while the modal is open (2s).
-  useEffect(() => {
-    void refresh()
-    const interval = setInterval(() => void refresh(), open ? 2_000 : 10_000)
-    return () => clearInterval(interval)
-  }, [open, refresh])
-
-  /**
-   * Clear the usage ledger. Same loopback route family as the row actions;
-   * the modal re-reads /status afterwards so the chips, the bar list and the
-   * footer all drop to zero together.
-   */
+  /** 清空: drop the usage ledger, then re-read so every figure drops together. */
   const clearUsage = useCallback(async (): Promise<boolean> => {
     setNote(null)
-    try {
-      const response = await fetch(`${BRIDGE_PREFIX}/usage`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'reset' }),
-      })
-      const body = await response.json() as { ok: boolean; value?: { cleared?: boolean } }
-      if (!body.ok || body.value?.cleared !== true) {
-        showNote(t('statsActionFailed'), true)
-        return false
-      }
-      showNote(t('usageCleared'), false)
-      await refresh()
-      return true
-    } catch {
-      showNote(t('statsActionFailed'), true)
+    const reply = await postBridge<{ cleared?: boolean }>('/usage', { action: 'reset' })
+    if (!reply.ok || reply.value?.cleared !== true) {
+      showNote(reply.ok ? t('statsActionFailed') : bridgeErrorText(reply, t('statsActionFailed')), true)
       return false
     }
+    showNote(t('usageCleared'), false)
+    await refresh()
+    return true
   }, [refresh, showNote, t])
 
   /**
-   * 订阅「立即刷新」: the same /probe route the settings card's button sends
-   * (docs §5.2), so the modal can re-pull the subscriptions without opening
-   * the settings page. The POST answers only when the refresh round ends, so
-   * the shared busy flag covers the whole pull; the follow-up /status read is
-   * what makes the table show the converted rows.
+   * 订阅「立即刷新」: the same /probe scope the settings card sends. The POST
+   * answers only when the refresh round ends, so the busy flag covers the whole
+   * pull; the follow-up /status read shows the converted rows.
    */
   const refreshSubscriptions = useCallback(async (): Promise<void> => {
     setBusy('refresh-subscriptions')
     setNote(null)
     try {
-      const response = await fetch(`${BRIDGE_PREFIX}/probe`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ scope: 'subscription' }),
-      })
-      const body = await response.json() as { ok: boolean }
-      showNote(body.ok ? t('statsSubscriptionRefreshed') : t('statsActionFailed'), !body.ok)
-    } catch {
-      showNote(t('statsActionFailed'), true)
+      const reply = await probeAction({ scope: 'subscription' })
+      showNote(reply.ok ? t('statsSubscriptionRefreshed') : bridgeErrorText(reply, t('statsActionFailed')), !reply.ok)
     } finally {
       setBusy('')
       await refresh()
@@ -219,29 +138,22 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [refresh, showNote, t])
 
   /**
-   * One row action (固定 / 取消固定 / 轮换) over the bridge. The bridge owns the
-   * settings write, the live pin and the candidate refill, so this stays a
-   * POST plus a re-read — and it reports what actually happened, because a
-   * rotation has two outcomes (a reserve took the slot, or the row sank to
-   * the tail).
+   * One row action (固定 / 取消固定 / 轮换) over the bridge, which owns the
+   * listener check, the settings write and the live pin. The toast reports what
+   * actually happened, including the host's refusal text (e.g. an unreachable
+   * exit) and a rotation's two outcomes.
    */
   const runExitAction = useCallback(async (action: ExitAction, exitId?: string): Promise<void> => {
     setBusy(`${action}:${exitId ?? ''}`)
     setNote(null)
     try {
-      const response = await fetch(`${BRIDGE_PREFIX}/exit`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(action === 'pin-local' || action === 'unpin' ? { action } : { action, exitId }),
-      })
-      const body = await response.json() as { ok: boolean; value?: ExitActionResult }
-      if (!body.ok || body.value === undefined) {
-        showNote(t('statsActionFailed'), true)
+      const reply = await exitAction(action, exitId)
+      if (!reply.ok || reply.value == null) {
+        showNote(reply.ok ? t('statsActionFailed') : bridgeErrorText(reply, t('statsActionFailed')), true)
         return
       }
-      const value = body.value
-      // A 轮换 that met a running round changed nothing: saying "rotated" there
-      // would be a lie, and the operator can just click again.
+      const value = reply.value
+      // A 轮换 that met a running round changed nothing.
       if (action === 'rotate' && value.busy === true) {
         showNote(t('statsActionBusy'), true)
         return
@@ -253,13 +165,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           : action === 'pin-local'
             ? t('statsActionPinnedLocal')
             : t('statsActionPinned')
-      // A read-only profile still pins live, but the click has to say so: the
-      // pin would be lost on the next restart.
+      // A read-only profile still pins live, but the pin is lost on restart.
       showNote(value.persisted === false
         ? `${text} · ${t('statsActionVolatile')}`
         : text, value.persisted === false)
-    } catch {
-      showNote(t('statsActionFailed'), true)
     } finally {
       setBusy('')
       await refresh()
@@ -273,20 +182,15 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     const requests = exits.reduce((sum, exit) => sum + exit.requests, 0) + localRequests
     const tokens = exits.reduce((sum, exit) => sum + grandTotal(exit.tokens), 0) + (localTokens === undefined ? 0 : grandTotal(localTokens))
     const inFlight = exits.reduce((sum, exit) => sum + exit.inFlight, 0)
-    // Pool-wide recent (3-min window) output speed, computed host-side from
-    // the process tracker's rolling ring.
+    // Pool-wide recent (3-min window) output speed, computed host-side.
     const speed = status?.recentSpeed ?? 0
     return { requests, tokens, inFlight, speed }
   }, [status])
 
   /**
-   * The footer's own numbers. Requests stay the ledger's ALL-TIME total and
-   * speed stays the recent-window gauge; the token figure is TODAY's spend —
-   * the day bucket the bridge already serves as `todayTokens`, never the
-   * scope the card's switch selected, so the footer means the same thing
-   * regardless of what the modal was last left on. Falls back to the live
-   * totals when the host serves no ledger (the bridge's todayTokens does the
-   * same, so both paths agree).
+   * The footer's own numbers: the ledger's ALL-TIME request total, TODAY's
+   * token spend (`todayTokens`, never the card's scope) and the recent-window
+   * speed. Falls back to the live totals when the host serves no ledger.
    */
   const overview = useMemo(() => {
     if (status === null) return totals
@@ -296,25 +200,15 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
       requests: ledger.total.requests,
       tokens: status.todayTokens ?? 0,
       inFlight: totals.inFlight,
-      // The footer's speed is the same recent-window gauge as the modal's —
-      // a live number, not a lifetime average.
       speed: status.recentSpeed ?? 0,
     }
   }, [status, totals])
 
   const usable = status?.availableTotal ?? 0
   const total = status?.total ?? 0
-  /**
-   * The pool being switched off means no traffic goes through an exit at all,
-   * so the exit table is not a view of anything in use: off renders the local
-   * row alone, never a "0/13 available" table that reads as a broken pool.
-   */
+  /** Pool off = no traffic goes through an exit: the table shows the 本机 row alone. */
   const poolOff = status !== null && status.enabled === false
-  /**
-   * The 订阅 refresh button exists only while subscriptions are configured:
-   * a pool fed by manual rows alone has nothing to re-pull,
-   * and a button that answers "nothing to refresh" is noise.
-   */
+  /** The 订阅 refresh button exists only while subscriptions are configured. */
   const hasSubscriptions = (status?.subscription?.urlCount ?? 0) > 0
 
   // Sorted by the clicked column — request count descending is the home
@@ -355,83 +249,63 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
     </th>
   )
 
-  /**
-   * The two panes as PLATFORM tabs: `SegmentedTabs` owns the chrome — equal
-   * widths, a sliding indicator, arrow-key navigation and a single tab stop —
-   * and links each tab to the panel id rendered below, so this is real tab UI
-   * rather than two buttons, and the bar sits OUTSIDE the scrolling pane.
-   */
+  /** The two panes as platform tabs, each linked to the panel rendered below. */
   const tabs: [SegmentedTab<'exits' | 'usage'>, SegmentedTab<'exits' | 'usage'>] = [
     { value: 'exits', label: t('tabExits'), id: 'oc2dsh-stats-tab-exits', panelId: 'oc2dsh-stats-panel-exits' },
     { value: 'usage', label: t('tabUsage'), id: 'oc2dsh-stats-tab-usage', panelId: 'oc2dsh-stats-panel-usage' },
   ]
   const activeTab = tabs[tab === 'usage' ? 1 : 0]
+  const staleText = stale ? t('statsStale', { time: timeLabel(updatedAt, t('statsNever')) }) : ''
+  const footerSummary = `${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`
 
   return (
     <>
       <button
         type="button"
-        className={wide ? styles.footerEntry : `${styles.footerEntry} ${styles.footerEntryCompact}`}
+        className={wide ? footer.footerEntry : `${footer.footerEntry} ${footer.footerEntryCompact}`}
         onClick={() => setOpen(true)}
-        title={t('footerTitle')}
+        title={stale ? `${t('footerTitle')} · ${staleText}` : t('footerTitle')}
         aria-haspopup="dialog"
       >
-        <span className={styles.footerIcon} aria-hidden="true">◈</span>
+        <span className={stale ? `${footer.footerIcon} ${footer.footerStale}` : footer.footerIcon} aria-hidden="true">◈</span>
         {wide && (
-          <span className={styles.footerText}>
-            <span className={styles.footerMain}>
+          <span className={footer.footerText}>
+            <span className={footer.footerMain}>
               {status === null
                 ? t('footerDisabled')
                 : poolOff
-                  // Pool off = every request leaves from this machine: the
-                  // count that matters is "本地直连", not a dead "0/13".
+                  // Pool off = every request leaves from this machine.
                   ? t('footerLocal')
-                  : <>{usable}<span className={styles.footerUnit}> / {total} {t('footerLabel')}</span></>}
+                  : <>{usable}<span className={footer.footerUnit}> / {total} {t('footerLabel')}</span></>}
             </span>
-            <span className={styles.footerSub}>
+            <span className={footer.footerSub}>
               {t('footerRequests', { count: overview.requests.toLocaleString() })}
               {' · '}
               {compact(overview.tokens)} tok
-              {/* The pool's own decode speed, hidden at 0 — nothing has
-                  streamed yet, and "0 tok/s" reads as a stall rather than an
-                  empty counter. */}
+              {/* Hidden at 0: "0 tok/s" reads as a stall, not an empty counter. */}
               {overview.speed > 0 && <>{' · '}{t('footerSpeed', { count: overview.speed.toLocaleString() })}</>}
             </span>
           </span>
         )}
         {/*
-          Two footer buttons can share this row (another plugin's trigger sits
-          on the left), and a shared row leaves each button about half as
-          wide — the request/token pair stops fitting. Which variant is live is
-          a layout question, not a state question, so it is answered by the
-          button's OWN width through a container query: the wide sidebar keeps
-          both numbers when this button has the row to itself, and falls back
-          to the compact label the moment a second button squeezes it (below
-          180px, see ip-pool.module.css). The rail (wide === false, ~56px)
-          always takes the single-line span. All three variants render
-          overview.tokens (today's spend) and never disagree.
+          A second footer trigger can halve this button's width, so the wide
+          variant switches to the compact label by the button's OWN width
+          (container query, footer.module.css); the rail always takes the
+          single-line span. Every variant renders today's tokens.
         */}
         {wide ? (
-          <span
-            className={styles.footerCompactOnNarrow}
-            title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
-          >
-            <span className={styles.footerCompactLine}>
+          <span className={footer.footerCompactOnNarrow} title={footerSummary}>
+            <span className={footer.footerCompactLine}>
               {status === null ? '—' : `${compact(overview.tokens)} tok`}
             </span>
-            {/* Hidden at 0 like everywhere else: an empty window means no
-                recent traffic, and "0 tok/s" would read as a stall. */}
             {status !== null && overview.speed > 0 && (
-              <span className={styles.footerCompactLine}>
+              <span className={footer.footerCompactLine}>
                 {t('footerSpeed', { count: overview.speed.toLocaleString() })}
               </span>
             )}
           </span>
         ) : (
-          <span
-            className={styles.footerCompact}
-            title={`${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`}
-          >
+          <span className={footer.footerCompact} title={footerSummary}>
             {status === null ? '—' : `${compact(overview.tokens)} tok`}
           </span>
         )}
@@ -447,11 +321,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         className={styles.statsModal}
         contentClassName={styles.statsContent}
       >
-        {/* Two panes: the per-exit table, and the persisted traffic
-            breakdown. The tab bar is platform SegmentedTabs and sits OUTSIDE
-            the scrolling pane below, so tall content cannot drag it out of the
-            card, and a pane switch resets the pane's scroll offset. The
-            description follows the active pane (exit table vs ledger). */}
+        {/* The tab bar sits OUTSIDE the scrolling pane, so tall content cannot
+            drag it out of the card; the description follows the active pane. */}
         <SegmentedTabs
           items={tabs}
           value={tab}
@@ -459,8 +330,6 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           label={t('statsTabsLabel')}
           className={styles.statsTabs}
         />
-        {/* The card's only scrolling region: the header and the tab bar stay
-            parked above it, and the ref lets a pane switch reset the offset. */}
         <div
           ref={paneRef}
           className={styles.statsPane}
@@ -468,25 +337,25 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           id={activeTab.panelId}
           aria-labelledby={activeTab.id}
         >
+        {/* A later refresh failed: the numbers below are the last good ones. */}
+        {stale && <p className={shared.statusStale} role="status" data-testid="stats-stale">{staleText}</p>}
         {tab === 'usage' ? (
           status?.usage == null
-            ? <p className={styles.status}>{t('usageNoStore')}</p>
+            ? <p className={shared.status}>{error !== null && status === null ? t('statsError') : t('usageNoStore')}</p>
             : <UsagePanel usage={status.usage} t={t} onClear={clearUsage} />
         ) : (
         <>
-        <div className={styles.statsSummary}>
-          <span className={styles.statsChip}>{poolOff ? t('footerDisabled') : t('footerUsable', { usable, total })}</span>
-          <span className={styles.statsChip}>{t('statsSummaryRequests', { count: totals.requests.toLocaleString() })}</span>
-          <span className={styles.statsChip}>{t('statsSummaryTokens', { count: compact(totals.tokens) })}</span>
+        <div className={shared.statsSummary}>
+          <span className={shared.statsChip}>{poolOff ? t('footerDisabled') : t('footerUsable', { usable, total })}</span>
+          <span className={shared.statsChip}>{t('statsSummaryRequests', { count: totals.requests.toLocaleString() })}</span>
+          <span className={shared.statsChip}>{t('statsSummaryTokens', { count: compact(totals.tokens) })}</span>
           {totals.speed > 0 && (
-            <span className={styles.statsChip}>{t('statsSummarySpeed', { count: totals.speed.toLocaleString() })}</span>
+            <span className={shared.statsChip}>{t('statsSummarySpeed', { count: totals.speed.toLocaleString() })}</span>
           )}
-          <span className={styles.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
-          <span className={styles.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
-          <span className={styles.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
-          {/* 订阅 refresh, on the SAME row as the chips but pushed to the
-              trailing edge — the action belongs to the exit view, so the 流量
-              pane never carries it. */}
+          <span className={shared.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
+          <span className={shared.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
+          <span className={shared.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
+          {/* 订阅 refresh belongs to the exit view, at the row's trailing edge. */}
           {hasSubscriptions && (
             <Button
               variant="outline"
@@ -501,9 +370,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             </Button>
           )}
         </div>
-        {poolOff && <p className={styles.status}>{t('statsPoolOff')}</p>}
+        {poolOff && <p className={shared.status}>{t('statsPoolOff')}</p>}
         {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
-          <p className={styles.status}>{failed && status === null ? t('statsError') : t('statsEmpty')}</p>
+          <p className={shared.status}>{error !== null && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (
           <div className={styles.statsWrap}>
             <table className={styles.statsTable}>
@@ -540,19 +409,14 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                           : t('statsStateUnverified')
                   return (
                     <tr key={exit.id} className={usableRow ? undefined : styles.statsRowMuted}>
-                      {/* The location rides the IP cell as a tooltip instead of
-                          taking a column of its own: reference data, looked up
-                          per row, in a table that is already dense. */}
-                      <td className={styles.mono} title={exit.exitLocation || undefined}>
-                        {/* An exit that was never verified has no exit IP; its
-                            local endpoint (the row id) sits after an explicit
-                            dash, muted, as the debuggable handle it is. */}
+                      {/* The location rides the IP cell as a tooltip. */}
+                      <td className={shared.mono} title={exit.exitLocation || undefined}>
+                        {/* A never-verified exit has no exit IP: its local
+                            endpoint (the row id) follows the dash, muted. */}
                         {exit.exitIP !== '' ? exit.exitIP : t('statsNever')}
                         {exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}
                         {exit.exitIP === '' && <span className={styles.statsEndpoint}>{exit.id}</span>}
                       </td>
-                      {/* Region code, not the full "HK Central": that string
-                          is one hover away on the IP cell. */}
                       <td className={styles.statsRegion} title={exit.exitLocation || undefined}>
                         {regionCode(exit.exitLocation) || t('statsNever')}
                       </td>
@@ -576,14 +440,11 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                         )}
                         {timeLabel(exit.lastUsedAt, t('statsNever'))}
                       </td>
-                      {/* Two ICON actions: 固定 pins the whole pool's traffic to
-                          this exit (the settings field, written through the
-                          bridge); 轮换 hands the row to the candidate list — a
-                          reserve takes the slot, or the row sinks to the tail
-                          when there is none. The words live in the tooltip and
-                          the aria-label. */}
+                      {/* Two ICON actions: 固定 pins the pool's traffic to this
+                          exit (through the bridge); 轮换 hands the row to the
+                          candidate list. The words live in tooltip and label. */}
                       <td className={styles.statsActions}>
-                        <span className={styles.actionGroup}>
+                        <span className={shared.actionGroup}>
                         {exit.pinned ? (
                           <button
                             type="button"
@@ -623,11 +484,10 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   )
                 })}
                 <tr className={styles.statsRowLocal} data-local-egress>
-                  <td className={styles.mono}>{t('statsLocalIp')}</td>
+                  <td className={shared.mono}>{t('statsLocalIp')}</td>
                   <td>{t('statsNever')}</td>
                   <td>
-                    {/* Green, like a usable exit: this machine IS a working
-                        egress. */}
+                    {/* Green, like a usable exit: this machine IS a working egress. */}
                     <span className={`${styles.statsDot} ${styles.statsDotOk}`} aria-hidden="true" />
                     {t('statsLocalState')}
                   </td>
@@ -646,10 +506,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                   <td>{status?.local === undefined || cacheTotal(status.local.tokens) === 0 ? '—' : compact(cacheTotal(status.local.tokens))}</td>
                   <td>{t('statsNever')}</td>
                   <td>{timeLabel(status?.local?.lastUsedAt ?? 0, t('statsNever'))}</td>
-                  {/* 固定 on the 本机 row pins local egress itself: every request
-                      stays on this machine, no exit at all. */}
+                  {/* 固定 on the 本机 row pins local egress itself: no exit at all. */}
                   <td className={styles.statsActions}>
-                    <span className={styles.actionGroup}>
+                    <span className={shared.actionGroup}>
                     {status?.pinned?.local === true ? (
                       <button
                         type="button"
@@ -683,13 +542,8 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         </>
         )}
         </div>
-        {/*
-          The outcome toast docks at the modal's own bottom-right corner and
-          dismisses itself on the hold/fade clock. Absolute positioning
-          anchors to the dialog card (the nearest positioned ancestor), so it
-          rides the modal even while the content region scrolls beneath it,
-          and `key` restarts the show cycle when the same text fires twice.
-        */}
+        {/* The outcome toast docks at the modal card's bottom-right corner;
+            `key` restarts the show cycle when the same text fires twice. */}
         {note !== null && (
           <div
             key={note.seq}

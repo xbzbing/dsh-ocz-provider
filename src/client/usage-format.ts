@@ -1,4 +1,4 @@
-import type { TokenTotalsView } from './IpPoolCard.tsx'
+import type { TokenTotalsView } from './types.ts'
 
 /**
  * Shared token-display formatting for the IP-pool client surfaces (the footer

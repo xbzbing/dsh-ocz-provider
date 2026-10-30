@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react'
-import type { IpPoolCardLocale } from './IpPoolCard.tsx'
-import styles from './ip-pool.module.css'
+import { useId, type ReactNode } from 'react'
+import type { IpPoolCardLocale } from './types.ts'
+import shared from './shared.module.css'
+import styles from './form.module.css'
 
 /**
  * 模型上下文 editor body — no section chrome of its own: the collapsible
@@ -15,6 +16,7 @@ export function ModelContextEditor(props: {
 }): ReactNode {
   const { text, disabled, t, onChange } = props
   const count = text.split('\n').filter((line) => line.trim() !== '').length
+  const hintId = useId()
   return (
     <>
       <label className={styles.field}>
@@ -22,7 +24,7 @@ export function ModelContextEditor(props: {
         <textarea
           className={styles.textarea}
           data-testid="field-modelContextWindows"
-          aria-describedby="model-context-hint"
+          aria-describedby={hintId}
           rows={4}
           spellCheck={false}
           disabled={disabled}
@@ -31,8 +33,8 @@ export function ModelContextEditor(props: {
           onChange={(event) => onChange(event.target.value)}
         />
       </label>
-      <span id="model-context-hint" className={styles.fieldHint}>{t('modelContextHint')}</span>
-      <p className={styles.status} data-testid="model-context-count" aria-live="polite">
+      <span id={hintId} className={styles.fieldHint}>{t('modelContextHint')}</span>
+      <p className={shared.status} data-testid="model-context-count">
         {t('modelContextCount', { count: String(count) })}
       </p>
     </>

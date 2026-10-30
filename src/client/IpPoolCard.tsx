@@ -1,66 +1,54 @@
 /**
- * IP 池 page body: the editable form on the Plugins page. Two mounting eras
- * share one card: the DSH 0.2 `plugins.bundle.config` slot embeds it directly
- * on the bundle's detail page (设置 → 插件 → oc2dsh), and the
- * pre-0.2 `plugins.item` slot lists it as an official-plugin page. Either
- * way, configuration rides the settings provider's own ConfigForm (a
- * `ConfigFormSnapshot` plus `mutate`), so dsh-llm-proxy's loopback fallback
- * compat layer is deliberately absent (docs/ip-pool.md §5). Runtime state and
- * probe actions ride the plugin's own bridge (/status, /models, /probe). Every
- * setting applies live on save — no restart (docs/ip-pool.md §5).
+ * IP 池 page body: the editable form on the Plugins page. The DSH 0.2
+ * `plugins.bundle.config` slot embeds it on the bundle's detail page (设置 →
+ * 插件 → oc2dsh), and the pre-0.2 `plugins.item` slot lists it as an
+ * official-plugin page. Either way configuration rides the settings
+ * provider's ConfigForm (a `ConfigFormSnapshot` plus `mutate`); runtime state
+ * and actions ride the plugin's own bridge (/status, /models, /probe, /exit).
+ * Every setting applies live on save (docs/ip-pool.md §5).
  *
- * Pool edits use `['ipPool', <field>]`; Zen header overrides use the separate
+ * Pool edits use `['ipPool', <field>]`; Zen header overrides the separate
  * `['requestHeaders']` volatile dictionary, and per-model context windows the
- * `['modelContextWindows']` node. All share one revision and save.
+ * `['modelContextWindows']` node. All share one revision and save. Pins never
+ * write settings directly: they go through the bridge's /exit action.
  */
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, useState } from 'react'
 import type { ReactNode } from 'react'
-import {
-  Button,
-  DisclosureRow,
-  IconChevronDownOutlineRegular,
-  IconCloseFillMedium,
-  Input,
-  Menu,
-  SegmentedControl,
-  SettingsForm,
-  StateDot,
-  Switch,
-  Tag,
-} from '@deepseek-ai/dsh-client-ui-primitives'
+import { SettingsForm, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the Plugins page's SlotMap merge (the 'plugins.bundle.config'
-// keyed entry, whose owner embeds this form on the bundle's detail page, and
-// the legacy 'plugins.item' list entry).
+// keyed entry and the legacy 'plugins.item' list entry).
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
-// Type-only: the settings provider's `ConfigFormSnapshot`/`ConfigForm`, the
-// faces this page reads and writes through.
-import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
-import type { en } from './locales.ts'
-import styles from './ip-pool.module.css'
-import { PinIcon, RotateIcon } from './icons.tsx'
-import { fieldWrite, modelContextWriteOps, poolWriteOps, requestHeadersWriteOps, type FieldWrite } from './settings-writes.ts'
-import { formatModelContextWindows, sanitizeModelContextWindows, type ModelContextWindows } from '../model-context.ts'
-import { formatRequestHeaders, normalizeRequestHeaders, parseRequestHeaders } from '../request-headers.ts'
-import { RequestHeadersEditor } from './RequestHeadersEditor.tsx'
+// Type-only: the settings provider's `ConfigFormSnapshot`/`ConfigForm`.
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { IpPoolKey } from './locales.ts'
+import { bridgeErrorText, exitAction, postBridge, probeAction, type BridgeReply, type ProbeScope } from './bridge-client.ts'
+import { ExitTable } from './ExitTable.tsx'
+import { Group, loadGroupState, GROUP_STATE_KEY, type GroupChrome } from './fields/Group.tsx'
+import { LocalFamilyPicker } from './fields/LocalFamilyPicker.tsx'
+import type { ProbeModelRow } from './fields/ModelPicker.tsx'
+import {
+  diffWrites, emptyForm, FIELD_GROUP, followServed, formFromValue, liveConflicts, pristineDraft,
+  servedBase, servedSection, validateForm,
+  type FormField, type FormState, type GroupId, type PoolDraft,
+} from './form-model.ts'
+import { ProbeGroup } from './groups/ProbeGroup.tsx'
+import { SchedulingGroup } from './groups/SchedulingGroup.tsx'
+import { SourcesGroup } from './groups/SourcesGroup.tsx'
+import { UsageGroup } from './groups/UsageGroup.tsx'
 import { ModelContextEditor } from './ModelContextEditor.tsx'
+import { OverviewBar } from './OverviewBar.tsx'
+import { RequestHeadersEditor } from './RequestHeadersEditor.tsx'
+import { modelContextWriteOps, poolWriteOps, requestHeadersWriteOps, usageScopeWriteOps } from './settings-writes.ts'
+import type { ConfigPageForm, ConfigPathOp, IpPoolCardLocale, UsageScopeView } from './types.ts'
+import { usePoolStatus } from './usePoolStatus.ts'
+import { formatModelContextWindows, sanitizeModelContextWindows } from '../model-context.ts'
+import { formatRequestHeaders, normalizeRequestHeaders, parseRequestHeaders } from '../request-headers.ts'
+import shared from './shared.module.css'
+import styles from './form.module.css'
 
-/** The reactive values and commands this page reads and writes through. */
-export interface ConfigPageForm {
-  /** Accepted Host values, refreshed by the provider. */
-  readonly state: ConfigFormSnapshot<Record<string, unknown>>
-  /** Submit field edits together with the revision the editor read. */
-  mutate(ops: readonly ConfigPathOp[], expectedRevision?: number): Promise<boolean>
-}
-
-/** One settings write, as the Host's path-op vocabulary spells it. */
-export type ConfigPathOp =
-  | { op: 'set'; path: string[]; value: unknown }
-  | { op: 'unset'; path: string[] }
-
-/** Locale-bound copy for the `settings.ip-pool` namespace. */
-export type IpPoolCardLocale = PropsLocale<'settings.ip-pool'>['t']
+export type { ConfigPageForm, ConfigPathOp, IpPoolCardLocale, IpPoolSettingsValue } from './types.ts'
 
 /**
  * The card's own contract: the view the owner asked for, the bound locale,
@@ -73,17 +61,13 @@ export interface IpPoolCardOwnProps {
   readonly form?: ConfigPageForm
 }
 
-/**
- * Props the legacy `plugins.item` slot binds for the IP 池 page: the view it
- * asked for, the locale copy, and — for `view: 'page'` — the entry's settings
- * form.
- */
+/** Props the legacy `plugins.item` slot binds for the IP 池 page. */
 export type IpPoolCardProps =
   PropsRuntime<'plugins.item'>
   & PropsLocale<'settings.ip-pool'>
 
 /** Copy of the form chrome (the shared SettingsForm labels). */
-const formLabels = (t: IpPoolCardProps['t']): {
+const formLabels = (t: IpPoolCardLocale): {
   unavailable: string
   readOnly: string
   saveFailed: string
@@ -97,885 +81,80 @@ const formLabels = (t: IpPoolCardProps['t']): {
   saving: t('saving'),
 })
 
-/** The resolved ip-pool settings value (mirrors the schemastery schema). */
-export interface IpPoolSettingsValue {
-  enabled: boolean
-  probeModels: string[]
-  /** Probe-content pool; empty = the Host default ('hello'). */
-  probeContents: string[]
-  maxConcurrentProbes: number
-  /** Whole-pool capacity: exits kept online at once (default 10). */
-  poolSize: number
-  manual: string[]
-  subscription: { urls: string[]; refreshMs: number; userAgent: string }
-  /** Previous composition spelling, migrated on a subscription edit. */
-  subscriptions?: string[]
-  singbox: { path: string }
-  pinnedExitId: string
-  pinnedStrict: boolean
-  proxyHosts: string[]
-  /** 本地出口兜底: false = a pool miss fails instead of using this machine. */
-  localFallback: boolean
-  /** 本机出口协议族: 'auto' = IPv6 where this machine has one (default). */
-  localIpFamily: LocalIpFamilyView
-  /** 'total' = the persisted ledger, 'run' = this host process. */
-  usageScope: UsageScopeView
+/** The label each draft field carries on the page, for the conflict message. */
+const FIELD_LABEL: Record<FormField, IpPoolKey> = {
+  enabled: 'enabled',
+  localFallback: 'localFallback',
+  localIpFamily: 'localIpFamily',
+  manual: 'sectionManual',
+  subscriptionUrls: 'sectionSubscription',
+  refreshMs: 'subscriptionRefreshMs',
+  userAgent: 'subscriptionUserAgent',
+  singboxPath: 'singboxPath',
+  pinnedExitId: 'pinnedAddress',
+  pinnedStrict: 'pinnedStrict',
+  probeModels: 'probeModels',
+  probeContents: 'probeContents',
+  maxConcurrentProbes: 'probeConcurrency',
+  poolSize: 'poolSize',
+  usageScope: 'usageScopeLabel',
 }
 
-/** The two usage scopes the UI switches between. */
-export type UsageScopeView = 'total' | 'run'
-
-/** The three 本机出口协议族 positions (mirrors src/pool/local-family.ts). */
-export type LocalIpFamilyView = 'auto' | 'ipv4' | 'ipv6'
-
-/** Bridge /status view (mirrors src/ip-pool-settings/bridge.ts). */
-export interface PoolStatusView {
-  zenUserAgent?: string
-  enabled: boolean
-  deferredReason: string
-  total: number
-  bySource: Record<'manual' | 'subscription' | 'goproxy', number>
-  /** Usable exits across the whole pool, any source. */
-  availableTotal: number
-  /** Whole-pool capacity in force (settings `poolSize`, default 10). */
-  poolSize: number
-  /** The pin in force. `local` marks the 本机 sentinel (no exit at all);
-   *  optional so a bundle can still read a host snapshot from before the
-   *  field existed. */
-  pinned: { id: string; strict: boolean; local?: boolean } | null
-  /** Why the pin is not carrying traffic right now ('dead' / 'cooling').
-   *  Optional so a bundle can read a host snapshot from before the field
-   *  existed; null = the pin is in use, or nothing is pinned. */
-  pinnedSkip?: 'dead' | 'cooling' | null
-  proxyHosts: string[]
-  exits: Array<{
-    id: string
-    source: string
-    protocol: string
-    pinned: boolean
-    exitIP: string
-    exitLocation: string
-    latencyMs: number
-    quality: string
-    state: 'unknown' | 'ok' | 'dead'
-    cooling: boolean
-    cooldownUntil: number
-    consecutiveLimited: number
-    bannedModels: Array<{ model: string; state: 'suspect' | 'banned'; bannedAt: number }>
-    /** `'abusive'` = OpenCode flagged this exit's IP; the row is benched for hours. */
-    note?: string
-    passive: { ok: number; limited: number; refused: number; dead: number; transport: number }
-    /** Sum of the passive buckets — the stats modal's sort key. */
-    requests: number
-    /** Epoch ms of the most recent dispatch (0 = never). */
-    lastUsedAt: number
-    inFlight: number
-    /** Rejected by the upstream lane with no reserve left: kept as the last
-     *  resort and listed last. Optional so an older host snapshot still parses. */
-    demoted?: boolean
-    tokens: TokenTotalsView
-    /** Recent (3-min window) output speed in tok/s; 0 = hidden. Optional so
-     *  an older host snapshot still parses. */
-    speed?: number
-  }>
-  prober: { queued: number; inFlight: number; enqueued: number; completed: number }
-  subscription: { urlCount: number; pendingConversion: number; convertedAdmitted: number; plaintextAdmitted: number; lastFetch: number; lastError: string } | null
-  /** Pool-host requests that fell back to direct, with their tokens. */
-  direct: { requests: number; tokens: TokenTotalsView }
-  /** Model traffic that egressed from this machine (non-pool hosts plus the
-   *  direct fallbacks): the modal's 本机 row. Optional so a client bundle can
-   *  talk to a host snapshot from before this field existed. */
-  local?: { requests: number; tokens: TokenTotalsView; lastUsedAt: number; speed?: number }
-  /** The persistent usage ledger (absent on a host from before it existed). */
-  usage?: UsageView | null
-  /** Pool-wide recent (3-min window) output speed in tok/s; 0 = hidden. */
-  recentSpeed?: number
-  /** Today's all-in token figure (ledger day bucket): THE footer's token
-   *  figure in every variant. Optional for older host snapshots. */
-  todayTokens?: number
-  /** 本地出口兜底 in force on the router (docs §3.3). Optional for older
-   *  host snapshots. */
-  localFallback?: boolean
-  /** 本机出口协议族 in force on the router; optional for older host snapshots. */
-  localIpFamily?: LocalIpFamilyView
-  at: number
-}
-
-/**
- * The persistent usage ledger as /status serves it (mirrors
- * src/ip-pool-settings/bridge.ts UsageView). Optional on the view so a bundle
- * can still read a host snapshot from before the ledger existed.
- */
-export interface UsageView {
-  scope: UsageScopeView
-  retentionDays: number
-  /** When this process started (the run scope's origin). */
-  runSince: number
-  /** All-time persisted totals — the footer's 总览 figure. */
-  total: TokenTotalsView
-  /** Totals for the scope being shown. */
-  scoped: TokenTotalsView
-  /** Recent (3-min window) output speed in tok/s — a live gauge, same number
-   *  under every scope; 0 = hidden. Optional for older host snapshots. */
-  recentSpeed?: number
-  days: Array<{ day: string; requests: number; tokens: number; outputTokens: number; outputMs: number }>
-  sessions: Array<{
-    id: string
-    label: string
-    requests: number
-    tokens: number
-    outputTokens: number
-    outputMs: number
-    firstAt: number
-    lastAt: number
-    project: { id: string; title: string; path: string } | null
-  }>
-  projects: Array<{ id: string; title: string; path: string; requests: number; tokens: number; sessions: number; lastAt: number }>
-  stored: { sessions: number; days: number; exits: number }
-}
-
-/** Per-exit token totals (mirrors src/pool/usage.ts TokenTotals). */
-export interface TokenTotalsView {
-  requests: number
-  inputTokens: number
-  outputTokens: number
-  cacheReadTokens: number
-  cacheWriteTokens: number
-  totalTokens: number
-  /** Cumulative decode window (ms); kept for diagnostics — the tok/s display
-   *  comes from the recent window fields, not from these totals. Hosts from
-   *  before this field existed serve the view without it. */
-  outputMs?: number
-}
-
-/** The bridge prefix (same-origin, loopback-only on the host). */
-export const BRIDGE_PREFIX = '/api/oc2dsh/ip-pool'
-
-/**
- * The field inside the served entry that holds the editable section: the
- * `ipPool` volatile node in the plugin's Config schema. Every write path is
- * `['ipPool', <field>]`, because the Host's volatile form keeps the node's
- * field name in front of the fields it makes editable.
- */
-const IP_POOL_FIELD = 'ipPool'
-
-const DEFAULTS: IpPoolSettingsValue = {
-  enabled: false,
-  probeModels: [],
-  // Literal by policy: the browser bundle never imports a Host module, so every
-  // default here is spelled out (DEFAULT_SMOKE_CONTENT in src/pool/smoke-content.ts).
-  probeContents: [],
-  maxConcurrentProbes: 3,
-  poolSize: 10,
-  manual: [],
-  // Mirrors the Host schema default (docs §5.1, DEFAULT_SUBSCRIPTION_USER_AGENT
-  // in src/pool/subscription.ts). Spelled as a literal here on purpose: the
-  // browser bundle must not import a Host module (it would drag the YAML
-  // parser in), which is why every default on this line is already a literal.
-  subscription: { urls: [], refreshMs: 30 * 60_000, userAgent: 'clash-verge/v2.4.2' },
-  singbox: { path: 'sing-box' },
-  pinnedExitId: '',
-  pinnedStrict: false,
-  proxyHosts: [],
-  // Mirrors the Host schema default (off): the switch ships disabled, so a
-  // pool miss fails rather than egressing from this machine.
-  localFallback: false,
-  // Mirrors the Host default: prefer IPv6 when this machine has a routable
-  // one (the free lane refuses this host's IPv4 and accepts its IPv6).
-  localIpFamily: 'auto',
-  usageScope: 'total',
-}
-
-/** Compact all-in token label for the usage chips (input+output+cache). */
-function usageTokens(tokens: TokenTotalsView): string {
-  const value = tokens.inputTokens + tokens.outputTokens + tokens.cacheReadTokens + tokens.cacheWriteTokens
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
-  return String(value)
-}
-
-/** Subscription URLs never render in full — the settings doc is the only
- *  place they exist in plaintext (docs §5.1 redaction boundary). */
-function redactUrl(url: string): string {
-  if (url.length <= 24) return url
-  return url.slice(0, 12) + '…' + url.slice(-6)
-}
-
-/** Draft form state (strings for inputs; arrays kept as string lists). */
-interface FormState {
-  enabled: boolean
-  manual: string[]
-  subscriptionUrls: string[]
-  refreshMs: string
-  userAgent: string
-  singboxPath: string
-  pinnedExitId: string
-  pinnedStrict: boolean
-  localFallback: boolean
-  localIpFamily: LocalIpFamilyView
-  probeModels: string[]
-  probeContents: string[]
-  maxConcurrentProbes: string
-  poolSize: string
-  usageScope: UsageScopeView
-}
-
-function emptyForm(): FormState {
-  return {
-    enabled: DEFAULTS.enabled,
-    manual: [],
-    subscriptionUrls: [],
-    refreshMs: String(DEFAULTS.subscription.refreshMs),
-    userAgent: DEFAULTS.subscription.userAgent,
-    singboxPath: DEFAULTS.singbox.path,
-    pinnedExitId: '',
-    pinnedStrict: DEFAULTS.pinnedStrict,
-    localFallback: DEFAULTS.localFallback,
-    localIpFamily: DEFAULTS.localIpFamily,
-    probeModels: [],
-    probeContents: [],
-    maxConcurrentProbes: String(DEFAULTS.maxConcurrentProbes),
-    poolSize: String(DEFAULTS.poolSize),
-    usageScope: DEFAULTS.usageScope,
-  }
-}
-
-function formFromValue(value: IpPoolSettingsValue): FormState {
-  return {
-    enabled: value.enabled,
-    manual: [...value.manual],
-    subscriptionUrls: [...value.subscription.urls],
-    refreshMs: String(value.subscription.refreshMs),
-    userAgent: value.subscription.userAgent,
-    singboxPath: value.singbox.path,
-    pinnedExitId: value.pinnedExitId,
-    pinnedStrict: value.pinnedStrict,
-    localFallback: value.localFallback === true,
-    localIpFamily: value.localIpFamily === 'ipv4' || value.localIpFamily === 'ipv6' ? value.localIpFamily : 'auto',
-    probeModels: [...value.probeModels],
-    probeContents: [...(value.probeContents ?? [])],
-    maxConcurrentProbes: String(value.maxConcurrentProbes),
-    poolSize: String(value.poolSize ?? DEFAULTS.poolSize),
-    usageScope: value.usageScope === 'run' ? 'run' : 'total',
-  }
-}
-
-/** The served entry's value: the `ipPool` volatile node is the whole form. */
-interface ServedEntry {
-  ipPool?: Partial<IpPoolSettingsValue>
-  /** Per-model context windows (a separate volatile node, top-level). */
-  modelContextWindows?: ModelContextWindows
-}
-
-/** Field writes landing the form on the resolved value, in write order. */
-
-/**
- * The ip-pool section of the served value, with defaults filled. A missing
- * section (an empty document, or a namespace the Host serves empty) reads as
- * the documented defaults so the form still renders.
- */
-function servedSection(state: ConfigFormSnapshot<Record<string, unknown>> | undefined): IpPoolSettingsValue {
-  const served = (state?.value as ServedEntry | undefined)?.ipPool
-  // The Host's `Schema.array()` gives the legacy flat key an implicit `[]`, so
-  // it is ALWAYS present in a served value; letting it win would render an
-  // empty subscription list even right after a successful save. It may only
-  // stand in when the canonical nested list carries nothing.
-  const nestedUrls = served?.subscription?.urls ?? []
-  const legacyUrls = served?.subscriptions ?? []
-  return {
-    ...DEFAULTS, ...served,
-    subscription: { ...DEFAULTS.subscription, ...served?.subscription, ...(nestedUrls.length > 0 ? {} : { urls: legacyUrls }) },
-    singbox: { ...DEFAULTS.singbox, ...served?.singbox },
-  }
-}
-
-/** The composition-side (base) ip-pool section, for the values a reset returns to. */
-function servedBase(state: ConfigFormSnapshot<Record<string, unknown>> | undefined): Partial<IpPoolSettingsValue> {
-  return servedSection({ ...state, value: state?.base } as ConfigFormSnapshot<Record<string, unknown>>)
-}
-
-function diffWrites(form: FormState, value: IpPoolSettingsValue, base: Partial<IpPoolSettingsValue>): FieldWrite[] {
-  const writes: FieldWrite[] = []
-  const push = (field: string, next: unknown, current: unknown, baseValue: unknown): void => {
-    const edit = fieldWrite(field, next, current, baseValue)
-    if (edit !== undefined) writes.push(edit)
-  }
-  push('enabled', form.enabled, value.enabled, base.enabled)
-  push('manual', form.manual, value.manual, base.manual)
-  push('subscription', { urls: form.subscriptionUrls, refreshMs: Number(form.refreshMs), userAgent: normalizedUserAgent(form.userAgent) }, value.subscription, base.subscription)
-  push('singbox', { path: form.singboxPath }, value.singbox, base.singbox)
-  push('pinnedExitId', form.pinnedExitId, value.pinnedExitId, base.pinnedExitId)
-  push('pinnedStrict', form.pinnedStrict, value.pinnedStrict, base.pinnedStrict)
-  push('localFallback', form.localFallback, value.localFallback, base.localFallback)
-  push('localIpFamily', form.localIpFamily, value.localIpFamily, base.localIpFamily)
-  push('probeModels', form.probeModels, value.probeModels, base.probeModels)
-  push('probeContents', form.probeContents, value.probeContents, base.probeContents)
-  push('maxConcurrentProbes', Number(form.maxConcurrentProbes), value.maxConcurrentProbes, base.maxConcurrentProbes)
-  push('poolSize', Number(form.poolSize), value.poolSize, base.poolSize)
-  push('usageScope', form.usageScope, value.usageScope, base.usageScope)
-  return writes
-}
-
-/** Clearing the UA field restores the default instead of writing an empty
- *  header — the Host schema and the runtime both treat empty as "default",
- *  and this keeps a cleared field from looking like a pending change. */
-function normalizedUserAgent(value: string): string {
-  const trimmed = value.trim()
-  return trimmed === '' ? DEFAULTS.subscription.userAgent : trimmed
-}
-
-/** One labeled input (the Input primitive carries the box chrome). */
-function TextField(props: {
-  label: string
-  hint?: string
-  value: string
-  onChange: (value: string) => void
-  placeholder?: string
-  testId?: string
-  type?: 'text' | 'number'
-  min?: number
-  max?: number
-  step?: number
-  invalid?: boolean
-  disabled?: boolean
-  /** A trailing action on the label line (立即刷新 / 解除固定); falsy = none. */
-  action?: ReactNode
-  /**
-   * Width tier for the control. A bare number (`并发上限` 1-8, `池子容量` 1-100)
-   * reads fine in a short box; paths/URLs/UA want a medium track. Omitted
-   * keeps the full column width.
-   */
-  width?: 'narrow' | 'medium'
-}): ReactNode {
-  const { label, hint, value, onChange, placeholder, testId, type = 'text', min, max, step, invalid, disabled, action, width } = props
-  const widthClass = width === 'narrow' ? styles.fieldControlNarrow : width === 'medium' ? styles.fieldControlMedium : undefined
-  const controlClass = [styles.fieldControl, widthClass, invalid === true ? styles.inputWrapInvalid : undefined].filter(Boolean).join(' ')
-  return (
-    <label className={styles.field}>
-      {action == null
-        ? <span className={styles.fieldLabel}>{label}</span>
-        : (
-          <span className={styles.fieldHead}>
-            <span className={styles.fieldLabel}>{label}</span>
-            <span className={styles.fieldHeadAction}>{action}</span>
-          </span>
-        )}
-      <Input
-        className={controlClass}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        data-testid={testId}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {hint !== undefined && <span className={styles.fieldHint}>{hint}</span>}
-    </label>
-  )
-}
-
-/**
- * One editable string list (manual proxies / subscription URLs / probe
- * contents). Items are one-per-line capsule rows with a remove button; the
- * add row is an Input + 添加 Button (Enter also adds). A duplicate add is
- * refused with an inline note; a fresh add flashes the new row so the append
- * is visible at the bottom of a long list.
- */
-function ListEditor(props: {
-  label?: string
-  hint: string
-  values: string[]
-  placeholder: string
-  testId: string
-  redacted?: boolean
-  disabled?: boolean
-  t: IpPoolCardProps['t']
-  onChange: (next: string[]) => void
-}): ReactNode {
-  const { label, hint, values, placeholder, testId, redacted, disabled, t, onChange } = props
-  const [draft, setDraft] = useState('')
-  const [dup, setDup] = useState(false)
-  const [fresh, setFresh] = useState<string | null>(null)
-  const freshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => { if (freshTimer.current !== null) clearTimeout(freshTimer.current) }, [])
-  const add = (): void => {
-    const entry = draft.trim()
-    if (entry === '') return
-    if (values.includes(entry)) {
-      setDup(true)
-      return
-    }
-    setDup(false)
-    onChange([...values, entry])
-    setDraft('')
-    setFresh(entry)
-    if (freshTimer.current !== null) clearTimeout(freshTimer.current)
-    freshTimer.current = setTimeout(() => setFresh(null), 400)
-  }
-  return (
-    <div className={styles.field} data-testid={testId}>
-      {label !== undefined && label !== '' && <span className={styles.fieldLabel}>{label}</span>}
-      <span className={styles.fieldHint}>{hint}</span>
-      {values.length > 0 && (
-        <ul className={styles.listItems}>
-          {values.map((entry) => (
-            <li key={entry} className={entry === fresh ? `${styles.listItem} ${styles.listItemNew}` : styles.listItem}>
-              <span className={styles.listItemText} title={redacted ? entry : undefined}>
-                {redacted ? redactUrl(entry) : entry}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={disabled === true}
-                aria-label={t('listRemove')}
-                title={t('listRemove')}
-                onClick={() => { setDup(false); onChange(values.filter((v) => v !== entry)) }}
-              >
-                <IconCloseFillMedium />
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className={styles.listAddRow}>
-        <Input
-          className={styles.listAddInput}
-          value={draft}
-          placeholder={placeholder}
-          disabled={disabled === true}
-          onChange={(event) => { setDraft(event.target.value); if (dup) setDup(false) }}
-          onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); add() } }}
-        />
-        <Button variant="outline" size="sm" disabled={disabled === true || draft.trim() === ''} onClick={add}>
-          {t('listAdd')}
-        </Button>
-      </div>
-      {dup && <span className={styles.listDup} role="status">{t('listExists')}</span>}
-    </div>
-  )
-}
-
-/**
- * 本机出口协议族 picker: which IP family the LOCAL egress dials with. `auto`
- * mirrors the official client — prefer IPv6 where this machine has a routable
- * address and keep Node's happy-eyeballs fallback to IPv4 — while `ipv4`/
- * `ipv6` pin the family. The free lane refuses this host's IPv4 address and
- * accepts its IPv6 (src/pool/local-family.ts).
- */
-function LocalFamilyPicker(props: {
-  value: LocalIpFamilyView
-  disabled?: boolean
-  t: IpPoolCardProps['t']
-  onChange: (next: LocalIpFamilyView) => void
-}): ReactNode {
-  const { value, disabled, t, onChange } = props
-  const [open, setOpen] = useState(false)
-  const order: LocalIpFamilyView[] = ['auto', 'ipv4', 'ipv6']
-  const label: Record<LocalIpFamilyView, string> = {
-    auto: t('localIpFamilyAuto'),
-    ipv4: t('localIpFamilyIpv4'),
-    ipv6: t('localIpFamilyIpv6'),
-  }
-  return (
-    <Menu
-      open={open}
-      onClose={() => setOpen(false)}
-      anchor={
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="local-ip-family-select"
-          disabled={disabled === true}
-          onClick={() => setOpen((current) => !current)}
-        >
-          {label[value]}
-          <IconChevronDownOutlineRegular />
-        </Button>
-      }
-      items={order.map((id) => ({ id, label: label[id] }))}
-      selectedIds={[value]}
-      onSelect={(id) => {
-        onChange(id as LocalIpFamilyView)
-        setOpen(false)
-      }}
-      align="start"
-      side="bottom"
-      portal
-    />
-  )
-}
-
-/**
- * Probe-model picker over the bridge /models rows: selected models as
- * removable chips above a dropdown of S3-verified + live-catalog options
- * (docs §5.2 探活模型). Empty selection = the S3-first default (big-pickle).
- */
-function ModelPicker(props: {
-  value: string[]
-  hint: string
-  models: Array<{ id: string; verified: boolean }>
-  loading: boolean
-  disabled?: boolean
-  t: IpPoolCardProps['t']
-  onChange: (next: string[]) => void
-}): ReactNode {
-  const { value, hint, models, loading, disabled, t, onChange } = props
-  const [open, setOpen] = useState(false)
-  const toggle = (id: string): void => {
-    onChange(value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id])
-  }
-  const triggerLabel = loading ? t('statusLoading') : models.length === 0 ? '—' : t('probeModelPick')
-  const items = models.map((row) => ({
-    id: row.id,
-    label: (
-      <>
-        {row.id}
-        {row.verified === false && <span className={styles.chipSub}> · {t('probeModelUnverified')}</span>}
-      </>
-    ),
-  }))
-  return (
-    <div className={styles.field} data-testid="field-probeModels">
-      <span className={styles.fieldLabel}>{t('probeModels')}</span>
-      <span className={styles.fieldHint}>{hint}</span>
-      {value.length > 0 && (
-        <div className={styles.chipRow}>
-          {value.map((id) => {
-            const row = models.find((m) => m.id === id)
-            return (
-              <span key={id} className={styles.chip}>
-                <span className={styles.chipText}>
-                  {id}
-                  {row?.verified === false && <span className={styles.chipSub}>{t('probeModelUnverified')}</span>}
-                </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={disabled === true}
-                  aria-label={t('listRemove')}
-                  title={t('listRemove')}
-                  onClick={() => toggle(id)}
-                >
-                  <IconCloseFillMedium />
-                </Button>
-              </span>
-            )
-          })}
-        </div>
-      )}
-      <Menu
-        open={open}
-        onClose={() => setOpen(false)}
-        anchor={
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="probe-model-select"
-            disabled={disabled === true || loading || models.length === 0}
-            onClick={() => setOpen((current) => !current)}
-          >
-            {triggerLabel}
-            <IconChevronDownOutlineRegular />
-          </Button>
-        }
-        items={items}
-        selectedIds={value}
-        onSelect={(id) => {
-          toggle(id)
-          setOpen(false)
-        }}
-        align="start"
-        side="bottom"
-        portal
-      />
-      {value.length === 0 && (
-        <span className={styles.fieldHint}>{t('probeModelsDefault')}</span>
-      )}
-    </div>
-  )
-}
-
-/** Pool overview strip: counts + deferred/pinned badges. */
-function OverviewBar(props: { status: PoolStatusView | null; t: IpPoolCardProps['t'] }): ReactNode {
-  const { status, t } = props
-  if (status === null) return null
-  return (
-    <div className={styles.overviewBar} data-testid="ip-pool-overview">
-      {status.deferredReason !== '' && (
-        <Tag tone="danger">{t('deferredNotice').replace('{reason}', status.deferredReason)}</Tag>
-      )}
-      {/* The headline number is the whole pool's usable count. */}
-      <span>{t('poolAvailable')
-        .replace('{available}', String(status.availableTotal))
-        .replace('{total}', String(status.total))
-        .replace('{poolSize}', String(status.poolSize))}</span>
-      <span>
-        {t('poolSources')
-          .replace('{manual}', String(status.bySource.manual))
-          .replace('{subscription}', String(status.bySource.subscription))}
-      </span>
-      {status.pinned !== null && (
-        <Tag tone="info">
-          {/* A pin to the 本机 sentinel has no exit address to show, so the
-              badge says what it does instead. */}
-          {status.pinned.local === true ? t('pinnedBadgeLocal') : t('pinnedBadge')}
-          {status.pinned.strict && status.pinned.local !== true ? ' (' + t('pinnedStrict') + ')' : ''}
-        </Tag>
-      )}
-      {/* The pin badge stays on screen while the row is out of service, so the
-          strip must also say the requests are NOT going through it — without
-          the skip tag the badge reads as "your pin is carrying traffic" while
-          the rotation quietly uses another exit. */}
-      {status.pinned !== null && status.pinned.local !== true && status.pinnedSkip != null && (
-        <Tag tone="danger">
-          {t(status.pinnedSkip === 'dead' ? 'pinnedSkipDead' : 'pinnedSkipCooling')
-            .replace('{id}', status.pinned.id)}
-        </Tag>
-      )}
-    </div>
-  )
-}
-
-/** The exit table + ban list. */
-function ExitTable(props: { status: PoolStatusView | null; t: IpPoolCardProps['t']; onProbe: (exitId: string) => void; onPin: (exitId: string) => void; onRotate: (exitId: string) => void; busy: boolean }): ReactNode {
-  const { status, t, onProbe, onPin, onRotate, busy } = props
-  const [bansOpen, setBansOpen] = useState(false)
-  if (status === null) return null
-  const stateCell = (exit: PoolStatusView['exits'][number]): ReactNode => {
-    // StateDot carries the semantic colour; the label stays as text beside it.
-    if (exit.state === 'dead') return <span className={styles.stateCell}><StateDot state="error" />{t('stateDead')}</span>
-    // The upstream IP flag outranks "cooling": 冷却 alone would read as a
-    // minutes-long quota wait, while this one is a reputation verdict that
-    // survives rotations — the row says so, or an operator keeps pinning it.
-    if (exit.note === 'abusive') return <span className={styles.stateCell}><StateDot state="warning" />{t('stateAbusive')}</span>
-    // A demoted exit is kept but ranked last (upstream refused it and no
-    // reserve was left): saying so beats reading it as a healthy row.
-    if (exit.demoted === true) return <span className={styles.stateCell}><StateDot state="warning" />{t('stateDemoted')}</span>
-    if (exit.cooling) return <span className={styles.stateCell}><StateDot state="warning" />{t('stateCooling')}</span>
-    if (exit.state === 'ok') return <span className={styles.stateCell}><StateDot state="done" />{t('stateOk')}</span>
-    return <span className={styles.stateCell}><StateDot state="idle" />{t('stateUnknown')}</span>
-  }
-  const allBans = status.exits.flatMap((exit) =>
-    exit.bannedModels.map((ban) => ({ exitId: exit.id, ...ban })),
-  )
-  return (
-    <>
-      <div className={styles.table} data-testid="ip-pool-exits">
-        <table className={styles.tableGrid}>
-          <thead>
-            <tr>
-              <th>{t('exitAddress')}</th>
-              <th>{t('exitSource')}</th>
-              <th>{t('exitLatency')}</th>
-              <th>{t('exitQuality')}</th>
-              <th>{t('exitIp')}</th>
-              <th>{t('exitState')}</th>
-              <th>{t('exitPassive')}</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {status.exits.map((exit) => (
-              <tr key={exit.id}>
-                <td className={styles.mono}>{exit.id}{exit.pinned ? ` · ${t('exitPinnedMark')}` : ''}</td>
-                <td>{exit.source}</td>
-                <td>{exit.latencyMs > 0 ? `${exit.latencyMs}ms` : '—'}</td>
-                <td>{exit.latencyMs > 0 ? exit.quality : '—'}</td>
-                {/* Location as a hover tooltip on the IP, not a column. */}
-                <td className={styles.mono} title={exit.exitLocation || undefined}>{exit.exitIP || '—'}</td>
-                <td>{stateCell(exit)}</td>
-                <td className={styles.mono}>
-                  {exit.passive.ok > 0 || exit.passive.limited > 0 || exit.passive.refused > 0 || exit.passive.dead > 0 || exit.passive.transport > 0
-                    ? `✓${exit.passive.ok} 429:${exit.passive.limited} 401/403:${exit.passive.refused} ✗:${exit.passive.dead + exit.passive.transport}`
-                    : '—'}
-                </td>
-                <td>
-                  <Button variant="outline" size="sm" disabled={busy} onClick={() => onProbe(exit.id)}>{t('exitProbe')}</Button>
-                  {/* Icon actions, the same pair the stats modal carries:
-                      固定 (padlock) and 轮换 (circular arrow). Nothing is
-                      deleted: a reserve takes the slot, or the row sinks to
-                      the tail. */}
-                  <span className={styles.actionGroup}>
-                    {!exit.pinned && (
-                      <button
-                        type="button"
-                        className={styles.rowIcon}
-                        disabled={busy}
-                        title={t('statsPinHint')}
-                        aria-label={t('exitPin')}
-                        onClick={() => onPin(exit.id)}
-                      >
-                        <PinIcon />
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className={styles.rowIcon}
-                      disabled={busy}
-                      title={t('statsRotateHint')}
-                      aria-label={t('statsRotate')}
-                      onClick={() => onRotate(exit.id)}
-                    >
-                      <RotateIcon />
-                    </button>
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {status.exits.length === 0 && (
-              <tr><td colSpan={8} className={styles.status}>{t('statusUnavailable')}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className={styles.section}>
-        <button type="button" className={styles.collapseToggle} onClick={() => setBansOpen((open) => !open)}>
-          {t(bansOpen ? 'collapse' : 'expand')} · {t('sectionBans')} ({allBans.length})
-        </button>
-        {bansOpen && (allBans.length === 0
-          ? <span className={styles.status}>{t('bansEmpty')}</span>
-          : (
-            <ul className={styles.rowList}>
-              {allBans.map((ban) => (
-                <li key={`${ban.exitId}|${ban.model}`} className={styles.row}>
-                  <span className={styles.rowLabel}>
-                    <span className={ban.state === 'banned' ? styles.stateDead : styles.stateCooling}>
-                      {ban.state === 'banned' ? t('banBanned') : t('banSuspect')}
-                    </span>
-                    {' · '}
-                    <span className={styles.mono}>{ban.exitId}</span>
-                    {' × '}
-                    <span className={styles.mono}>{ban.model}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ))}
-      </div>
-    </>
-  )
-}
-
-/** The collapsible group ids, in display order. */
-type GroupId = 'sources' | 'scheduling' | 'probe' | 'usage' | 'headers' | 'models' | 'exits'
-
-/** First-visit fold state: high-frequency groups open, advanced ones folded. */
-const GROUP_DEFAULTS: Record<GroupId, boolean> = {
-  sources: true,
-  scheduling: false,
-  probe: false,
-  usage: true,
-  headers: false,
-  models: false,
-  exits: true,
-}
-
-/** localStorage key holding the operator's fold preferences (schema v1). */
-const GROUP_STATE_KEY = 'oc2dsh:form-groups:v1'
-
-/** Read the persisted fold map; a missing/corrupt entry falls back to defaults. */
-function loadGroupState(): Record<GroupId, boolean> {
-  try {
-    const raw = localStorage.getItem(GROUP_STATE_KEY)
-    if (raw === null) return { ...GROUP_DEFAULTS }
-    const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null) return { ...GROUP_DEFAULTS }
-    return { ...GROUP_DEFAULTS, ...(parsed as Partial<Record<GroupId, boolean>>) }
-  } catch {
-    return { ...GROUP_DEFAULTS }
-  }
-}
-
-/** Validation outcome: the message plus the group that must reveal it. */
-interface ValidationFailure { message: string; group: GroupId }
-
-/**
- * One collapsible settings group: a DisclosureRow header carrying the title
- * plus a folded-state summary, and a body that stays MOUNTED while folded
- * (display:none) so half-typed list drafts and focus survive a fold.
- */
-function Group(props: {
-  id: GroupId
-  title: string
-  summary: string
-  open: boolean
-  highlight: boolean
-  onToggle: () => void
-  children: ReactNode
-}): ReactNode {
-  const { id, title, summary, open, highlight, onToggle, children } = props
-  return (
-    <section
-      className={highlight ? `${styles.group} ${styles.groupHighlight}` : styles.group}
-      data-group={id}
-    >
-      <DisclosureRow
-        icon={<IconChevronDownOutlineRegular />}
-        title={title}
-        open={open}
-        expandable
-        expandOnRowClick
-        onToggle={onToggle}
-        collapsedContent={<span className={styles.groupSummary}>{summary}</span>}
-      />
-      <div className={open ? styles.groupBody : styles.groupBodyHidden}>
-        {children}
-      </div>
-    </section>
-  )
-}
+/** A save blocker: the message plus the group that must reveal it (null = top-level row). */
+interface ValidationFailure { message: string; group: GroupId | null }
 
 /** The card body. */
-function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardProps['t'] }): ReactNode {
+function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardLocale }): ReactNode {
   const { settings, t } = props
   const snapshot = settings?.state
-  const [form, setForm] = useState<FormState>(() => emptyForm())
+  const ready = snapshot?.status === 'ready'
+  const [pool, setPool] = useState<PoolDraft>(() => pristineDraft(emptyForm()))
+  const form = pool.draft
   const [headersText, setHeadersText] = useState('')
   const [contextText, setContextText] = useState('')
   const [headerConflict, setHeaderConflict] = useState(false)
   const acceptedHeadersRef = useRef('')
+  const contextHydratedRef = useRef(false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  /** The last save's failure: the only error that flips the SettingsForm chrome. */
   const [error, setError] = useState<string | null>(null)
-  const [status, setStatus] = useState<PoolStatusView | null>(null)
-  const [statusError, setStatusError] = useState<string | null>(null)
-  const [probeModelRows, setProbeModelRows] = useState<Array<{ id: string; verified: boolean }>>([])
+  /** The last bridge action's failure or warning, shown inline. */
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [probeModelRows, setProbeModelRows] = useState<ProbeModelRow[]>([])
   const [probeModelsLoading, setProbeModelsLoading] = useState(false)
   const [actionBusy, setActionBusy] = useState(false)
   const [groups, setGroups] = useState<Record<GroupId, boolean>>(() => loadGroupState())
   const [highlightGroup, setHighlightGroup] = useState<GroupId | null>(null)
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hydratedRef = useRef(false)
-  const formRef = useRef(form)
-  formRef.current = form
 
-  // Persist fold preferences across sessions.
+  // 1s while probing, 3s otherwise; not gated on the pool switch, because the
+  // usage ledger also records traffic with the pool off.
+  const { status, error: statusError, refresh } = usePoolStatus((current) =>
+    !ready ? null : current !== null && current.prober.queued + current.prober.inFlight > 0 ? 1_000 : 3_000)
+  /** The pool runtime is running: what the bridge actions and the exit views need. */
+  const poolRunning = status?.enabled === true
+
   useEffect(() => {
     try { localStorage.setItem(GROUP_STATE_KEY, JSON.stringify(groups)) } catch { /* private mode: fold state is disposable */ }
   }, [groups])
   useEffect(() => () => { if (highlightTimer.current !== null) clearTimeout(highlightTimer.current) }, [])
 
-  // The served section, with defaults filled.
   const served = servedSection(snapshot)
-  const servedRef = useRef(served)
-  servedRef.current = served
+  const servedForm = useMemo(() => formFromValue(servedSection(snapshot)), [snapshot?.value]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Hydrate the draft once from the first ready snapshot.
+  // Follow served values per field while that field is pristine; a dirty field
+  // that changed underneath becomes a conflict instead of a silent revert.
   useEffect(() => {
-    if (snapshot?.status === 'ready' && !hydratedRef.current) {
-      hydratedRef.current = true
-      setForm(formFromValue(servedRef.current))
-      const headers = formatRequestHeaders(normalizeRequestHeaders(snapshot.value?.requestHeaders ?? {}))
-      acceptedHeadersRef.current = headers
-      setHeadersText(headers)
+    if (!ready) return
+    setPool((current) => followServed(current, servedForm))
+    if (!contextHydratedRef.current) {
+      contextHydratedRef.current = true
       // Lenient on purpose: a hand-edited profile patch must not blank the
       // card, and the draft is re-validated strictly on save.
-      setContextText(formatModelContextWindows(sanitizeModelContextWindows(snapshot.value?.modelContextWindows ?? {})))
+      setContextText(formatModelContextWindows(sanitizeModelContextWindows(snapshot?.value?.modelContextWindows ?? {})))
     }
-  }, [snapshot?.status, snapshot?.value])
+  }, [ready, servedForm]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Follow external header saves only while pristine. A competing save must
   // never turn an unrelated IP-pool edit into a stale header overwrite.
@@ -991,73 +170,22 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     } else if (next !== acceptedHeadersRef.current) {
       setHeaderConflict(true)
     }
-  }, [snapshot?.status, snapshot?.value])
+  }, [snapshot?.status, snapshot?.value]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Fetch the probe-model options from the bridge once the body shows
-  // (static S3 list first; live catalog rows merge in as they warm up).
+  // Probe-model options: the static S3 list first, live catalog rows merged in.
   useEffect(() => {
     let cancelled = false
     setProbeModelsLoading(true)
-    fetch(`${BRIDGE_PREFIX}/models`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-      .then((response) => response.json() as Promise<{ ok: boolean; value?: { models: Array<{ id: string; verified: boolean }> } }>)
-      .then((body) => {
-        if (!cancelled && body.ok && body.value) setProbeModelRows(body.value.models)
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setProbeModelsLoading(false) })
+    void postBridge<{ models: ProbeModelRow[] }>('/models').then((reply) => {
+      if (cancelled) return
+      if (reply.ok && reply.value != null) setProbeModelRows(reply.value.models)
+      setProbeModelsLoading(false)
+    })
     return () => { cancelled = true }
   }, [])
 
-  // Poll the bridge /status: 1s while probing, 3s otherwise (docs §5.3).
-  const probing = status !== null && status.prober.queued + status.prober.inFlight > 0
-  const refreshStatus = useCallback(async (): Promise<void> => {
-    try {
-      const response = await fetch(`${BRIDGE_PREFIX}/status`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
-      const body = await response.json() as { ok: boolean; value?: PoolStatusView }
-      if (body.ok && body.value) {
-        setStatus(body.value)
-        setStatusError(null)
-      } else {
-        setStatusError(t('refreshError'))
-      }
-    } catch {
-      setStatusError(t('refreshError'))
-    }
-  }, [t])
-  useEffect(() => {
-    // Deliberately NOT gated on form.enabled: the usage ledger answers "what
-    // did this machine spend", which stays true with the pool switched off
-    // (every request then lands in the 本机 bucket), and the 用量统计 section
-    // below needs it either way.
-    if (snapshot?.status !== 'ready' || !hydratedRef.current) return
-    void refreshStatus()
-    const interval = setInterval(() => void refreshStatus(), probing ? 1_000 : 3_000)
-    return () => clearInterval(interval)
-  }, [snapshot?.status, probing, refreshStatus, hydratedRef.current]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // NOTE: everything above the loading early-return is hooks; the validation
-  // block below is pure computation plus one effect, so the effect rides
-  // ABOVE the early-return to keep the hook order stable across renders.
-  const validate = (): ValidationFailure | null => {
-    const conc = Number(form.maxConcurrentProbes)
-    if (!/^\d+$/.test(form.maxConcurrentProbes.trim()) || conc < 1 || conc > 8) return { message: t('invalidRange'), group: 'probe' }
-    const poolSize = Number(form.poolSize)
-    if (!/^\d+$/.test(form.poolSize.trim()) || poolSize < 1 || poolSize > 100) return { message: t('invalidRange'), group: 'probe' }
-    const refresh = Number(form.refreshMs)
-    if (!/^\d+$/.test(form.refreshMs.trim()) || refresh < 60_000) return { message: t('invalidRange'), group: 'sources' }
-    for (const entry of form.manual) {
-      if (!/^https?:\/\/[^\s:]+:\d{1,5}$|^socks5:\/\/[^\s:]+:\d{1,5}$|^socks5h?:\/\/\[[^\]]+\]:\d{1,5}$/.test(entry)) return { message: t('invalidProxy'), group: 'sources' }
-    }
-    for (const url of form.subscriptionUrls) {
-      if (!/^https?:\/\/.+/.test(url)) return { message: t('invalidUrl'), group: 'sources' }
-    }
-    for (const model of form.probeModels) {
-      if (model.trim() === '') return { message: t('invalidModel'), group: 'probe' }
-    }
-    return null
-  }
-
-  const writes = diffWrites(formRef.current, served, servedBase(snapshot))
+  const conflicts = liveConflicts(pool)
+  const writes = diffWrites(form, served, servedBase(snapshot))
   let headerOps: ConfigPathOp[] = []
   let headerFailure: ValidationFailure | null = headerConflict
     ? { message: t('requestHeadersConflict'), group: 'headers' }
@@ -1067,6 +195,9 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}),
       normalizeRequestHeaders((snapshot?.base as Record<string, unknown> | undefined)?.requestHeaders ?? {}))
   } catch { headerFailure = { message: t('requestHeadersInvalid'), group: 'headers' } }
+  const conflictFailure: ValidationFailure | null = conflicts.length === 0
+    ? null
+    : { message: t('poolConflict', { field: conflicts.map((field) => t(FIELD_LABEL[field])).join(' · ') }), group: FIELD_GROUP[conflicts[0]!] }
   let contextOps: ConfigPathOp[] = []
   let contextFailure: ValidationFailure | null = null
   try {
@@ -1076,16 +207,23 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       sanitizeModelContextWindows((snapshot?.base as Record<string, unknown> | undefined)?.modelContextWindows ?? {}),
     )
   } catch { contextFailure = { message: t('modelContextInvalid'), group: 'models' } }
-  const validation = headerFailure ?? contextFailure ?? validate()
+  const formFailure = validateForm(form)
+  const blocker = headerFailure ?? conflictFailure ?? contextFailure
+  /** The field-level failure, only while it is the one on screen. */
+  const shownFormFailure = blocker === null ? formFailure : null
+  const validation = blocker
+    ?? (formFailure === null ? null : { message: t(formFailure.reason), group: formFailure.group })
   const dirty = writes.length > 0 || headerOps.length > 0 || contextOps.length > 0 || validation !== null
-  const available = snapshot?.status === 'ready' && settings !== undefined
+  const available = ready && settings !== undefined
   const writable = available && snapshot.writable
+  const locked = !writable || saving
 
-  // A validation failure force-opens its group (with a brief highlight) so
-  // the erroring row is never hidden inside a folded section.
+  // A validation failure force-opens its group (with a brief highlight) so the
+  // erroring row is never hidden inside a folded section. Rides above the
+  // loading early-return to keep the hook order stable.
   useEffect(() => {
-    if (validation === null) return
-    const group = validation.group
+    const group = validation?.group
+    if (group == null) return
     setGroups((current) => (current[group] ? current : { ...current, [group]: true }))
     setHighlightGroup(group)
     if (highlightTimer.current !== null) clearTimeout(highlightTimer.current)
@@ -1093,13 +231,20 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
   }, [validation?.group, validation?.message]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (snapshot?.status === 'loading') {
-    return <p className={styles.status}>{t('statusLoading')}</p>
+    return <p className={shared.status}>{t('statusLoading')}</p>
   }
 
-  /** Toggle one group's fold state. */
-  const toggleGroup = (group: GroupId): void => {
-    setGroups((current) => ({ ...current, [group]: !current[group] }))
+  /** Patch the draft; any edit retires the saved note. */
+  const edit = (patch: Partial<FormState>): void => {
+    setSaved(false)
+    setPool((current) => ({ ...current, draft: { ...current.draft, ...patch } }))
   }
+
+  const chrome = (group: GroupId): GroupChrome => ({
+    open: groups[group],
+    highlight: highlightGroup === group,
+    onToggle: () => setGroups((current) => ({ ...current, [group]: !current[group] })),
+  })
 
   const handleSave = async (): Promise<void> => {
     if (!writable || validation !== null || settings === undefined || snapshot === undefined) {
@@ -1121,7 +266,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
       )
       setSaved(ok)
       setError(ok ? null : t('saveError'))
-      if (ok && headerOps.length > 0) await refreshStatus()
+      if (ok && headerOps.length > 0) await refresh()
     } catch (err) {
       setSaved(false)
       setError(err instanceof Error ? err.message : t('saveError'))
@@ -1132,7 +277,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
 
   /** The shared SettingsForm discard: drop the draft, keep the served values. */
   const handleDiscard = (): void => {
-    setForm(formFromValue(servedRef.current))
+    setPool(pristineDraft(servedForm))
     const headers = formatRequestHeaders(normalizeRequestHeaders(snapshot?.value?.requestHeaders ?? {}))
     acceptedHeadersRef.current = headers
     setHeadersText(headers)
@@ -1140,6 +285,7 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     setHeaderConflict(false)
     setSaved(false)
     setError(null)
+    setActionError(null)
   }
 
   const shell: SettingsFormShell = {
@@ -1151,103 +297,72 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
     failed: error !== null,
   }
 
-  /** One bridge action (/probe). */
-  const bridgeAction = async (body: { scope: 'all' | 'subscription' } | { scope: 'exit'; exitId: string }): Promise<void> => {
-    setActionBusy(true)
-    try {
-      await fetch(`${BRIDGE_PREFIX}/probe`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-      await refreshStatus()
-    } catch {
-      setStatusError(t('refreshError'))
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
-  /** Pin an exit from the table: writes pinnedExitId and saves immediately. */
-  const pinExit = async (exitId: string): Promise<void> => {
-    if (!writable || settings === undefined || snapshot === undefined) return
-    setActionBusy(true)
-    try {
-      const accepted = await settings.mutate([{ op: 'set', path: [IP_POOL_FIELD, 'pinnedExitId'], value: exitId }], snapshot.revision)
-      if (!accepted) throw new Error(t('saveError'))
-      setForm((current) => ({ ...current, pinnedExitId: exitId }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('saveError'))
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
   /**
-   * 轮换 one exit out of the table. The bridge owns the whole decision (promote
-   * a reserve into its slot, or sink the row to the tail), so the card only
-   * re-reads /status after it.
+   * Run one bridge action, report a failure (the host's own message when it
+   * has one) or a warning, then re-read /status. Returns the reply.
    */
-  const rotateExit = async (exitId: string): Promise<void> => {
+  const runAction = async <T,>(send: () => Promise<BridgeReply<T>>, warn?: (value: T) => string | null): Promise<BridgeReply<T>> => {
     setActionBusy(true)
+    setActionError(null)
     try {
-      await fetch(`${BRIDGE_PREFIX}/exit`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'rotate', exitId }),
-      })
-      await refreshStatus()
-    } catch {
-      setStatusError(t('refreshError'))
+      const reply = await send()
+      if (!reply.ok) setActionError(bridgeErrorText(reply, t('statsActionFailed')))
+      else if (warn !== undefined && reply.value != null) setActionError(warn(reply.value))
+      await refresh()
+      return reply
     } finally {
       setActionBusy(false)
     }
   }
 
+  const probe = (scope: ProbeScope): void => { void runAction(() => probeAction(scope)) }
+
+  /** A read-only profile still pins live; the pin is lost on restart. */
+  const volatile = (value: { persisted?: boolean }): string | null =>
+    value.persisted === false ? t('statsActionVolatile') : null
+
+  /** Pin from the table through the bridge, which checks the listener first. */
+  const pinExit = (exitId: string): void => { void runAction(() => exitAction('pin', exitId), volatile) }
+
   /**
-   * Switch the usage scope. Written IMMEDIATELY rather than as a form draft:
-   * it is a view switch, not a configuration edit, and the numbers it governs
-   * are read from the bridge — requiring a 保存 press to re-read them would be
-   * a strange two-step for a control whose whole job is to change what you see.
+   * 解除固定. With the pool running the bridge unpins live and persists; with
+   * it off there is nothing live to unpin, so the field is cleared in the
+   * draft and lands on save.
+   */
+  const unpin = async (): Promise<void> => {
+    if (!poolRunning) {
+      edit({ pinnedExitId: '' })
+      return
+    }
+    const reply = await runAction(() => exitAction('unpin'), volatile)
+    if (reply.ok) edit({ pinnedExitId: '' })
+  }
+
+  /** 轮换: the bridge promotes a reserve into the slot or sinks the row. */
+  const rotateExit = (exitId: string): void => {
+    void runAction(() => exitAction('rotate', exitId), (value) => (value.busy === true ? t('statsActionBusy') : null))
+  }
+
+  /**
+   * Switch the usage scope, written IMMEDIATELY: it is a view switch whose
+   * numbers come from the bridge, not a configuration edit to save later.
    */
   const setUsageScope = async (next: UsageScopeView): Promise<void> => {
     if (!writable || settings === undefined || snapshot === undefined) return
     setActionBusy(true)
+    setActionError(null)
     try {
-      const accepted = await settings.mutate(
-        [{ op: 'set', path: [IP_POOL_FIELD, 'usageScope'], value: next }],
-        snapshot.revision,
-      )
+      const accepted = await settings.mutate(usageScopeWriteOps(next), snapshot.revision)
       if (!accepted) throw new Error(t('saveError'))
-      setForm((current) => ({ ...current, usageScope: next }))
-      await refreshStatus()
+      setPool((current) => ({ ...current, draft: { ...current.draft, usageScope: next } }))
+      await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('saveError'))
+      setActionError(err instanceof Error ? err.message : t('saveError'))
     } finally {
       setActionBusy(false)
     }
   }
 
-  const probeDone = status !== null ? status.prober.completed : 0
-  const probeTotal = status !== null ? status.prober.enqueued : 0
-
-  // Collapsed-state summaries read the DRAFT (not the saved value): folding
-  // the page must still confirm what you just edited.
-  const sourcesSummary = [
-    form.manual.length > 0 ? t('summaryProxies', { count: String(form.manual.length) }) : '',
-    form.subscriptionUrls.length > 0 ? t('summarySubscriptions', { count: String(form.subscriptionUrls.length) }) : '',
-  ].filter((part) => part !== '').join(' · ') || t('summaryUnset')
-  const schedulingSummary = form.pinnedExitId !== ''
-    ? t('summaryPinned', { target: form.pinnedExitId })
-    : `${t('summaryAuto')}${form.pinnedStrict ? ` · ${t('pinnedModeAbsolute')}` : ''}`
-  const probeSummary = [
-    form.probeModels.length === 0 ? t('summaryModelsDefault') : t('summaryModelsCount', { count: String(form.probeModels.length) }),
-    form.probeContents.length > 0 ? t('summaryContentsCount', { count: String(form.probeContents.length) }) : '',
-    t('summaryConcurrency', { count: form.maxConcurrentProbes }),
-    t('summaryCapacity', { count: form.poolSize }),
-  ].filter((part) => part !== '').join(' · ')
-  const usageSummary = status?.usage == null
-    ? t('summaryUsageNone')
-    : t('summaryUsage', {
-      requests: status.usage.scoped.requests.toLocaleString(),
-      tokens: usageTokens(status.usage.scoped),
-    })
   const headersLineCount = headersText.split('\n').filter((line) => line.trim() !== '').length
   const headersSummary = headersLineCount === 0 ? t('summaryHeadersDefault') : t('summaryHeadersCustom', { count: String(headersLineCount) })
   const contextLineCount = contextText.split('\n').filter((line) => line.trim() !== '').length
@@ -1268,8 +383,8 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           <Switch
             checked={form.enabled}
             label={t('enabled')}
-            disabled={!writable || saving}
-            onChange={(next) => { setSaved(false); setForm({ ...form, enabled: next }) }}
+            disabled={locked}
+            onChange={(next) => edit({ enabled: next })}
           />
         </span>
         <div className={styles.settingRowText}>
@@ -1277,22 +392,20 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
           <span className={styles.fieldHint}>{t('enabledHint')}</span>
         </div>
       </div>
-      <OverviewBar status={form.enabled ? status : null} t={t} />
+      {/* Gated on the running pool, not the draft switch: an unsaved toggle
+          has nothing to show yet. */}
+      <OverviewBar status={poolRunning ? status : null} t={t} />
 
-      {/* 本地出口兜底: what a pool MISS means — no pickable exit (empty at
-          boot, all cooling, or an exit whose proxy agent could not be built).
-          Off (the default) fails the request, so this machine's IP never
-          reaches the upstream; On falls back to a direct connection and lights
-          up the modal's 直连兜底 row. An explicit 固定本机 pin is honoured
-          either way — that is the operator choosing this machine, not a
-          fallback. */}
+      {/* 本地出口兜底: what a pool MISS means. Off (the default) fails the
+          request so this machine's IP never reaches the upstream; On falls
+          back to a direct connection. A 本机 pin is honoured either way. */}
       <div className={styles.settingRow}>
         <span className={styles.settingRowControl} data-testid="field-localFallback">
           <Switch
             checked={form.localFallback}
             label={t('localFallback')}
-            disabled={!writable || saving}
-            onChange={(next) => { setSaved(false); setForm({ ...form, localFallback: next }) }}
+            disabled={locked}
+            onChange={(next) => edit({ localFallback: next })}
           />
         </span>
         <div className={styles.settingRowText}>
@@ -1301,17 +414,15 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         </div>
       </div>
 
-      {/* 本机出口协议族: the family the LOCAL egress — a 固定本机 pin, or
-          本地出口兜底 after a pool miss — dials with. 'auto' is the shipped
-          default and reproduces what the official client does on this machine
-          (IPv6 first, IPv4 as the fallback). */}
+      {/* 本机出口协议族: the family the LOCAL egress (a 本机 pin, or the
+          fallback after a pool miss) dials with. */}
       <div className={styles.settingRow}>
         <span className={styles.settingRowControl} data-testid="field-localIpFamily">
           <LocalFamilyPicker
             value={form.localIpFamily}
-            disabled={!writable || saving}
+            disabled={locked}
             t={t}
-            onChange={(next) => { setSaved(false); setForm({ ...form, localIpFamily: next }) }}
+            onChange={(next) => edit({ localIpFamily: next })}
           />
         </span>
         <div className={styles.settingRowText}>
@@ -1320,308 +431,88 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
         </div>
       </div>
 
-      <Group
-        id="sources"
-        title={t('groupSources')}
-        summary={sourcesSummary}
-        open={groups.sources}
-        highlight={highlightGroup === 'sources'}
-        onToggle={() => toggleGroup('sources')}
-      >
-        <span className={styles.fieldLabel}>{t('sectionManual')}</span>
-        <ListEditor
-          hint={t('manualHint')}
-          values={form.manual}
-          placeholder={t('manualPlaceholder')}
-          testId="field-manual"
-          disabled={!writable || saving}
-          t={t}
-          onChange={(next) => { setSaved(false); setForm({ ...form, manual: next }) }}
-        />
-        <span className={styles.fieldLabel}>{t('sectionSubscription')}</span>
-        <ListEditor
-          hint={t('subscriptionHint')}
-          values={form.subscriptionUrls}
-          placeholder={t('subscriptionPlaceholder')}
-          testId="field-subscriptions"
-          redacted
-          disabled={!writable || saving}
-          t={t}
-          onChange={(next) => { setSaved(false); setForm({ ...form, subscriptionUrls: next }) }}
-        />
-        <TextField
-          label={t('subscriptionRefreshMs')}
-          hint={t('subscriptionRefreshMsHint')}
-          value={form.refreshMs}
-          testId="field-refreshMs"
-          type="number"
-          min={60_000}
-          step={1}
-          width="medium"
-          invalid={validation?.group === 'sources' && validation.message === t('invalidRange')}
-          disabled={!writable || saving}
-          onChange={(value) => { setSaved(false); setForm({ ...form, refreshMs: value }) }}
-          action={(
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="refresh-subscriptions"
-              disabled={actionBusy || !form.enabled}
-              onClick={() => { void bridgeAction({ scope: 'subscription' }) }}
-            >
-              {t('subscriptionRefreshNow')}
-            </Button>
-          )}
-        />
-        <TextField
-          label={t('subscriptionUserAgent')}
-          hint={t('subscriptionUserAgentHint')}
-          value={form.userAgent}
-          testId="field-subscriptionUserAgent"
-          width="medium"
-          disabled={!writable || saving}
-          onChange={(value) => { setSaved(false); setForm({ ...form, userAgent: value }) }}
-        />
-        {status?.subscription !== null && status?.subscription !== undefined && (
-          <span className={styles.status}>
-            {t('sectionSubscription')}: {status.subscription.pendingConversion} 待转换 · {status.subscription.convertedAdmitted} 已转换入池
-            {status.subscription.lastError !== '' ? ` · ${status.subscription.lastError}` : ''}
-          </span>
-        )}
-        <TextField
-          label={t('singboxPath')}
-          hint={t('singboxPathHint')}
-          value={form.singboxPath}
-          testId="field-singboxPath"
-          width="medium"
-          disabled={!writable || saving}
-          onChange={(value) => { setSaved(false); setForm({ ...form, singboxPath: value }) }}
-        />
-      </Group>
+      <SourcesGroup
+        form={form}
+        edit={edit}
+        locked={locked}
+        t={t}
+        chrome={chrome('sources')}
+        validation={shownFormFailure}
+        subscription={status?.subscription}
+        poolRunning={poolRunning}
+        actionBusy={actionBusy}
+        onRefreshSubscriptions={() => probe({ scope: 'subscription' })}
+      />
 
-      <Group
-        id="scheduling"
-        title={t('groupScheduling')}
-        summary={schedulingSummary}
-        open={groups.scheduling}
-        highlight={highlightGroup === 'scheduling'}
-        onToggle={() => toggleGroup('scheduling')}
-      >
-        <TextField
-          label={t('pinnedAddress')}
-          hint={t('pinnedAddressHint')}
-          value={form.pinnedExitId}
-          placeholder={t('manualPlaceholder')}
-          testId="field-pinnedExitId"
-          width="medium"
-          disabled={!writable || saving}
-          onChange={(value) => { setSaved(false); setForm({ ...form, pinnedExitId: value }) }}
-          action={form.pinnedExitId === '' ? undefined : (
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="unpin"
-              disabled={saving}
-              onClick={() => { setSaved(false); setForm({ ...form, pinnedExitId: '' }) }}
-            >
-              {t('pinnedUnset')}
-            </Button>
-          )}
-        />
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>{t('pinnedStrict')}</span>
-          <span data-testid="field-pinnedStrict">
-            <SegmentedControl<'fallback' | 'absolute'>
-              id="ip-pool-pin-mode"
-              value={form.pinnedStrict ? 'absolute' : 'fallback'}
-              options={[
-                { value: 'fallback', label: t('pinnedModeFallback') },
-                { value: 'absolute', label: t('pinnedModeAbsolute') },
-              ]}
-              label={t('pinnedStrict')}
-              disabled={!writable || saving}
-              onChange={(next) => { setSaved(false); setForm({ ...form, pinnedStrict: next === 'absolute' }) }}
-            />
-          </span>
-          <span className={styles.fieldHint}>{form.pinnedStrict ? t('pinnedStrictOn') : t('pinnedStrictOff')}</span>
-        </div>
-      </Group>
+      <SchedulingGroup
+        form={form}
+        edit={edit}
+        locked={locked}
+        t={t}
+        chrome={chrome('scheduling')}
+        saving={saving || actionBusy}
+        onUnpin={() => { void unpin() }}
+      />
 
-      <Group
-        id="probe"
-        title={t('groupProbe')}
-        summary={probeSummary}
-        open={groups.probe}
-        highlight={highlightGroup === 'probe'}
-        onToggle={() => toggleGroup('probe')}
-      >
-        <ModelPicker
-          value={form.probeModels}
-          hint={t('probeModelsHint')}
-          models={probeModelRows}
-          loading={probeModelsLoading}
-          disabled={!writable || saving}
-          t={t}
-          onChange={(next) => { setSaved(false); setForm({ ...form, probeModels: next }) }}
-        />
-        {/* The smoke's user turn: a pool of one-liners, one picked at random
-            per probe; empty = 'hello'. */}
-        <ListEditor
-          label={t('probeContents')}
-          hint={t('probeContentsHint')}
-          values={form.probeContents}
-          placeholder={t('probeContentsPlaceholder')}
-          testId="field-probeContents"
-          disabled={!writable || saving}
-          t={t}
-          onChange={(next) => { setSaved(false); setForm({ ...form, probeContents: next }) }}
-        />
-        <div className={styles.fieldRow}>
-          <TextField
-            label={t('probeConcurrency')}
-            hint={t('probeConcurrencyHint')}
-            value={form.maxConcurrentProbes}
-            testId="field-maxConcurrentProbes"
-            type="number"
-            min={1}
-            max={8}
-            step={1}
-            width="narrow"
-            invalid={validation?.group === 'probe' && validation.message === t('invalidRange')}
-            disabled={!writable || saving}
-            onChange={(value) => { setSaved(false); setForm({ ...form, maxConcurrentProbes: value }) }}
-          />
-          <TextField
-            label={t('poolSize')}
-            hint={t('poolSizeHint')}
-            value={form.poolSize}
-            testId="field-poolSize"
-            type="number"
-            min={1}
-            max={100}
-            step={1}
-            width="narrow"
-            invalid={validation?.group === 'probe' && validation.message === t('invalidRange')}
-            disabled={!writable || saving}
-            onChange={(value) => { setSaved(false); setForm({ ...form, poolSize: value }) }}
-          />
-        </div>
-        <div>
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="probe-all"
-            disabled={actionBusy || !form.enabled}
-            onClick={() => { void bridgeAction({ scope: 'all' }) }}
-          >
-            {probing ? t('probeRunning').replace('{done}', String(probeDone)).replace('{total}', String(probeTotal)) : t('probeAll')}
-          </Button>
-        </div>
-      </Group>
+      <ProbeGroup
+        form={form}
+        edit={edit}
+        locked={locked}
+        t={t}
+        chrome={chrome('probe')}
+        validation={shownFormFailure}
+        models={probeModelRows}
+        modelsLoading={probeModelsLoading}
+        prober={status?.prober}
+        poolRunning={poolRunning}
+        actionBusy={actionBusy}
+        onProbeAll={() => probe({ scope: 'all' })}
+      />
 
-      <Group
-        id="usage"
-        title={t('groupUsage')}
-        summary={usageSummary}
-        open={groups.usage}
-        highlight={highlightGroup === 'usage'}
-        onToggle={() => toggleGroup('usage')}
-      >
-        <div data-testid="usage-section">
-          {/* Flex-column so the scope hint wraps to its own line under the
-              control instead of flowing inline beside it; .field keeps the
-              label-above / hint-below rhythm of the other fields. */}
-          <div className={styles.field}>
-            <span data-testid="usage-scope">
-              <SegmentedControl<UsageScopeView>
-                id="ip-pool-usage-scope"
-                value={form.usageScope}
-                options={[
-                  { value: 'total', label: t('usageScopeTotal') },
-                  { value: 'run', label: t('usageScopeRun') },
-                ]}
-                label={t('usageScopeLabel')}
-                disabled={actionBusy || !writable}
-                onChange={(next) => { void setUsageScope(next) }}
-              />
-            </span>
-            <span className={styles.fieldHint}>
-              {t('usageScopeHint', { days: String(status?.usage?.retentionDays ?? 90) })}
-            </span>
-          </div>
-          {status?.usage == null
-            ? <span className={styles.status}>{t('usageNoStore')}</span>
-            : (
-              <div className={styles.statsSummary}>
-                <span className={styles.statsChip}>{t('statsSummaryRequests', { count: status.usage.scoped.requests.toLocaleString() })}</span>
-                <span className={styles.statsChip}>
-                  {t('statsSummaryTokens', { count: usageTokens(status.usage.scoped) })}
-                </span>
-                {(status.usage.recentSpeed ?? 0) > 0 && (
-                  <span className={styles.statsChip}>{t('statsSummarySpeed', { count: (status.usage.recentSpeed ?? 0).toLocaleString() })}</span>
-                )}
-                <span className={styles.statsChip}>{t('usageSummarySessions', { count: status.usage.sessions.length.toLocaleString() })}</span>
-                <span className={styles.statsChip}>{t('usageSummaryDays', { count: status.usage.days.length.toLocaleString() })}</span>
-              </div>
-            )}
-        </div>
-      </Group>
+      <UsageGroup
+        scope={form.usageScope}
+        usage={status?.usage}
+        disabled={actionBusy || !writable}
+        t={t}
+        chrome={chrome('usage')}
+        onScope={(next) => { void setUsageScope(next) }}
+      />
 
-      <Group
-        id="headers"
-        title={t('groupHeaders')}
-        summary={headersSummary}
-        open={groups.headers}
-        highlight={highlightGroup === 'headers'}
-        onToggle={() => toggleGroup('headers')}
-      >
+      <Group id="headers" title={t('groupHeaders')} summary={headersSummary} {...chrome('headers')}>
         <RequestHeadersEditor
           text={headersText}
           effectiveUserAgent={status?.zenUserAgent}
-          disabled={!writable || saving}
+          disabled={locked}
           t={t}
           onChange={(text) => { setSaved(false); setHeadersText(text) }}
         />
       </Group>
 
-      <Group
-        id="models"
-        title={t('groupModels')}
-        summary={contextSummary}
-        open={groups.models}
-        highlight={highlightGroup === 'models'}
-        onToggle={() => toggleGroup('models')}
-      >
+      <Group id="models" title={t('groupModels')} summary={contextSummary} {...chrome('models')}>
         <ModelContextEditor
           text={contextText}
-          disabled={!writable || saving}
+          disabled={locked}
           t={t}
           onChange={(text) => { setSaved(false); setContextText(text) }}
         />
       </Group>
 
-      {form.enabled && (
-        <Group
-          id="exits"
-          title={t('groupExits')}
-          summary={exitsSummary}
-          open={groups.exits}
-          highlight={highlightGroup === 'exits'}
-          onToggle={() => toggleGroup('exits')}
-        >
+      {poolRunning && (
+        <Group id="exits" title={t('groupExits')} summary={exitsSummary} {...chrome('exits')}>
           <ExitTable
             status={status}
             t={t}
             busy={actionBusy}
-            onProbe={(id) => { void bridgeAction({ scope: 'exit', exitId: id }) }}
-            onPin={(id) => { void pinExit(id) }}
-            onRotate={(id) => { void rotateExit(id) }}
+            onProbe={(id) => probe({ scope: 'exit', exitId: id })}
+            onPin={pinExit}
+            onRotate={rotateExit}
           />
         </Group>
       )}
 
       {validation !== null && <span role="alert" className={styles.saveStatusError}>{validation.message}</span>}
-      {statusError !== null && <span className={styles.saveStatusError}>{statusError}</span>}
+      {actionError !== null && <span role="status" className={styles.saveStatusError} data-testid="action-error">{actionError}</span>}
+      {statusError !== null && <span className={styles.saveStatusError}>{t('refreshError')}</span>}
       {saved && error === null && <span className={`${styles.saveStatus} ${styles.saveStatusOk}`}>{t('saved')}</span>}
 
       <p className={styles.compliance}>{t('copyCompliance')}</p>
@@ -1631,12 +522,9 @@ function CardBody(props: { settings: ConfigPageForm | undefined; t: IpPoolCardPr
 }
 
 /**
- * The IP 池 page on the Plugins page.
- *
- * The Plugins page owns the card chrome and the save control: for
- * `view: 'summary'` this returns the one-liner the page shows under the entry
- * title, and for `view: 'page'` it returns the form bound to the entry's
- * served settings.
+ * The IP 池 page on the Plugins page. The page owns the card chrome and the
+ * save control: `view: 'summary'` returns the one-liner under the entry
+ * title, `view: 'page'` the form bound to the entry's served settings.
  */
 export function IpPoolCard(props: IpPoolCardOwnProps): ReactNode {
   const { form, t, view } = props
@@ -1645,15 +533,11 @@ export function IpPoolCard(props: IpPoolCardOwnProps): ReactNode {
 }
 
 /**
- * A `plugins.bundle.config` entry bound to one settings controller: the DSH
- * 0.2 bundle page embeds the configuration directly on the bundle's detail
- * page (设置 → 插件 → oc2dsh lands straight on this form),
- * but unlike the row/item slots its render site hands over NO `form` — the
- * page draws the section and nothing else. The registration therefore closes
- * over the settings provider's own controller for the served entry and
- * subscribes here, which is the same snapshot/mutate pair the page would
- * have bound (config-form.d.ts: getSnapshot is stable until the next
- * acceptance, subscribe fires on replacements).
+ * A `plugins.bundle.config` entry bound to one settings controller. The DSH
+ * 0.2 bundle page hands its slot NO `form`, so the registration closes over
+ * the settings provider's controller for the served entry and subscribes here
+ * (getSnapshot is stable until the next acceptance; subscribe fires on
+ * replacements).
  */
 export function bundleConfigCard(controller: ConfigForm<Record<string, unknown>>): (props: { view: 'summary' | 'page'; t: IpPoolCardLocale }) => ReactNode {
   return function BundleConfigCard(props): ReactNode {

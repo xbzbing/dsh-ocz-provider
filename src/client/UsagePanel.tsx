@@ -12,12 +12,13 @@
  * heaviest day in the window — no chart dependency, and the table stays
  * readable at the modal's width.
  */
-import { useState, type ReactNode } from 'react'
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useId, useState, type ReactNode } from 'react'
+import { Button, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 
-import type { IpPoolCardLocale } from './IpPoolCard.tsx'
-import type { TokenTotalsView, UsageView } from './IpPoolCard.tsx'
-import styles from './ip-pool.module.css'
+import type { IpPoolCardLocale, UsageView } from './types.ts'
+import shared from './shared.module.css'
+import styles from './usage-panel.module.css'
 import { compact, grandTotal } from './usage-format.ts'
 
 /** `2026-10-14` → `10-14` (the year is noise in a 14-day window). */
@@ -53,12 +54,14 @@ export interface UsagePanelProps {
 export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelProps): ReactNode {
   const [confirming, setConfirming] = useState(false)
   const [clearing, setClearing] = useState(false)
-  /**
-   * Which breakdown is on screen: the Top 会话 table and the 项目 roll-up are
-   * two views of the same ledger, shown as underline tabs. Default to
-   * sessions — the table is the one an operator scans first.
-   */
+  /** Which breakdown is on screen; sessions first, the view an operator scans first. */
   const [breakdown, setBreakdown] = useState<'sessions' | 'projects'>('sessions')
+  const tabBase = useId()
+  const breakdownTabs: [SegmentedTab<'sessions' | 'projects'>, SegmentedTab<'sessions' | 'projects'>] = [
+    { value: 'sessions', label: t('usageTopSessions'), id: `${tabBase}-tab-sessions`, panelId: `${tabBase}-panel-sessions` },
+    { value: 'projects', label: t('usageProjectsTitle'), id: `${tabBase}-tab-projects`, panelId: `${tabBase}-panel-projects` },
+  ]
+  const activeBreakdown = breakdownTabs[breakdown === 'projects' ? 1 : 0]
   const days = usage.days.slice(-windowDays)
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
@@ -70,18 +73,18 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
 
   return (
     <div className={styles.usagePanel}>
-      <div className={styles.statsSummary}>
+      <div className={shared.statsSummary}>
         {/* Which population is on screen. The switch itself lives on the
             settings card; without this chip a run-scoped view and an all-time
             view look identical. */}
-        <span className={`${styles.statsChip} ${styles.usageScopeChip}`}>
+        <span className={`${shared.statsChip} ${styles.usageScopeChip}`}>
           {usage.scope === 'run' ? t('usageScopeRun') : t('usageScopeTotal')}
         </span>
-        <span className={styles.statsChip}>{t('statsSummaryRequests', { count: scoped.requests.toLocaleString() })}</span>
-        <span className={styles.statsChip}>{t('statsSummaryTokens', { count: compact(grandTotal(scoped)) })}</span>
-        {speed > 0 && <span className={styles.statsChip}>{t('statsSummarySpeed', { count: speed.toLocaleString() })}</span>}
-        <span className={styles.statsChip}>{t('usageSummarySessions', { count: sessions.length.toLocaleString() })}</span>
-        <span className={styles.statsChip}>{t('usageSummaryDays', { count: usage.days.length.toLocaleString() })}</span>
+        <span className={shared.statsChip}>{t('statsSummaryRequests', { count: scoped.requests.toLocaleString() })}</span>
+        <span className={shared.statsChip}>{t('statsSummaryTokens', { count: compact(grandTotal(scoped)) })}</span>
+        {speed > 0 && <span className={shared.statsChip}>{t('statsSummarySpeed', { count: speed.toLocaleString() })}</span>}
+        <span className={shared.statsChip}>{t('usageSummarySessions', { count: sessions.length.toLocaleString() })}</span>
+        <span className={shared.statsChip}>{t('usageSummaryDays', { count: usage.days.length.toLocaleString() })}</span>
         {/* 清空: two steps, because it is destructive and irreversible — the
             first click only arms it, and the armed state names exactly what
             goes away. */}
@@ -128,7 +131,7 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
       <div className={styles.usageSection}>
         <span className={styles.usageSectionTitle}>{t('usageDailyTitle')}</span>
         {days.length === 0
-          ? <p className={styles.status}>{t('usageDailyEmpty')}</p>
+          ? <p className={shared.status}>{t('usageDailyEmpty')}</p>
           : (
             <ul className={styles.dayChart}>
               {days.map((row) => (
@@ -156,26 +159,20 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
           )}
       </div>
 
-      {/* The two breakdowns as underline tabs; the titles live in the tabs
-          themselves. */}
+      {/* The two breakdowns as platform tabs (arrow keys, one tab stop); the
+          titles live in the tabs themselves. */}
       <div className={styles.usageSection}>
-        <div className={styles.usageTabs} role="tablist" aria-label={t('usageBreakdownTitle')}>
-          {(['sessions', 'projects'] as const).map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={breakdown === key}
-              className={breakdown === key ? `${styles.usageTab} ${styles.usageTabActive}` : styles.usageTab}
-              onClick={() => setBreakdown(key)}
-            >
-              {key === 'sessions' ? t('usageTopSessions') : t('usageProjectsTitle')}
-            </button>
-          ))}
-        </div>
+        <SegmentedTabs
+          items={breakdownTabs}
+          value={breakdown}
+          onChange={setBreakdown}
+          label={t('usageBreakdownTitle')}
+          className={styles.usageTabs}
+        />
+        <div role="tabpanel" id={activeBreakdown.panelId} aria-labelledby={activeBreakdown.id}>
         {breakdown === 'sessions' ? (
           sessions.length === 0
-            ? <p className={styles.status}>{t('usageSessionsEmpty')}</p>
+            ? <p className={shared.status}>{t('usageSessionsEmpty')}</p>
             : (
               <div className={styles.usageTableWrap}>
                 <table className={styles.usageTable}>
@@ -230,6 +227,7 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
             ))}
           </ul>
         )}
+        </div>
       </div>
 
       <p className={styles.usageFootnote}>

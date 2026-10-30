@@ -1,0 +1,186 @@
+/* The stats modal's 流量 tab (UsagePanel). */
+
+.usagePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.usageScopeChip {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+  font-weight: 600;
+}
+
+.usageSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.usageSectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+/* The per-day chart: one column per day on a shared baseline, the bar scaled
+   to the heaviest day in the window. Plain elements, because the client half
+   may not pull a charting dependency. */
+.dayChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Equal-width columns with a readable floor on a narrow window. */
+.dayColumn {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 52px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 88px IS the chart's y-axis: a full bar tops out there. Baseline tick only,
+   no empty-track fill behind the bar. */
+.dayTrack {
+  display: flex;
+  align-items: flex-end;
+  width: 24px;
+  height: 88px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.dayBar {
+  display: block;
+  width: 100%;
+  /* An empty day still reads as a mark on the baseline. */
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.dayLabel {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.dayValue {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.usageTabs {
+  margin-bottom: 6px;
+}
+
+.usageTableWrap {
+  overflow-x: hidden;
+}
+
+/* Fixed layout with an explicit column budget (40/18/12/12/18): the session
+   label takes the widest share because it is free text. */
+.usageTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+.usageTable th:nth-child(1) { width: 40%; }
+.usageTable th:nth-child(2) { width: 18%; }
+.usageTable th:nth-child(3) { width: 12%; }
+.usageTable th:nth-child(4) { width: 12%; }
+.usageTable th:nth-child(5) { width: 18%; }
+
+.usageTable th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.usageTable td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usageTable tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.sessionLabel,
+.projectLabel {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.projectList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.projectRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.projectMeta {
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+/* The 清空 control sits at the end of the chip row; the armed state replaces
+   the button so a stray second click cannot delete anything by itself. */
+.usageClear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.usageClearPrompt {
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.usageClearDanger {
+  padding: 6px 12px;
+  border: 1px solid var(--dsw-alias-state-error-primary, #d1242f);
+  border-radius: 6px;
+  background: var(--dsw-alias-state-error-primary, #d1242f);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.usageClearDanger:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.usageFootnote {
+  margin: 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}

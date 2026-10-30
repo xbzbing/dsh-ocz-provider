@@ -86,11 +86,15 @@ test('client reads and writes settings through the page-supplied ConfigPageForm'
   // The served value is the whole entry: the editable section is the `ipPool`
   // volatile node, so every write path keeps that field in front.
   assert.ok(/\[\s*"ipPool"\s*,\s*write\.field\s*\]/.test(source), 'write paths nest under the ipPool field')
-  assert.ok(/\[\s*IP_POOL_FIELD\s*,\s*"pinnedExitId"\s*\]/.test(source), 'pinned-exit write nests under ipPool too')
   // The save control belongs to the shared form chrome, not this page.
   assert.ok(source.includes('SettingsForm'), 'the page renders inside the shared form chrome')
 
   const stripped = code(source)
+  // Pins ride the bridge's /exit action (listener probe, protocol relabel,
+  // exit-unreachable refusal, revive), never a direct settings write.
+  assert.ok(!/"pinnedExitId"\s*\]/.test(stripped), 'no direct pinned-exit settings write remains')
+  assert.ok(/exitAction\(\s*"pin"\s*,/.test(stripped), 'the card pins through the bridge exit action')
+  assert.ok(stripped.includes('"/exit"'), 'the exit action posts the /exit route')
   assert.ok(!stripped.includes('settingsScope'), 'no runtime reference to the removed settingsScope service')
   assert.ok(!stripped.includes('useSnapshot'), 'no injected snapshot hook remains')
   assert.ok(!stripped.includes('.bind({ namespace'), 'no settingsScope.bind({ namespace }) call shape remains')
