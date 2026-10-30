@@ -139,6 +139,35 @@ test('deriveRequestIDs emits canonical-shape sessions', () => {
   assert.match(ids.session, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
 })
 
+test('the host session id separates conversations that open with the same words', () => {
+  resetSessionIDCache()
+  const opening = [{ role: 'user', content: 'hello' }]
+  const one = deriveRequestIDs(opening, 'session-one').session
+  const two = deriveRequestIDs(opening, 'session-two').session
+  assert.notEqual(one, two)
+  assert.equal(deriveRequestIDs([...opening, { role: 'assistant', content: 'hi' }, { role: 'user', content: 'more' }], 'session-one').session, one, 'stable across turns')
+  assert.match(one, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
+  // no user content: the host session alone is a stable signal (no random fallback)
+  const system = [{ role: 'system', content: 'only system' }]
+  assert.equal(deriveRequestIDs(system, 'session-three').session, deriveRequestIDs(system, 'session-three').session)
+})
+
+test('the session cache is LRU: a read keeps a conversation from being evicted', () => {
+  resetSessionIDCache()
+  const kept = canonicalSessionID('kept-conversation')
+  const dropped = canonicalSessionID('dropped-conversation')
+  for (let i = 0; i < 511; i += 1) {
+    assert.equal(canonicalSessionID('kept-conversation'), kept)
+    canonicalSessionID(`filler-${String(i)}`)
+  }
+  // 'dropped-conversation' was the least recently used entry and has been evicted;
+  // 'kept-conversation' was read after every insert and survives
+  assert.equal(canonicalSessionID('kept-conversation'), kept)
+  const reminted = canonicalSessionID('dropped-conversation')
+  assert.equal(reminted.slice(16), dropped.slice(16), 'same digest tail')
+  assert.notEqual(reminted, dropped, 'a fresh prefix: the entry was evicted and re-minted')
+})
+
 test('conversationSeed uses the first user turn and skips non-user messages', () => {
   const messages = [
     { role: 'system', content: 'sys prompt' },

@@ -84,7 +84,10 @@ export function currentProjectID(): string {
 
 /**
  * Derive the correlation ids for one upstream request. There are no inbound
- * opencode headers, so the seed is the conversation itself.
+ * opencode headers, so the seed is the conversation itself, mixed with the
+ * host's session id when it has one: DSH stamps `GenerateOptions.sessionId`
+ * from its agent session, stable for that conversation's life, so two
+ * conversations opening with the same words still get separate ids.
  *
  * `request` (a `msg_*` id) is minted but NOT SENT: the 2.x client's wire
  * carries no `x-opencode-request` header (absent repo-wide in 2.1.3 and
@@ -94,8 +97,10 @@ export function currentProjectID(): string {
  * `x-opencode-project` must be the prefix-less project id above; the trace id
  * follows the session ({@link traceIDFor}).
  */
-export function deriveRequestIDs(messages: Array<{ role: string; content: unknown }>): RequestIDs {
-  let signal = conversationSeed(messages)
+export function deriveRequestIDs(messages: Array<{ role: string; content: unknown }>, hostSession?: string): RequestIDs {
+  const seed = conversationSeed(messages)
+  const host = typeof hostSession === 'string' ? hostSession.trim() : ''
+  let signal = host !== '' ? `host:${host}\x00${seed}` : seed
   if (signal === '' || signal === '{}') signal = randomID('fallback', 16)
   return {
     session: canonicalSessionID(signal),
@@ -233,6 +238,35 @@ export function mintedMessageID(): string {
   return `msg_${hex48(value)}${base62Fixed(BigInt('0x' + randomBytes(10).toString('hex')), 14)}`
 }
 
+const SESSION_CACHE_LIMIT = 512
+let sessionCounter = 0
+
+/** A bounded map whose reads refresh recency: the least recently used entry is evicted first. */
+class LruCache {
+  readonly #entries = new Map<string, string>()
+  get(key: string): string | undefined {
+    const value = this.#entries.get(key)
+    if (value === undefined) return undefined
+    this.#entries.delete(key)
+    this.#entries.set(key, value)
+    return value
+  }
+  set(key: string, value: string): void {
+    this.#entries.delete(key)
+    if (this.#entries.size >= SESSION_CACHE_LIMIT) {
+      const oldest = this.#entries.keys().next()
+      if (oldest.done !== true) this.#entries.delete(oldest.value)
+    }
+    this.#entries.set(key, value)
+  }
+  clear(): void {
+    this.#entries.clear()
+  }
+}
+
+/** Keyed by a digest of the signal, so a pasted opening turn is not retained. */
+const sessionCache = new LruCache()
+
 /**
  * The session id sent upstream.
  *
@@ -250,25 +284,17 @@ export function mintedMessageID(): string {
  * and its prompt-cache affinity — the prefix carries freshness, the tail
  * identity.
  *
- * Stability: an id is cached per signal for the life of the process (the lane
+ * Stability: an id is cached per signal in a 512-entry LRU (the lane
  * only accepts a fresh timestamp, so a conversation restarted days later must
  * mint a new id — the same thing the official client does per session). An
  * inbound id that is already canonical AND fresh passes through untouched.
  */
-const sessionCache = new Map<string, string>()
-/** Cap on the per-process cache: conversation ids are small, but unbounded is unbounded. */
-const SESSION_CACHE_LIMIT = 512
-let sessionCounter = 0
-
 export function canonicalSessionID(signal: string): string {
-  const cached = sessionCache.get(signal)
+  const key = createHash('sha256').update(signal).digest('hex')
+  const cached = sessionCache.get(key)
   if (cached !== undefined) return cached
   const id = isFreshSessionID(signal) ? signal : mintSessionID(signal)
-  if (sessionCache.size >= SESSION_CACHE_LIMIT) {
-    const oldest = sessionCache.keys().next()
-    if (oldest.done !== true) sessionCache.delete(oldest.value)
-  }
-  sessionCache.set(signal, id)
+  sessionCache.set(key, id)
   return id
 }
 
@@ -401,17 +427,13 @@ export function opencodeUserAgent(): string {
 }
 
 /** One trace per conversation, like the client's long-lived root span; bounded like the session cache. */
-const traceCache = new Map<string, string>()
+const traceCache = new LruCache()
 
 /** The 32-hex trace id every request of one session shares. */
 export function traceIDFor(session: string): string {
   const cached = traceCache.get(session)
   if (cached !== undefined) return cached
   const trace = randomBytes(16).toString('hex')
-  if (traceCache.size >= SESSION_CACHE_LIMIT) {
-    const oldest = traceCache.keys().next()
-    if (oldest.done !== true) traceCache.delete(oldest.value)
-  }
   traceCache.set(session, trace)
   return trace
 }

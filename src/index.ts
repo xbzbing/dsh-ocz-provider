@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises'
 
 import { ModelCatalog, defaultCachePath, type CatalogSnapshot } from './adapter/catalog.ts'
 import { opencodeUserAgent, setRequestHeadersReader, setUserAgentOverride } from './adapter/ids.ts'
+import { hostProjectAsync } from './adapter/project.ts'
 import type { RequestHeaders } from './request-headers.ts'
 import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { Config, ordinaryConfig, resolveConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
@@ -245,6 +246,10 @@ function applyAdapter(
   } catch (err) {
     logger.error(`oc2dsh: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`)
   }
+
+  // The project id rides every request; resolving it now keeps the git spawns
+  // off the first turn (adapter/project.ts serves the cache from then on).
+  void hostProjectAsync()
 
   void catalog.start().catch((err) => {
     logger.error(`oc2dsh: catalog start failed: ${err instanceof Error ? err.message : String(err)}`)

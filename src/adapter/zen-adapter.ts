@@ -3,18 +3,23 @@ import * as openaiCompletions from '@earendil-works/pi-ai/api/openai-completions
 import * as openaiResponses from '@earendil-works/pi-ai/api/openai-responses'
 
 import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
+import { attemptAbort, attemptEntry, describeFailure, giveUpStory, nextStep, originSwitchEntry, peekAttempt, watchEvents, withFailureSuffix, type WatchdogWindows } from './attempt.ts'
 import { toStreamChunks, type HarnessChunk, type PiDoneMessage, type PiEvent } from './events.ts'
 import { conversationLabel, deriveRequestIDs, disguiseHeaders } from './ids.ts'
-import { chatApiPath, isOriginFailure, laneOrigins } from './lane.ts'
+import { chatApiPath, laneOrigins } from './lane.ts'
 import { gateToolArgumentBridge } from './gate-tools.ts'
+import { hostProjectAsync } from './project.ts'
 import { nextRetryDelayMs, retryDelayKey } from './retry-delay.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, inClientKeyOrder, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
+export { WATCHDOG_FIRST_MESSAGE, WATCHDOG_IDLE_MESSAGE } from './attempt.ts'
+import { normalizeResponsesEffort, normalizeResponsesPayload, reasoningEfforts, reasoningEffortWire, selectedEffort, type ZenReasoningEffort } from './reasoning-effort.ts'
+export { normalizeResponsesPayload, REASONING_EFFORT_LADDER, reasoningEfforts, reasoningEffortWire, type ZenReasoningEffort } from './reasoning-effort.ts'
 import { routingContext, type RoutingContext } from '../pool/dispatcher.ts'
-import { classifyStreamFailure, isIpReputationRefusal, isRegionBlocked, shouldRotate } from '../pool/rotate.ts'
-import { attributeUsage, LOCAL_EXIT_ID } from '../pool/usage.ts'
-import { EGRESS_HEADER, hasRelayEgress, isRelayTransportFailure, pickRelayEgress, settleRelayEgress, statusOfFailure, type RelayEgressPick } from '../relay/egress.ts'
+import { shouldRotate } from '../pool/rotate.ts'
+import { attributeUsage, DIRECT_EXIT_ID, LOCAL_EXIT_ID } from '../pool/usage.ts'
+import { EGRESS_HEADER, hasRelayEgress, pickRelayEgress, settleRelayEgress, type RelayEgressPick } from '../relay/egress.ts'
 import type { RelaySupervisor } from '../relay/supervisor.ts'
 
 /**
@@ -68,84 +73,12 @@ export interface CatalogLike {
 const DEFAULT_CONTEXT_WINDOW = 262144
 const DEFAULT_MAX_TOKENS = 32768
 
-/** The advertised context window: the models.dev declaration when the
- * metadata speaks, the host default otherwise (pending/absent metadata or a
- * model that declares no `limit.context`). */
-function contextWindowFor(limits: { contextWindow?: number } | undefined): number {
-  const declared = limits?.contextWindow
-  return typeof declared === 'number' && Number.isSafeInteger(declared) && declared > 0
-    ? declared
-    : DEFAULT_CONTEXT_WINDOW
-}
-
 /**
- * Use the declared output budget, including models that can answer beyond
- * 32768 tokens. Keep the fallback when metadata cannot provide a valid cap.
+ * A models.dev-declared limit (`limit.context` / `limit.output`) when it is a
+ * positive integer, the host default otherwise (pending/absent metadata).
  */
-function defaultMaxTokensFor(limits: { maxOutput?: number } | undefined): number {
-  const declared = limits?.maxOutput
-  return typeof declared === 'number' && Number.isSafeInteger(declared) && declared > 0
-    ? declared
-    : DEFAULT_MAX_TOKENS
-}
-
-/**
- * Reasoning-effort vocabulary the adapter owns end to end (dsh-llm treats the
- * ids as opaque: whatever resolveModel advertises comes back on
- * GenerateOptions.reasoningEffort). The ladder mirrors pi-ai's ThinkingLevel
- * so selected levels pass through untouched; `off` is the only id that maps
- * to a different wire spelling.
- */
-export const REASONING_EFFORT_LADDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
-
-/** Levels offered for reasoning models whose metadata declares no ladder. */
-const DEFAULT_EFFORT_LADDER: readonly string[] = ['off', 'minimal', 'low', 'medium', 'high']
-
-/** Selectable reasoning effort as dsh-llm's resolveModel contract describes it. */
-export interface ZenReasoningEffort {
-  id: string
-  name: string
-  description?: string
-}
-
-/**
- * Turn the catalog's models.dev capability into the advertised effort list.
- * A declared ladder (models.dev `reasoning_options` effort values) wins — its
- * values are the upstream-honored spellings, with metadata `none` folded into
- * our `off`. Without a declaration, a reasoning model gets the standard
- * ladder the Zen gateway accepts for every model. Non-reasoning models
- * advertise nothing (the picker then offers only the provider default).
- */
-export function reasoningEfforts(capability: { reasoning: boolean; effortValues: string[] } | undefined): ZenReasoningEffort[] | undefined {
-  if (!capability?.reasoning) return undefined
-  const declared: string[] = []
-  for (const value of capability.effortValues) {
-    const level = value === 'none' ? 'off' : value
-    if ((REASONING_EFFORT_LADDER as readonly string[]).includes(level) && !declared.includes(level)) declared.push(level)
-  }
-  const levels = declared.length > 0
-    ? declared.sort(
-        (a, b) =>
-          (REASONING_EFFORT_LADDER as readonly string[]).indexOf(a) -
-          (REASONING_EFFORT_LADDER as readonly string[]).indexOf(b),
-      )
-    : DEFAULT_EFFORT_LADDER
-  return levels.map((level) => ({ id: level, name: `${level.charAt(0).toUpperCase()}${level.slice(1)}` }))
-}
-
-/**
- * The `reasoning_effort` wire value for a selected effort id. The Zen gateway
- * validates the field against `minimal|low|medium|high|xhigh|max|none`
- * (any other value is a hard 400), and `none` is the
- * only spelling that stops the always-think free models from thinking — a
- * mere omission keeps the provider default. So `off` maps to wire `none`,
- * ladder levels pass through verbatim, and unknown ids (never advertised)
- * inject nothing rather than risk the 400.
- */
-export function reasoningEffortWire(id: string | undefined): string | undefined {
-  if (id === undefined) return undefined
-  if (id === 'off') return 'none'
-  return (REASONING_EFFORT_LADDER as readonly string[]).includes(id) ? id : undefined
+function declaredOr(declared: number | undefined, fallback: number): number {
+  return typeof declared === 'number' && Number.isSafeInteger(declared) && declared > 0 ? declared : fallback
 }
 
 /** Anonymous credential: the literal upstream accepts for the free lane. */
@@ -161,15 +94,8 @@ const ANONYMOUS_KEY = 'public'
  * sentinel, which adapter/events.ts classifyError maps to TRANSPORT precisely
  * so a mid-stream cut cannot escape the retry budget.
  *
- * The WAIT between retries is not this policy's exponential schedule: stream()
- * tags every retryable failure with retry-delay.ts's ladder through
- * `failure.providerRetryAfterMs`, and dsh-llm-retry waits that value VERBATIM
- * (5/8/10/15/20/30s, then 30s for rungs 7-10 — cumulative worst case per step
- * ≈ 208s of silent waiting). initialDelayMs/maxDelayMs/jitterRatio stay as the
- * fallback for an untagged failure, and maxDelayMs doubles as the ladder
- * ceiling: a providerRetryAfterMs ABOVE it makes normal mode give up without
- * retrying (dsh-llm-retry recover()), so every rung must stay ≤ 30s — pinned
- * by test/retry-delay.test.ts.
+ * Waits come from retry-delay.ts's ladder (tagged as providerRetryAfterMs);
+ * maxDelayMs is also its ceiling. Rationale: docs/design.md §6.5.
  */
 export const FREE_LANE_RETRY_POLICY = Object.freeze({
   mode: 'normal' as const,
@@ -199,15 +125,6 @@ function withRetryDelay(finish: FinishChunk, options: HarnessGenerateOptions): F
   return { ...finish, reason: { ...reason, failure: { ...reason.failure, providerRetryAfterMs } } }
 }
 
-/**
- * Stream-liveness watchdogs: neither fetch nor pi-ai owns a body-silence
- * timeout, so a tunnel that stands but never streams hangs the turn forever.
- * Both messages carry "timeout" so classifyStreamFailure maps them to
- * 'transport' and the rotate loop gets to move the session to a live exit.
- */
-export const WATCHDOG_FIRST_MESSAGE = 'oc2dsh: first stream event timeout (exit silent before any response)'
-export const WATCHDOG_IDLE_MESSAGE = 'oc2dsh: stream body idle timeout (exit went silent mid-response)'
-
 /** Default watchdog windows (docs/design.md §6.4); injected in tests. */
 export const DEFAULT_FIRST_EVENT_MS = 30_000
 export const DEFAULT_BODY_IDLE_MS = 120_000
@@ -236,6 +153,11 @@ function terminalErrorEvent(errorMessage: string, model: Model<Api>): PiEvent {
   }
 }
 
+/** A pool exit id from the routing context; the local/direct sentinels are not exits. */
+function poolExitOf(exitId: string | undefined): string | null {
+  return exitId === undefined || exitId === LOCAL_EXIT_ID || exitId === DIRECT_EXIT_ID ? null : exitId
+}
+
 /** A stream that carries one terminal error and nothing else (dispatch refusal). */
 function failedStream(message: string, model: Model<Api>): AsyncIterable<PiEvent> {
   return (async function* (): AsyncGenerator<PiEvent> {
@@ -255,18 +177,6 @@ interface AttemptMeta {
   /** Non-null = the pool refused to carry it and local egress is off. */
   fail: string | null
 }
-
-/**
- * Responses-only models: `muse-spark-*` return a bare 500 on
- * `POST /inference/v1/chat/completions` but 200 on
- * `POST /inference/v1/responses` (opencode #44659/#44847, DSH #3957). Route by
- * model id; extend this list if the lane moves more models (candidates:
- * gpt-5.6-luna, grok-4.6).
- *
- * The free-lane gate covers BOTH surfaces: `/responses` carries the same
- * tools, `<env>` block and session shape as chat (adapter/messages.ts).
- */
-
 
 /**
  * Vision gate: whether a model accepts image input on the Zen lane.
@@ -330,39 +240,9 @@ export function toPiModel(
     compat: { requiresReasoningContentOnAssistantMessages: true, supportsStore: false, supportsDeveloperRole: false },
     input: isVisionModel(id, declaredModalities) ? ['text', 'image'] : ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: contextWindowFor(limits),
-    maxTokens: defaultMaxTokensFor(limits),
+    contextWindow: declaredOr(limits?.contextWindow, DEFAULT_CONTEXT_WINDOW),
+    maxTokens: declaredOr(limits?.maxOutput, DEFAULT_MAX_TOKENS),
   }
-}
-
-function normalizeResponsesEffort(value: string | undefined): string | undefined {
-  if (!value || value === 'off' || value === 'none') return undefined
-  return (REASONING_EFFORT_LADDER as readonly string[]).includes(value) ? value : undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-/** Normalize pi-ai's mixed reasoning shapes before a Responses request. */
-export function normalizeResponsesPayload(payload: unknown, requestedEffort?: string): unknown | undefined {
-  const shaped = ensureFreeLaneShape(payload)
-  const base = shaped ?? payload
-  if (!isRecord(base)) return shaped
-
-  const next = { ...base }
-  const legacyEffort = typeof next.reasoning_effort === 'string' ? next.reasoning_effort : undefined
-  delete next.reasoning_effort
-
-  const reasoning = isRecord(next.reasoning) ? { ...next.reasoning } : {}
-  const existingEffort = normalizeResponsesEffort(typeof reasoning.effort === 'string' ? reasoning.effort : undefined)
-  const effort = normalizeResponsesEffort(requestedEffort) ?? existingEffort ?? normalizeResponsesEffort(legacyEffort)
-  if (effort) reasoning.effort = effort
-  else delete reasoning.effort
-
-  if (Object.keys(reasoning).length > 0) next.reasoning = reasoning
-  else delete next.reasoning
-  return next
 }
 
 export class ZenAdapter {
@@ -438,18 +318,7 @@ export class ZenAdapter {
     return { id: provider, name: PROVIDER_NAME }
   }
 
-  /**
-   * Provider-owned retry policy (dsh-llm calls this unconditionally at
-   * registration, index.js:1208). The anonymous free lane 429s in bursts with
-   * contention windows that outlast the host default (5 retries over ~15s),
-   * so transient throttling would surface as user-visible errors. This policy
-   * stretches the silent absorption window to ~208s per step (10 retries;
-   * waits come from the 5s/8s/10s/15s/20s/30s ladder in retry-delay.ts,
-   * tagged per failure as providerRetryAfterMs; the exponential backoff below
-   * is only the untagged fallback). Retryable codes mirror the host default
-   * set; deterministic failures (AUTH, REGION_BLOCKED, INVALID_REQUEST) stay
-   * non-retryable.
-   */
+  /** Provider-owned retry policy, read by dsh-llm at registration (docs/design.md §6.5). */
   providerRetryPolicy(_provider: string): typeof FREE_LANE_RETRY_POLICY {
     return FREE_LANE_RETRY_POLICY
   }
@@ -501,8 +370,8 @@ export class ZenAdapter {
       id: model,
       name: model,
       inputModalities: this.#inputModalities(model),
-      context: { contextWindow: contextWindowFor(this.#catalog.limits?.(model)) },
-      defaultMaxTokens: defaultMaxTokensFor(this.#catalog.limits?.(model)),
+      context: { contextWindow: declaredOr(this.#catalog.limits?.(model)?.contextWindow, DEFAULT_CONTEXT_WINDOW) },
+      defaultMaxTokens: declaredOr(this.#catalog.limits?.(model)?.maxOutput, DEFAULT_MAX_TOKENS),
     }
     // The thinking-level picker: dsh-llm validates every selected id against
     // this list and echoes the choice back on GenerateOptions.reasoningEffort.
@@ -532,8 +401,8 @@ export class ZenAdapter {
    * blocks get fresh indices and the final usage includes both requests.
    */
   async *stream(options: HarnessGenerateOptions): AsyncGenerator<HarnessChunk> {
-    const selectedEffort = options.reasoningEffort ?? options.reasoning
-    const canDisableThinking = selectedEffort !== 'off' && selectedEffort !== 'none'
+    const effort = selectedEffort(options)
+    const canDisableThinking = effort !== 'off' && effort !== 'none'
       && this.resolveModel(options.provider, options.model).reasoning?.efforts.some((effort) => effort.id === 'off') === true
     let request = options
     let indexOffset = 0
@@ -598,28 +467,23 @@ export class ZenAdapter {
     }
   }
 
-  /** Stream one attempt from the Zen anonymous lane.
+  /** Stream one attempt chain from the Zen anonymous lane.
    *
    * IP-7 rotate loop (docs/ip-pool.md §3.4 / §8.1): a stream that dies
-   * BEFORE any content landed restarts on a fresh exit — the pool's health
-   * marks already degraded the failed exit, so the restarted pick routes
-   * elsewhere, and the host's retry budget never sees the intermediate
-   * error. Once ANY content event has flowed, rotation stops (§3.4: a
-   * partially delivered stream is never replayed). No pool running (or the
-   * failure is not exit-shaped) = the original stream surface untouched.
+   * BEFORE any content landed restarts on another origin or a fresh exit
+   * (attempt.ts `nextStep`), and the host's retry budget never sees the
+   * intermediate error. Once content has flowed the stream is never replayed.
+   * Every abandoned attempt is cancelled through its own abort signal.
    */
   async *#streamAttempt(options: HarnessGenerateOptions, onTerminal?: (message: PiDoneMessage) => void): AsyncGenerator<HarnessChunk> {
     const context = await toPiContext(options)
-    const ids = deriveRequestIDs(options.messages)
-    // The gate demands the GENUINE `bash`/`read` definitions on the wire, so
-    // the host's own definitions for those two names are replaced by
-    // ensureFreeLaneShape/ensureResponsesFreeLaneShape (messages.ts). The
-    // model is therefore told what the WIRE schema declares (`filePath`,
-    // `timeout`) while the host validates its own (`file_path`, `timeoutMs`):
-    // this bridge maps a finished call back before the chunks leave the
-    // adapter. It is derived from the host's declared tool schemas, so a host
-    // that renames a field still pairs, and a call whose shape already matches
-    // is passed through untouched.
+    // The project id resolves off the event loop; the sync reads below hit its cache.
+    await hostProjectAsync()
+    const hostSession = typeof options.sessionId === 'string' ? options.sessionId : ''
+    const ids = deriveRequestIDs(options.messages, hostSession)
+    // The wire carries the genuine `shell`/`read` definitions (messages.ts), so
+    // the model answers in the wire schema (`path`, `timeout`); this bridge maps
+    // a finished call back to the host's declared shape (gate-tools.ts).
     const argumentBridge = gateToolArgumentBridge(context.tools)
     const model = toPiModel(
       options.model,
@@ -628,247 +492,81 @@ export class ZenAdapter {
       this.#catalog.modalities?.(options.model),
       this.#origins[0] ?? ZEN_BASE_URL,
     )
-    // IP-pool routing context (docs/ip-pool.md 3.3): pi-ai builds the request
-    // body and dispatches it on separate layers with no channel for "which
-    // model is this fetch for", so the per-request context rides AsyncLocalStorage.
-    // The ledger's session key prefers the HOST's session id (GenerateOptions
-    // carries it since DSH 0.2): that is the id the workspace registry can map
-    // back to a project, while our digest id is conversation-derived and known
-    // only to us. The stickiness key stays `ids.session` — changing it would
-    // change routing behaviour, which is not what this accounting is for.
-    const hostSession = typeof options.sessionId === 'string' ? options.sessionId : ''
+    // Per-request routing context (docs/ip-pool.md 3.3) rides AsyncLocalStorage.
+    // The ledger files usage under the HOST's session id when it has one; the
+    // stickiness key stays `ids.session`.
     const contextStore: RoutingContext = {
       model: options.model,
       session: ids.session,
       usageSession: hostSession !== '' ? hostSession : ids.session,
       usageLabel: conversationLabel(options.messages),
     }
-    const MAX_ROTATES = 3
-    // Watchdog windows: the OpenAI SDK timeout
-    // only covers time-to-response-headers — once headers arrive it clears
-    // its timer and NOTHING on any layer owns body silence. FIRST_EVENT: no
-    // pi-ai event at all (not even `start`, which only arrives after
-    // response headers). BODY_IDLE: content flowing, then a long gap (LLM
-    // streams may pace slowly, but minutes of nothing mid-stream is a dead
-    // tunnel, not pacing). The race fires the watchdog INTO the pending
-    // next() — a background return() could never cancel one (it queues
-    // behind the pending request), so timeout-promise racing is the only
-    // mechanism that actually interrupts a hung stream.
-    const firstEventMs = this.#firstEventMs
-    // Responses models (muse-spark-*) get RESPONSES_BODY_IDLE_MS (see the
-    // constant); chat models keep the live-tuned default. Derived from
-    // model.api — the same routing flag that picked the provider — so the
-    // watchdog and the wire layer can never disagree.
-    const bodyIdleMs = model.api === 'openai-responses'
-      ? Math.max(this.#bodyIdleMs, this.#responsesBodyIdleMs)
-      : this.#bodyIdleMs
-    const rotateStory: string[] = []
-    // The origin ladder (adapter/lane.ts): the same request bytes are sent to
-    // the next origin when the current one answers with an ORIGIN-shaped
-    // failure — a gate refusal (401/403/404) or an edge 5xx. That switch costs
-    // one round trip and does NOT spend a pool rotation: a refusing origin is
-    // not a bad exit, and both origins serve the identical recipe, so the
-    // second door is a real second chance rather than a retry.
+    const windows: WatchdogWindows = {
+      firstEventMs: this.#firstEventMs,
+      // Derived from model.api, the flag that picked the provider, so the
+      // watchdog and the wire layer can never disagree.
+      bodyIdleMs: model.api === 'openai-responses' ? Math.max(this.#bodyIdleMs, this.#responsesBodyIdleMs) : this.#bodyIdleMs,
+    }
+    const chunksOf = (events: AsyncIterable<PiEvent>): AsyncGenerator<HarnessChunk> =>
+      attributeUsage(contextStore, toStreamChunks(events, GATE_TOOL_ALIASES, argumentBridge))
     const origins = this.#origins
-    const originLabel = (origin: string): string => origin.replace(/^https?:\/\//, '')
-    let attempt = 0
+    const story: string[] = []
     let originIndex = 0
-    /** EXIT rotations actually spent — the origin switches above are not ones. */
+    /** EXIT rotations spent; an origin switch is not one. */
     let rotations = 0
     for (;;) {
       const origin = origins[originIndex] ?? origins[0] ?? ZEN_BASE_URL
-      const attemptStart = routingContext.run(contextStore, () =>
-        this.#eventsFor(options, context, ids, model, origin),
-      ) as { stream: unknown; meta: AttemptMeta }
-      // A relayed request carries its own exit: stamp it so the usage ledger
-      // attributes the response to that exit (the dispatcher is out of the
-      // loop for relay traffic, so nobody else sets this). Refused dispatches
-      // stamp nothing — 本机 did not carry them.
-      if (attemptStart.meta.egress !== null) contextStore.exitId = attemptStart.meta.egress.exitId
-      else if (attemptStart.meta.viaRelay && attemptStart.meta.fail === null) contextStore.exitId = LOCAL_EXIT_ID
-      const events = attemptStart.stream as AsyncIterable<PiEvent>
-      let deliveredContent = false
-      let preContentFailure: { message: string } | null = null
-      const buffered: PiEvent[] = []
-      /** Replay the buffered pre-content events alone (no live tail). */
-      const replayBuffered = async function* (): AsyncGenerator<PiEvent> {
-        for (const e of buffered) yield e
-      }
-      const source = events[Symbol.asyncIterator]()
-      // Peek events until the stream proves itself one way or the other:
-      // content -> flush and stream through; error before content -> maybe
-      // rotate. Content flushes IMMEDIATELY (only the pre-content events are
-      // buffered): holding every token hostage to a failure that may never
-      // come would also kill streaming for the UI.
-      let sawAnyEvent = false
-      let lastEventAt = Date.now()
-      // One deadline timer at a time, re-armed per pull (a timer per pull
-      // would accumulate thousands over a long token stream). While no event
-      // has arrived at all, the FIRST-EVENT window applies (stricter — the
-      // tunnel/connect stage should answer within seconds); once ANY event
-      // has landed (start, or content directly), the looser BODY-IDLE
-      // window applies so slow TTFT pacing on healthy exits is not misread
-      // as a dead tunnel.
-      let deadlineTimer: NodeJS.Timeout | undefined
-      const raceDeadline = (): Promise<never> => {
-        clearTimeout(deadlineTimer)
-        const idleWindow = sawAnyEvent ? bodyIdleMs : firstEventMs
-        const message = sawAnyEvent ? WATCHDOG_IDLE_MESSAGE : WATCHDOG_FIRST_MESSAGE
-        const ms = Math.max(0, idleWindow - (Date.now() - lastEventAt))
-        return new Promise<never>((_, reject) => {
-          deadlineTimer = setTimeout(() => reject(new Error(message)), ms)
-          deadlineTimer.unref?.()
-        })
-      }
-      // The pump the consumer sees after flush: buffered events first, then
-      // the live rest of the stream, through ONE toStreamChunks pass so the
-      // done/error terminator is never missing.
-      const pumpLive = async function* (): AsyncGenerator<PiEvent> {
-        for (const e of buffered) yield e
-        for (;;) {
-          let next: IteratorResult<PiEvent>
-          try {
-            next = await Promise.race([source.next(), raceDeadline()])
-          } catch (err) {
-            // watchdog or foreign teardown tore the stream down mid-content:
-            // the consumer already saw partial content, so surface the
-            // terminal error honestly and stop — never a hang, never a replay
-            yield terminalErrorEvent(err instanceof Error ? err.message : String(err), model)
-            return
-          }
-          if (next.done) {
-            clearTimeout(deadlineTimer)
-            return
-          }
-          const event = next.value as PiEvent
-          lastEventAt = Date.now()
-          if (event.type === 'error' || event.type === 'done') {
-            clearTimeout(deadlineTimer)
-            onTerminal?.(event.type === 'done' ? event.message : event.error)
-            yield event
-            return
-          }
-          yield event
+      const cancel = attemptAbort(options.signal)
+      /** True once the consumer received this attempt's terminal chunk. */
+      let completed = false
+      try {
+        contextStore.exitId = undefined
+        const started = routingContext.run(contextStore, () =>
+          this.#eventsFor(options, context, ids, model, origin, cancel.signal),
+        ) as { stream: unknown; meta: AttemptMeta }
+        // Relay traffic never reaches the dispatcher, so the exit is stamped
+        // here for the usage ledger; a refused dispatch stamps nothing.
+        if (started.meta.egress !== null) contextStore.exitId = started.meta.egress.exitId
+        else if (started.meta.viaRelay && started.meta.fail === null) contextStore.exitId = LOCAL_EXIT_ID
+        const events = watchEvents(started.stream as AsyncIterable<PiEvent>, windows, (message) => terminalErrorEvent(message, model), cancel.abort)
+        const peek = await peekAttempt(events, onTerminal)
+        if (peek.failure === null) {
+          // Content (or a clean empty finish): the exit is good, stream through.
+          settleRelayEgress(started.meta.egress, { status: 200 })
+          yield* chunksOf(peek.live)
+          completed = true
+          return
         }
-      }
-      // Peek phase (pre-content): pull with the first-event deadline armed.
-      for (;;) {
-        let next: IteratorResult<PiEvent>
-        try {
-          next = await Promise.race([source.next(), raceDeadline()])
-        } catch (err) {
-          // pre-content silence: synthesize the terminal error pi-ai never
-          // delivered so the rotate decision sees a transport failure
-          preContentFailure = { message: err instanceof Error ? err.message : String(err) }
-          buffered.push(terminalErrorEvent(preContentFailure.message, model))
-          break
+        const failure = describeFailure(peek.failure)
+        settleRelayEgress(started.meta.egress, failure.outcome)
+        const nextOrigin = origins[originIndex + 1]
+        const step = nextStep(failure, { hasNextOrigin: nextOrigin !== undefined, rotations })
+        if (step === 'switch-origin' && nextOrigin !== undefined) {
+          story.push(originSwitchEntry(rotations + 1, failure, origin, nextOrigin))
+          originIndex += 1
+          continue
         }
-        if (next.done) break
-        const event = next.value as PiEvent
-        lastEventAt = Date.now()
-        sawAnyEvent = true
-        if (event.type === 'error') {
-          onTerminal?.(event.error)
-          preContentFailure = { message: event.error.errorMessage ?? 'pi-ai stream error' }
-          // the event still flows to the consumer unless we rotate
-          buffered.push(event)
-          break
+        const failedExit = started.meta.egress?.exitId ?? poolExitOf(contextStore.exitId)
+        const rotate = step === 'ask-pool' && shouldRotate(
+          failure.failure!, options.model, ids.session, rotations + 1, failure.deterministic, failure.abusive, failedExit,
+        )
+        story.push(attemptEntry(rotations + 1, failure))
+        if (!rotate) {
+          // The surfaced error names everything that was tried; its code still
+          // describes this last attempt alone.
+          yield* withFailureSuffix(chunksOf(peek.live), giveUpStory(story, rotations))
+          completed = true
+          return
         }
-        if (event.type === 'done') {
-          onTerminal?.(event.message)
-          // pi-ai can also deliver the failure on done (stopReason: error)
-          if (event.message.stopReason === 'error' && !deliveredContent) {
-            preContentFailure = { message: event.message.errorMessage ?? 'pi-ai stream error' }
-          }
-          buffered.push(event)
-          break
-        }
-        buffered.push(event)
-        if (event.type !== 'start') deliveredContent = true
-        if (deliveredContent) {
-          // first content event: flush everything buffered and go live
-          break
-        }
+        // The pool has already degraded the failed exit, so the re-pick lands
+        // elsewhere; a fresh exit starts at the ladder's first rung again.
+        rotations += 1
+        originIndex = 0
+      } finally {
+        // Watchdog, rotation, origin switch or a consumer that left early.
+        if (!completed) cancel.abort()
+        cancel.release()
       }
-      // peek phase over: whatever path exited the loop, this attempt's
-      // deadline timer is spent (pumpLive re-arms its own per pull)
-      clearTimeout(deadlineTimer)
-      if (preContentFailure === null && deliveredContent) {
-        // The stream proved itself: the exit the relay used is a good exit
-        // (the dispatcher's passive verdict, relay edition).
-        settleRelayEgress(attemptStart.meta.egress, { status: 200 })
-        // attributeUsage: this attempt's usage rides the exit the dispatcher
-        // stamped into contextStore (exit-stats accounting, pool/usage.ts).
-        yield* attributeUsage(contextStore, toStreamChunks(pumpLive(), GATE_TOOL_ALIASES, argumentBridge))
-        return
-      }
-      if (preContentFailure === null && !deliveredContent) {
-        // stream ended cleanly with no content and no error: pass through
-        // (pi-ai's empty-response classification owns this case)
-        settleRelayEgress(attemptStart.meta.egress, { status: 200 })
-        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), GATE_TOOL_ALIASES, argumentBridge))
-        return
-      }
-      // Exit-shaped failure before content: ask the pool whether rotating is
-      // worth another attempt; otherwise surface the buffered events as-is.
-      const failureMessage = (preContentFailure as { message: string }).message
-      const failure = classifyStreamFailure(failureMessage)
-      const deterministic = isRegionBlocked(failureMessage)
-      // Grade the exit the relay used with the same verdict table the
-      // dispatcher applies to a real status code: a named status rides
-      // through (429 -> limited, 403 -> ok-but-refused, 5xx -> degraded), and a
-      // failure that named no status was a transport cut. The relay's own 502
-      // envelope is a cut too: no upstream status ever existed.
-      const failureStatus = isRelayTransportFailure(failureMessage) ? undefined : statusOfFailure(failureMessage)
-      settleRelayEgress(
-        attemptStart.meta.egress,
-        failureStatus !== undefined ? { status: failureStatus } : { transport: failure === 'transport' },
-      )
-      // The gate's IP-reputation answer (…abusive traffic from this IP
-      // address…) is a property of the EXIT, so the pool benches that exit for
-      // hours instead of rotating back onto it in a moment.
-      const abusive = isIpReputationRefusal(failureMessage)
-      const nextOrigin = origins[originIndex + 1]
-      if (nextOrigin !== undefined && isOriginFailure(failureMessage)) {
-        // Origin-shaped, and there is another door: re-run the same attempt
-        // against it. `attempt` is deliberately NOT incremented, so a refusal
-        // that both origins share still leaves the full pool budget intact.
-        rotateStory.push(`#${attempt + 1} ${failure ?? 'origin'} ${originLabel(origin)} -> ${originLabel(nextOrigin)}: ${failureMessage.slice(0, 60)}`)
-        originIndex += 1
-        continue
-      }
-      const rotate = failure !== null
-        && attempt < MAX_ROTATES
-        && shouldRotate(failure, options.model, ids.session, attempt + 1, deterministic, abusive)
-      rotateStory.push(`#${attempt + 1} ${failure ?? 'unknown'}: ${failureMessage.slice(0, 80)}`)
-      if (!rotate) {
-        // last resort: rewrite the terminal error to tell the whole story
-        // (the user saw minutes of silence — the surfaced error must say
-        // what was tried, not just the last attempt's failure). The count is
-        // of EXIT rotations; an origin failover says so instead.
-        const story = rotateStory.length > 1
-          ? ` (oc2dsh ${rotations > 0 ? `轮换 ${rotations} 次后放弃` : '两条来源均失败'}: ${rotateStory.join(' -> ')})`
-          : ''
-        for (let i = 0; i < buffered.length; i += 1) {
-          const e = buffered[i] as PiEvent & { error?: { errorMessage?: string }; message?: { errorMessage?: string; stopReason?: string } }
-          if (e.type === 'error' && e.error) {
-            e.error.errorMessage = `${e.error.errorMessage}${story}`
-            break
-          }
-          if (e.type === 'done' && e.message?.stopReason === 'error') {
-            e.message.errorMessage = `${e.message.errorMessage}${story}`
-            break
-          }
-        }
-        yield* attributeUsage(contextStore, toStreamChunks(replayBuffered(), GATE_TOOL_ALIASES, argumentBridge))
-        return
-      }
-      // rotate: loop re-runs #eventsFor inside the same ALS store; the pool
-      // has already degraded the failed exit, so pick lands elsewhere. A fresh
-      // exit starts at the ladder's first rung again.
-      attempt += 1
-      rotations += 1
-      originIndex = 0
     }
   }
 
@@ -877,24 +575,18 @@ export class ZenAdapter {
     context: PiContext,
     ids: ReturnType<typeof deriveRequestIDs>,
     model: ReturnType<typeof toPiModel>,
-    origin?: string,
+    origin: string,
+    signal: AbortSignal,
   ): { stream: unknown; meta: AttemptMeta } {
     // Structural boundary: PiContext (own types, unit-tested) -> pi-ai Context.
     const isResponses = model.api === 'openai-responses'
-    const requestedReasoning = typeof options.reasoningEffort === 'string'
-      ? options.reasoningEffort
-      : typeof options.reasoning === 'string'
-        ? options.reasoning
-        : undefined
+    const requestedReasoning = selectedEffort(options)
     const responseReasoning = isResponses ? normalizeResponsesEffort(requestedReasoning) : undefined
-    const effortWire = isResponses ? undefined : reasoningEffortWire(options.reasoningEffort)
+    const effortWire = isResponses ? undefined : reasoningEffortWire(requestedReasoning)
 
-    // onPayload injects the free-lane gate tools (adapter/messages.ts) into the
-    // serialized body right before dispatch — plain-chat contexts carry no
-    // tools and the anonymous lane 403s every body without bash+read. The same
-    // seam carries the selected reasoning effort: pi-ai has no option with the
-    // wire semantics this lane needs (selected off must SEND `none`, not omit),
-    // so the effort rides the payload rewrite instead.
+    // onPayload injects the gate's shell+read pair (adapter/messages.ts) right
+    // before dispatch: the lane 403s a body whose tools lack `read`. It also
+    // carries the selected effort, because a selected off must SEND `none`.
     const onPayload =
       isResponses
         ? (payload: unknown): unknown => {
@@ -919,7 +611,7 @@ export class ZenAdapter {
     // it — same path (the relay forwards the pathname verbatim, preserving the
     // lane origin the ladder picked), same headers, same body — and the relay's
     // own bun-native fetch opens the upstream connection.
-    const relayBase = this.#relay?.baseUrlFor(origin ?? this.#origins[0] ?? ZEN_BASE_URL) ?? null
+    const relayBase = this.#relay?.baseUrlFor(origin) ?? null
     const viaRelay = relayBase !== null
     // The exit is picked HERE for relay traffic (the pool's dispatcher never
     // sees a loopback URL): same pick(session, model) the dispatcher calls, so
@@ -935,11 +627,10 @@ export class ZenAdapter {
       // of quietly putting this machine's address on the wire.
       return { stream: failedStream(refusal, model), meta }
     }
-    const laneOrigin = origin ?? this.#origins[0] ?? ZEN_BASE_URL
-    const apiPath = chatApiPath(laneOrigin)
+    const apiPath = chatApiPath(origin)
     const targetBase = relayBase !== null
       ? `${relayBase}${apiPath}`
-      : `${laneOrigin.replace(/\/+$/, '')}${apiPath}`
+      : `${origin.replace(/\/+$/, '')}${apiPath}`
     const target = { ...model, baseUrl: targetBase }
     const headers = disguiseHeaders(ids)
     if (meta.egress !== null) headers[EGRESS_HEADER] = meta.egress.url
@@ -950,24 +641,13 @@ export class ZenAdapter {
         sessionId: ids.session,
         headers,
         onPayload,
-        signal: options.signal,
+        signal,
         maxRetries: 0,
         temperature: options.temperature,
         maxTokens: options.maxTokens,
         ...(responseReasoning ? { reasoning: responseReasoning } : {}),
       }),
     }
-  }
-
-  /** Expose the live catalog snapshot for diagnostics. */
-  catalogStatus(): { total: number; exposed: number } {
-    const list = this.#catalog.list()
-    return { total: list.length, exposed: list.length }
-  }
-
-  decisionFor(model: string): { allowed: boolean; source: string } {
-    const decision = this.#catalog.decision(model)
-    return { allowed: decision.allowed, source: decision.source }
   }
 }
 

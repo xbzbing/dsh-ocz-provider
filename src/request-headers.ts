@@ -6,20 +6,27 @@ const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]+$/
 /** Headers the plugin owns: authentication, cookies, framing, body format and
  *  the client-identity flag (the wire impersonates the CLI and nothing moves
  *  that). */
-const MANAGED_HEADERS = new Set([
+const MANAGED_HEADERS: ReadonlySet<string> = new Set([
   'authorization', 'proxy-authorization', 'cookie', 'set-cookie',
   'host', 'connection', 'proxy-connection', 'content-length', 'transfer-encoding',
   'upgrade', 'trailer', 'te', 'expect', 'content-type', 'content-encoding', 'accept-encoding',
   'x-opencode-client',
 ])
+/** The plugin's own control headers (the relay's `x-oc2dsh-egress`): an
+ *  override must neither steer the relay nor leak upstream. */
+const MANAGED_PREFIX = 'x-oc2dsh-'
 const MAX_HEADERS = 32
+
+function isManaged(name: string): boolean {
+  return MANAGED_HEADERS.has(name) || name.startsWith(MANAGED_PREFIX)
+}
 const MAX_BYTES = 8192
 
 /** One accepted entry, or undefined when the pair must be dropped. */
 function accept(rawName: unknown, rawValue: unknown): [string, string] | undefined {
   if (typeof rawName !== 'string') return undefined
   const name = rawName.toLowerCase()
-  if (!HEADER_NAME.test(name) || MANAGED_HEADERS.has(name)) return undefined
+  if (!HEADER_NAME.test(name) || isManaged(name)) return undefined
   if (typeof rawValue !== 'string' || !HEADER_VALUE.test(rawValue)) return undefined
   const value = rawValue.trim()
   if (value === '') return undefined
@@ -39,7 +46,7 @@ export function normalizeRequestHeaders(input: unknown): RequestHeaders {
   for (const [rawName, rawValue] of entries) {
     const name = rawName.toLowerCase()
     if (!HEADER_NAME.test(name)) throw new Error('Invalid request header name')
-    if (MANAGED_HEADERS.has(name)) throw new Error(`Header is managed by the plugin: ${name}`)
+    if (isManaged(name)) throw new Error(`Header is managed by the plugin: ${name}`)
     if (normalized.has(name)) throw new Error(`Duplicate request header: ${name}`)
     const pair = accept(rawName, rawValue)
     if (pair === undefined) throw new Error(`Invalid request header value: ${name}`)

@@ -283,6 +283,8 @@ export interface CatalogOptions {
    * are dropped by the sanitizer, never thrown.
    */
   contextWindows?: () => ModelContextWindows | undefined
+  /** Per-request deadline covering headers and body (tests inject short ones). */
+  fetchTimeoutMs?: number
 }
 
 const METADATA_REFRESH_MS = 24 * 60 * 60 * 1000
@@ -318,6 +320,9 @@ export class ModelCatalog {
   #contextWindows?: () => ModelContextWindows | undefined
   /** In-flight refresh round (deduped so warm() shares start()'s first fetch). */
   #refreshing: Promise<void> | null = null
+  /** When models.dev last answered online (0 = never; a disk cache does not count). */
+  #pricesFetchedAt = 0
+  #fetchTimeoutMs: number
 
   constructor(options: CatalogOptions = {}) {
     this.#refreshSeconds = options.refreshSeconds ?? 300
@@ -329,6 +334,7 @@ export class ModelCatalog {
     this.#onRefresh = options.onRefresh
     this.#startupRetryMs = options.startupRetryMs ?? 15_000
     this.#contextWindows = options.contextWindows
+    this.#fetchTimeoutMs = options.fetchTimeoutMs ?? FETCH_TIMEOUT_MS
   }
 
   /**
@@ -385,7 +391,7 @@ export class ModelCatalog {
 
   async refreshZen(): Promise<void> {
     try {
-      const ids = await fetchZenModels(this.#zenBaseUrl, this.#fetch, opencodeUserAgent())
+      const ids = await fetchZenModels(this.#zenBaseUrl, this.#fetch, opencodeUserAgent(), undefined, this.#fetchTimeoutMs)
       this.#zen = new Set(ids)
       this.#updatedAt = this.#now()
       this.#lastError = ''
@@ -409,6 +415,9 @@ export class ModelCatalog {
   }
 
   async refreshMetadata(): Promise<void> {
+    // models.dev moves daily: an online answer younger than the metadata
+    // cadence is kept, whatever the live-catalog cadence is.
+    if (this.#pricesFetchedAt !== 0 && this.#now() - this.#pricesFetchedAt < METADATA_REFRESH_MS) return
     // Stale-while-revalidate: on a cold boot a slow-but-healthy models.dev
     // outlives warm()'s window and never reaches the failure fallback below —
     // capability reads (reasoning efforts, limits, modalities) then see an
@@ -419,13 +428,19 @@ export class ModelCatalog {
     // exactly that path, so cold boots are covered.
     await this.#adoptCachedPrices()
     try {
-      const response = await withTimeout(this.#fetch(this.#metadataUrl, { headers: { accept: 'application/json' } }))
-      if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`)
-      const data = (await response.json()) as unknown
+      const data = await fetchWithTimeout(
+        (signal) => this.#fetch(this.#metadataUrl, { headers: { accept: 'application/json' }, signal }),
+        async (response) => {
+          if (!response.ok) throw new Error(`models.dev returned HTTP ${response.status}`)
+          return (await response.json()) as unknown
+        },
+        this.#fetchTimeoutMs,
+      )
       const prices = decodeModelsDev(data)
       if (prices.size === 0) throw new Error('models.dev contains no OpenCode model metadata')
       this.#prices = prices
       this.#pricesReady = true
+      this.#pricesFetchedAt = this.#now()
       if (this.#cachePath) await saveMetadataCache(this.#cachePath, prices, this.#now())
     } catch (err) {
       // Network failure with a cached copy is not fatal: load the cache.
@@ -561,11 +576,28 @@ export class ModelCatalog {
   }
 }
 
-async function withTimeout(promise: Promise<Response>, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> {
+/**
+ * Run one request and read its body under ONE deadline: the signal reaches
+ * the fetch, and a body that stalls after the headers is cut by the same
+ * timer, so a hung endpoint cannot pin the deduped refresh round forever.
+ */
+export async function fetchWithTimeout<T>(
+  request: (signal: AbortSignal) => Promise<Response>,
+  read: (response: Response) => Promise<T>,
+  timeoutMs = FETCH_TIMEOUT_MS,
+): Promise<T> {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`request timed out after ${String(timeoutMs)} ms`)
+      controller.abort(error)
+      reject(error)
+    }, timeoutMs)
+    timer.unref?.()
+  })
   try {
-    return await promise
+    return await Promise.race([request(controller.signal).then(read), deadline])
   } finally {
     clearTimeout(timer)
   }
@@ -577,6 +609,7 @@ export async function fetchZenModels(
   fetchImpl: typeof fetch,
   userAgent: string,
   fallbackBaseUrl?: string,
+  timeoutMs = FETCH_TIMEOUT_MS,
 ): Promise<string[]> {
   // The same lane ladder the chat walks (adapter/lane.ts): a listing that one
   // origin refuses or does not serve is asked of the other before the refresh
@@ -587,7 +620,7 @@ export async function fetchZenModels(
   let lastError: Error | undefined
   for (const origin of origins) {
     try {
-      return await fetchModelsAt(origin, fetchImpl, userAgent)
+      return await fetchModelsAt(origin, fetchImpl, userAgent, timeoutMs)
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
       if (!isOriginFailure(lastError.message)) break
@@ -596,18 +629,22 @@ export async function fetchZenModels(
   throw lastError ?? new Error('no lane origin configured')
 }
 
-async function fetchModelsAt(zenBaseUrl: string, fetchImpl: typeof fetch, userAgent: string): Promise<string[]> {
-  const response = await withTimeout(
-    fetchImpl(`${zenBaseUrl.replace(/\/+$/, '')}/v1/models`, {
+async function fetchModelsAt(zenBaseUrl: string, fetchImpl: typeof fetch, userAgent: string, timeoutMs: number): Promise<string[]> {
+  const payload = await fetchWithTimeout(
+    (signal) => fetchImpl(`${zenBaseUrl.replace(/\/+$/, '')}/v1/models`, {
       headers: zenRequestHeaders({
         authorization: 'Bearer public',
         'user-agent': userAgent,
         accept: 'application/json',
       }),
+      signal,
     }),
+    async (response) => {
+      if (!response.ok) throw new Error(`models endpoint returned HTTP ${response.status}`)
+      return (await response.json()) as { data?: Array<{ id?: unknown }> }
+    },
+    timeoutMs,
   )
-  if (!response.ok) throw new Error(`models endpoint returned HTTP ${response.status}`)
-  const payload = (await response.json()) as { data?: Array<{ id?: unknown }> }
   const models: string[] = []
   for (const item of payload.data ?? []) {
     if (typeof item?.id === 'string' && item.id.length > 0) models.push(item.id)

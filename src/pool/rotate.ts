@@ -33,9 +33,12 @@ export interface RotateDelegate {
    * @param abusive - the refusal names THIS EXIT'S IP as abusive (OpenCode's
    *        network-reputation answer, isIpReputationRefusal); the exit is
    *        benched for hours rather than rotated onto again in a moment.
+   * @param failedExit - the exit that carried the failed attempt. Passed
+   *        explicitly because the relay settle and the dispatcher have already
+   *        broken the session binding by the time the adapter asks.
    * @returns true to re-pick and restart the stream; false to surface the error.
    */
-  decide(failure: RotateFailure, model: string, session: string, attempt: number, deterministic?: boolean, abusive?: boolean): boolean
+  decide(failure: RotateFailure, model: string, session: string, attempt: number, deterministic?: boolean, abusive?: boolean, failedExit?: string | null): boolean
 }
 
 let delegate: RotateDelegate | null = null
@@ -51,8 +54,8 @@ export function hasRotateDelegate(): boolean {
 }
 
 /** Ask the installed delegate; false when no pool is running. */
-export function shouldRotate(failure: RotateFailure, model: string, session: string, attempt: number, deterministic = false, abusive = false): boolean {
-  return delegate?.decide(failure, model, session, attempt, deterministic, abusive) ?? false
+export function shouldRotate(failure: RotateFailure, model: string, session: string, attempt: number, deterministic = false, abusive = false, failedExit: string | null = null): boolean {
+  return delegate?.decide(failure, model, session, attempt, deterministic, abusive, failedExit) ?? false
 }
 
 /**
@@ -107,13 +110,17 @@ export function isRegionBlocked(errorMessage: string): boolean {
  * Passive bookkeeping mirrors the dispatcher observer: the stream that died
  * before content already recorded its verdict through the routing layer when
  * it could see it — the sentinel covers the mute-connection case — so this
- * delegate only breaks stickiness and checks whether a usable exit remains.
+ * delegate applies the body-only verdicts (abusive, RegionError), owns the
+ * rotation bound (`ipPool.maxRotateAttempts`), and checks whether a usable
+ * exit remains.
  */
 export function createRotateDelegate(pool: ExitPool, options: { maxAttempts?: number } = {}): RotateDelegate {
   const maxAttempts = options.maxAttempts ?? 3
   return {
-    decide(failure, model, session, attempt, deterministic = false, abusive = false) {
-      const failedExit = pool.exitOfSession(session)
+    decide(failure, model, session, attempt, deterministic = false, abusive = false, exitId = null) {
+      // The binding is usually gone already (settle reroutes on any bad
+      // verdict), so the caller's exit id is the authority.
+      const failedExit = exitId ?? pool.exitOfSession(session)
       // IP-reputation refusal: the address is the problem, not the model and
       // not the moment. Bench the exit for the long window so neither pick()
       // nor a pin can walk back onto it; the note rides the status card.

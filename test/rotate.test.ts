@@ -136,8 +136,8 @@ test('delegate: rotate while another usable exit exists, stop at the ceiling', (
   assert.equal(delegate.decide('transport', 'm', 's', 1), true)
   assert.equal(delegate.decide('transport', 'm', 's', 2), true)
   assert.equal(delegate.decide('transport', 'm', 's', 3), false, 'ceiling')
-  pool.markDead('a:1')
-  pool.markDead('b:2')
+  pool.markDeadStrike('a:1')
+  pool.markDeadStrike('b:2')
   assert.equal(delegate.decide('transport', 'm', 's', 1), false, 'nothing usable -> surface the error')
 })
 
@@ -408,4 +408,146 @@ test('an address verdict benches the exit that answered for that session', () =>
   assert.equal(pool.isUsable('h:flagged', 'big-pickle'), false)
   // The pin still names it, but pick() will not choose a benched exit.
   assert.equal(pool.pick('ses-2', 'big-pickle'), 'h:clean')
+})
+
+/**
+ * The real order of events through the assembled runtime: the relay settle
+ * grades the exit (and breaks the session binding) BEFORE the adapter asks the
+ * delegate, so the delegate must be told which exit failed.
+ */
+async function runThroughAssembledPool(failureMessage: string): Promise<{ firstExit: string; pool: ExitPool; chunks: string[] }> {
+  const { startIpPool } = await import('../src/ip-pool.ts')
+  const installer = { install() {}, disable() {}, dispose() {}, enabled: true, deferredReason: null }
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, manual: ['127.0.0.1:30001', '127.0.0.1:30002'], maxRotateAttempts: 3 } },
+    { info: () => {}, warn: () => {} },
+    { makeInstaller: () => installer, undici: {} as never, detectProtocol: async () => null },
+  )
+  assert.ok(runtime !== null)
+  const egress: string[] = []
+  const provider = {
+    streamSimple(_model: unknown, _context: unknown, options: { headers: Record<string, string> }): AsyncIterable<ScriptedEvent> {
+      egress.push(options.headers['x-oc2dsh-egress'] ?? '')
+      const events = egress.length === 1 ? [err(failureMessage)] : ok()
+      return (async function* () { for (const e of events) yield e })()
+    },
+  }
+  const adapter = new ZenAdapter(fakeCatalog(), {
+    providerOverride: provider,
+    zenBaseUrl: 'https://zen.test',
+    relay: { baseUrlFor: () => 'http://127.0.0.1:1', warm: () => {} },
+  })
+  try {
+    const chunks = await collect(adapter)
+    assert.equal(egress.length, 2, 'one rotation')
+    assert.notEqual(egress[0], egress[1], 'the retry left through the other exit')
+    return { firstExit: egress[0]!.replace(/^https?:\/\//, ''), pool: runtime.pool, chunks }
+  } finally {
+    await runtime.dispose()
+  }
+}
+
+test('an address verdict benches the failed exit even though settle already rerouted the session', async () => {
+  const { firstExit, pool, chunks } = await runThroughAssembledPool(ABUSE)
+  assert.ok(chunks.some((c) => c.includes('hi')))
+  const row = pool.list().find((entry) => entry.id === firstExit)!
+  assert.equal(row.health.note, 'abusive', 'benched for the address verdict')
+  assert.equal(pool.isUsable(firstExit, 'big-pickle'), false)
+})
+
+test('a RegionError bans the failed exit for the model even though settle already rerouted the session', async () => {
+  const { firstExit, pool } = await runThroughAssembledPool('403: {"type":"RegionError","message":"This model is not available in your country."}')
+  assert.equal(pool.isUsable(firstExit, 'big-pickle'), false, 'the (exit, model) pairing is banned')
+  assert.equal(pool.isUsable(firstExit, 'other-model'), true)
+})
+
+test('the configured rotation bound is honoured past the old fixed cap of 3', async () => {
+  setRotateDelegate(null)
+  const pool = new ExitPool()
+  for (let i = 1; i <= 7; i += 1) pool.add(node({ id: `h:${String(i)}`, exitIP: `1.1.1.${String(i)}` }))
+  setRotateDelegate(createRotateDelegate(pool, { maxAttempts: 5 }))
+  let calls = 0
+  const provider = {
+    streamSimple(): AsyncIterable<ScriptedEvent> {
+      calls += 1
+      const events = calls <= 5 ? [err('Connection error.')] : ok()
+      return (async function* () { for (const e of events) yield e })()
+    },
+  }
+  try {
+    const chunks = await collect(new ZenAdapter(fakeCatalog(), { providerOverride: provider }))
+    assert.equal(calls, 6, 'five rotations, as configured')
+    assert.ok(chunks.some((c) => c.includes('hi')))
+  } finally {
+    setRotateDelegate(null)
+  }
+})
+
+test('an abandoned attempt is cancelled: watchdog timeout and rotation abort its signal', async () => {
+  setRotateDelegate(null)
+  const pool = new ExitPool()
+  pool.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  pool.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  setRotateDelegate(createRotateDelegate(pool, { maxAttempts: 3 }))
+  const signals: AbortSignal[] = []
+  const armed: { timer?: NodeJS.Timeout } = {}
+  const mute = muteProvider(armed)
+  const provider = {
+    streamSimple(_model: unknown, _context: unknown, options: { signal: AbortSignal }): AsyncIterable<ScriptedEvent> {
+      signals.push(options.signal)
+      if (signals.length === 1) return mute.streamSimple()
+      if (signals.length === 2) return (async function* () { yield err('Connection error.') })()
+      return (async function* () { for (const e of ok()) yield e })()
+    },
+  }
+  try {
+    const chunks = await collect(new ZenAdapter(fakeCatalog(), { providerOverride: provider, firstEventMs: 40 }))
+    assert.ok(chunks.some((c) => c.includes('hi')))
+    assert.equal(signals.length, 3)
+    assert.equal(signals[0]!.aborted, true, 'the silent attempt was cancelled by the watchdog')
+    assert.equal(signals[1]!.aborted, true, 'the failed attempt was cancelled on rotation')
+    assert.equal(signals[2]!.aborted, false, 'the completed attempt is left alone')
+  } finally {
+    clearTimeout(armed.timer)
+    setRotateDelegate(null)
+  }
+})
+
+test('a consumer that leaves mid-stream cancels the attempt', async () => {
+  let signal: AbortSignal | undefined
+  let keepAlive: NodeJS.Timeout | undefined
+  const provider = {
+    streamSimple(_model: unknown, _context: unknown, options: { signal: AbortSignal }): AsyncIterable<ScriptedEvent> {
+      signal = options.signal
+      return (async function* () {
+        yield { type: 'start' }
+        yield { type: 'text_delta', delta: 'partial' }
+        await new Promise((resolve) => { keepAlive = setTimeout(resolve, 60_000) })
+      })()
+    },
+  }
+  const stream = new ZenAdapter(fakeCatalog(), { providerOverride: provider }).stream(harnessOptions)
+  try {
+    for await (const chunk of stream) {
+      if (chunk.type === 'text-delta') break
+    }
+    assert.equal(signal?.aborted, true)
+  } finally {
+    clearTimeout(keepAlive)
+  }
+})
+
+test('adapter: a stream that closes before content with no terminal event rotates', async () => {
+  setRotateDelegate(null)
+  const pool = new ExitPool()
+  pool.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  pool.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  setRotateDelegate(createRotateDelegate(pool, { maxAttempts: 3 }))
+  try {
+    const chunks = await collect(adapterWith([[{ type: 'start' }], ok()]))
+    assert.ok(chunks.some((c) => c.includes('hi')), 'the cut was visible to rotation')
+    assert.ok(!chunks.some((c) => c.includes('without finish_reason')))
+  } finally {
+    setRotateDelegate(null)
+  }
 })

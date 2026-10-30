@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -32,28 +32,55 @@ export interface ProjectFacts {
 /** The client's fallback id for a repository with no remote, file or commit. */
 export const GLOBAL_PROJECT_ID = 'global'
 
-/** Resolutions are cheap to keep and git spawns are not; one per directory per window. */
+/**
+ * One resolution per directory per window. The request path never waits on a
+ * spawn once a value exists: a stale entry is served while a background
+ * resolution (async `execFile`) replaces it.
+ */
 const CACHE_TTL_MS = 60_000
 const GIT_TIMEOUT_MS = 2_000
 const cache = new Map<string, { at: number; facts: ProjectFacts }>()
+const inflight = new Map<string, Promise<ProjectFacts>>()
+/** Bumped by resetProjectCache so a resolution started before it cannot land after it. */
+let generation = 0
 
 function sha1(text: string): string {
   return createHash('sha1').update(text).digest('hex')
 }
 
-function run(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): string | undefined {
+/** One VCS command the resolution needs; stdout, or undefined on any failure. */
+interface Command {
+  command: string
+  args: string[]
+  cwd: string
+  env?: NodeJS.ProcessEnv
+}
+
+function spawnOptions(step: Command): { cwd: string; env: NodeJS.ProcessEnv; encoding: 'utf8'; timeout: number } {
+  return { cwd: step.cwd, env: step.env === undefined ? process.env : { ...process.env, ...step.env }, encoding: 'utf8', timeout: GIT_TIMEOUT_MS }
+}
+
+function runSync(step: Command): string | undefined {
   try {
-    return execFileSync(command, args, {
-      cwd,
-      env: env === undefined ? process.env : { ...process.env, ...env },
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: GIT_TIMEOUT_MS,
-    })
+    return execFileSync(step.command, step.args, { ...spawnOptions(step), stdio: ['ignore', 'pipe', 'ignore'] })
   } catch {
     return undefined
   }
 }
+
+function runAsync(step: Command): Promise<string | undefined> {
+  return new Promise((done) => {
+    try {
+      const child = execFile(step.command, step.args, spawnOptions(step), (error, stdout) => done(error === null ? stdout : undefined))
+      child.stdin?.end()
+    } catch {
+      done(undefined)
+    }
+  })
+}
+
+/** The resolution yields each command it needs, so one algorithm serves both drivers. */
+type Resolution = Generator<Command, ProjectFacts | undefined, string | undefined>
 
 function readTrimmed(path: string): string | undefined {
   try {
@@ -107,46 +134,87 @@ function joinRemote(host: string, path: string): string | undefined {
   return `${host.toLowerCase()}/${trimmed}`
 }
 
-function resolveGit(marker: string): ProjectFacts | undefined {
+function* resolveGit(marker: string): Resolution {
   const base = dirname(marker)
-  const out = run('git', ['rev-parse', '--show-toplevel', '--git-common-dir'], base)
+  const out = yield { command: 'git', args: ['rev-parse', '--show-toplevel', '--git-common-dir'], cwd: base }
   if (out === undefined) return undefined
   const [toplevel, commonRaw] = out.split('\n').map((line) => line.trim())
   if (toplevel === undefined || toplevel === '' || commonRaw === undefined || commonRaw === '') return undefined
   const commonDir = isAbsolute(commonRaw) ? commonRaw : resolve(base, commonRaw)
-  const remote = run('git', ['remote', 'get-url', 'origin'], toplevel)
+  const remote = yield { command: 'git', args: ['remote', 'get-url', 'origin'], cwd: toplevel }
   const normalized = remote === undefined ? undefined : normalizeRemote(remote)
   const fromRemote = normalized === undefined ? undefined : sha1(`git-remote:${normalized}`)
   const fromFile = readTrimmed(join(commonDir, 'opencode'))
-  const roots = run('git', ['rev-list', '--max-parents=0', 'HEAD'], toplevel)
+  const roots = yield { command: 'git', args: ['rev-list', '--max-parents=0', 'HEAD'], cwd: toplevel }
   const fromRoot = roots?.split('\n').map((line) => line.trim()).filter(Boolean).sort()[0]
   return { directory: '', root: toplevel, vcs: 'git', id: fromRemote ?? fromFile ?? fromRoot ?? GLOBAL_PROJECT_ID }
 }
 
-function resolveHg(marker: string): ProjectFacts {
+function* resolveHg(marker: string): Resolution {
   const root = dirname(marker)
   const fromFile = readTrimmed(join(marker, 'opencode'))
   const roots = fromFile === undefined
-    ? run('hg', ['log', '-r', 'roots(all())', '-T', '{node}\n'], root, { HGPLAIN: '1' })
+    ? yield { command: 'hg', args: ['log', '-r', 'roots(all())', '-T', '{node}\n'], cwd: root, env: { HGPLAIN: '1' } }
     : undefined
   const fromRoot = roots?.split('\n').map((line) => line.trim()).filter(Boolean).sort()[0]
   return { directory: '', root, vcs: 'hg', id: fromFile ?? fromRoot ?? GLOBAL_PROJECT_ID }
 }
 
-/** Resolve (and cache) the project for one directory. Never throws. */
-export function resolveProject(directory: string): ProjectFacts {
-  const absolute = resolve(directory)
-  const hit = cache.get(absolute)
-  if (hit !== undefined && Date.now() - hit.at < CACHE_TTL_MS) return hit.facts
+function* resolution(absolute: string): Generator<Command, ProjectFacts, string | undefined> {
   const marker = findVcsMarker(absolute)
   let facts: ProjectFacts | undefined
-  if (marker !== undefined && marker.endsWith('.git')) facts = resolveGit(marker)
-  else if (marker !== undefined) facts = resolveHg(marker)
-  const resolved: ProjectFacts = facts !== undefined
+  if (marker !== undefined && marker.endsWith('.git')) facts = yield* resolveGit(marker)
+  else if (marker !== undefined) facts = yield* resolveHg(marker)
+  return facts !== undefined
     ? { ...facts, directory: absolute }
     : { directory: absolute, root: absolute, vcs: undefined, id: sha1(`directory:${absolute}`) }
-  cache.set(absolute, { at: Date.now(), facts: resolved })
-  return resolved
+}
+
+function store(absolute: string, facts: ProjectFacts, startedIn = generation): ProjectFacts {
+  if (startedIn === generation) cache.set(absolute, { at: Date.now(), facts })
+  return facts
+}
+
+/** Background resolution, deduped per directory. Never rejects. */
+function refresh(absolute: string): Promise<ProjectFacts> {
+  const running = inflight.get(absolute)
+  if (running !== undefined) return running
+  const startedIn = generation
+  const task = (async () => {
+    const steps = resolution(absolute)
+    let next = steps.next()
+    while (next.done !== true) next = steps.next(await runAsync(next.value))
+    return store(absolute, next.value, startedIn)
+  })().finally(() => { if (inflight.get(absolute) === task) inflight.delete(absolute) })
+  inflight.set(absolute, task)
+  return task
+}
+
+function cached(absolute: string): ProjectFacts | undefined {
+  const hit = cache.get(absolute)
+  if (hit === undefined) return undefined
+  if (Date.now() - hit.at >= CACHE_TTL_MS) void refresh(absolute)
+  return hit.facts
+}
+
+/**
+ * The project for one directory. A cached value (stale ones included) is
+ * answered at once; only a directory never resolved before spawns inline.
+ */
+export function resolveProject(directory: string): ProjectFacts {
+  const absolute = resolve(directory)
+  const hit = cached(absolute)
+  if (hit !== undefined) return hit
+  const steps = resolution(absolute)
+  let next = steps.next()
+  while (next.done !== true) next = steps.next(runSync(next.value))
+  return store(absolute, next.value)
+}
+
+/** {@link resolveProject} without blocking: a cold directory is resolved through async spawns. */
+export async function resolveProjectAsync(directory: string): Promise<ProjectFacts> {
+  const absolute = resolve(directory)
+  return cached(absolute) ?? refresh(absolute)
 }
 
 /** The process' working directory, or `/` when it is gone. */
@@ -161,6 +229,11 @@ export function hostDirectory(): string {
 /** The project of this host process (what the wire and the `<env>` block report). */
 export function hostProject(): ProjectFacts {
   return resolveProject(hostDirectory())
+}
+
+/** Resolve this host's project off the event loop; awaited before a request is built. */
+export function hostProjectAsync(): Promise<ProjectFacts> {
+  return resolveProjectAsync(hostDirectory())
 }
 
 /**
@@ -179,5 +252,7 @@ export function clientTempDirectory(): string {
 
 /** Drop cached resolutions (tests only). */
 export function resetProjectCache(): void {
+  generation += 1
   cache.clear()
+  inflight.clear()
 }

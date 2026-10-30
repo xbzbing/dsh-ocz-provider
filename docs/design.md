@@ -257,6 +257,21 @@ DSH 的模型网关以 OpenAI Chat 协议请求 provider（cc-migrate 调研确�
 
 三个常量都可由构造器注入，测试不必等满真实窗口。
 
+看门狗和轮换逻辑在 `src/adapter/attempt.ts`：
+
+- 每次尝试有自己的 `AbortSignal`（跟随宿主的 signal）。看门狗超时、换出口、换来源、消费方提前离开时都会 abort 它，被放弃的请求不会继续占着连接。
+- 上游流既没有 `done` 也没有 `error` 就结束时，合成 pi-ai 自己的 `Stream ended without finish_reason`，归类为可重试的 `TRANSPORT`，内容出现前同样会触发轮换。
+- 放弃时附在错误后面的轮换经过（"轮换 N 次后放弃: …"）在分类之后才拼上，错误码只反映最后一次尝试；否则前一次的 `403` 会把最后的 `429` 判成 `AUTH`。
+- 轮换次数上限由 `ipPool.maxRotateAttempts` 决定（rotate 委托持有），适配器只保留 10 次的安全上限。
+
+### 6.5 免费车道重试策略
+
+`FREE_LANE_RETRY_POLICY`（`src/adapter/zen-adapter.ts`）由 dsh-llm 在注册时读取。匿名车道的 429 成串出现，争用窗口比宿主默认（约 15 s 内 5 次）长，按默认策略瞬时限流会直接显示给用户，所以放宽到每步 10 次重试。
+
+- 重试间隔不走策略里的指数退避：`stream()` 给每个可重试失败打上 `retry-delay.ts` 阶梯值（5/8/10/15/20/30 s，第 7-10 次保持 30 s）作为 `failure.providerRetryAfterMs`，dsh-llm-retry 原样等待。每步最坏累计约 208 s 静默等待。
+- `initialDelayMs`/`maxDelayMs`/`jitterRatio` 只是未打标签失败的兜底。`maxDelayMs` 同时是阶梯上限：`providerRetryAfterMs` 超过它时 normal 模式直接放弃（dsh-llm-retry `recover()`），所以每一级都必须 ≤ 30 s，由 `test/retry-delay.test.ts` 固定。
+- 可重试错误码与宿主默认集合一致；确定性失败（`AUTH`、`REGION_BLOCKED`、`INVALID_REQUEST`）不重试。
+
 ## 7. 鉴权设计（本地）
 
 - **默认启用**：插件首次启动生成 32 字节随机 token（`crypto.randomBytes(32).toString('base64url')`），写入插件数据目录（0600），以 `--server-key <token>` 或配置文件传给子进程；DSH provider 配置同一 token 作为 API key。opencode2api 的 `authenticate`（gateway.go:170-194）原样提供该能力（`x-api-key` 与 `Authorization: Bearer` 双通道、常量时间比对）。

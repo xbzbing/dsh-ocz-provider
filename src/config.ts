@@ -31,8 +31,8 @@ export interface Opencode2dshConfig {
   /**
    * The User-Agent sent on every Zen request: chat, the model
    * catalog refresh and the pool's admission probes. Empty = the built-in
-   * current-client shape (`opencode/latest/2.2.0/<client>`, where `<client>`
-   * mirrors the effective `x-opencode-client`).
+   * current-client shape (`opencode/latest/2.2.0/cli`; the client flag is
+   * pinned to `cli` and no setting moves it).
    *
    * The anonymous lane accepts a FINGERPRINT, not one string: this header
    * travels with the session/project/request id shapes and the tool

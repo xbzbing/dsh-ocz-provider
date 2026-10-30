@@ -635,3 +635,54 @@ test('fetchZenModels stops at the first door on a transport failure', async () =
   await assert.rejects(fetchZenModels('https://primary.test', fetchImpl, opencodeUserAgent(), 'https://console.test'), /fetch failed/)
   assert.deepEqual(seen, ['https://primary.test/v1/models'], 'a socket error is the egress talking, not the door')
 })
+
+test('a hung catalog fetch is aborted at the deadline and frees the refresh round', async () => {
+  const aborted: string[] = []
+  // Never resolves on its own; only the abort signal ends it.
+  const hung = ((url: string | URL | Request, init?: RequestInit) => new Promise<Response>((_, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      aborted.push(String(url))
+      reject(init.signal?.reason ?? new Error('aborted'))
+    })
+  })) as typeof fetch
+  const catalog = new ModelCatalog({ fetchImpl: hung, fetchTimeoutMs: 20 })
+  try {
+    await catalog.refreshOnce()
+    assert.deepEqual(aborted.sort(), ['https://models.dev/api.json', 'https://opencode.ai/inference/v1/models'])
+    assert.match(catalog.lastError, /timed out/)
+    // the dedupe slot is free again: a second round runs instead of joining a corpse
+    await catalog.refreshOnce()
+    assert.equal(aborted.length, 4)
+  } finally {
+    catalog.stop()
+  }
+})
+
+test('a body that stalls after the headers is cut by the same deadline', async () => {
+  const stalled = (async () => new Response(new ReadableStream({ start() {} }), { status: 200 })) as typeof fetch
+  const started = Date.now()
+  await assert.rejects(fetchZenModels('https://zen.test', stalled, opencodeUserAgent(), undefined, 20), /timed out/)
+  assert.ok(Date.now() - started < 1_000)
+})
+
+test('models.dev is fetched once per metadata window, not every catalog round', async () => {
+  let metadataCalls = 0
+  let clock = 1_000_000
+  const fetchImpl = (async (url: string | URL) => {
+    if (String(url).includes('models.dev')) metadataCalls += 1
+    const body = String(url).includes('/v1/models') ? zenBody : metadataBody
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+  const catalog = new ModelCatalog({ fetchImpl, now: () => clock })
+  try {
+    await catalog.refreshOnce()
+    clock += 300_000
+    await catalog.refreshOnce()
+    assert.equal(metadataCalls, 1, 'a 5-minute round reuses fresh prices')
+    clock += 24 * 60 * 60 * 1000
+    await catalog.refreshOnce()
+    assert.equal(metadataCalls, 2, 'a day later the metadata is fetched again')
+  } finally {
+    catalog.stop()
+  }
+})

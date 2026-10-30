@@ -87,6 +87,30 @@ test('the request path is lenient while the editor boundary stays strict', () =>
   )
 })
 
+test('the plugin control prefix x-oc2dsh- is managed at both boundaries', async () => {
+  // The relay reads x-oc2dsh-egress as its exit directive: an override must
+  // neither steer it past the pool nor leak upstream on catalog/admission.
+  assert.deepEqual(sanitizeRequestHeaders({
+    'X-OC2DSH-Egress': 'http://127.0.0.1:9',
+    'x-oc2dsh-anything': 'x',
+    'X-Ok': 'kept',
+  }), { 'x-ok': 'kept' })
+  assert.throws(() => normalizeRequestHeaders({ 'x-oc2dsh-egress': 'http://127.0.0.1:9' }), /managed/)
+  assert.throws(() => parseRequestHeaders('X-OC2DSH-Egress: socks5://127.0.0.1:9'), /managed/)
+  const release = setRequestHeadersReader(() => ({ 'x-oc2dsh-egress': 'http://127.0.0.1:9' }))
+  try {
+    assert.equal(zenRequestHeaders()['x-oc2dsh-egress'], undefined)
+    assert.equal(disguiseHeaders(deriveRequestIDs([{ role: 'user', content: 'hello' }]))['x-oc2dsh-egress'], undefined)
+    let seen: Headers | undefined
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      seen = new Headers(init?.headers)
+      return new Response(JSON.stringify({ data: [{ id: 'm' }] }), { status: 200 })
+    }) as typeof fetch
+    await fetchZenModels('https://zen.test', fetchImpl, opencodeUserAgent())
+    assert.equal(seen?.get('x-oc2dsh-egress'), null, 'the catalog request never carries it')
+  } finally { release() }
+})
+
 test('the header editor parses HTTP header lines and preserves colons in values', () => {
   const headers = parseRequestHeaders(`User-Agent: ${customUA}\nX-Trace: scope: local\n\n`)
   assert.deepEqual(headers, { 'user-agent': customUA, 'x-trace': 'scope: local' })

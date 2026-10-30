@@ -286,7 +286,7 @@ const gateBody = {
   tools: FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name)),
 }
 
-async function runStream(catalogReasoning: boolean, effort?: string): Promise<Array<{ onPayload?: (payload: unknown) => unknown }>> {
+async function runStream(catalogReasoning: boolean, effort?: string, field: 'reasoningEffort' | 'reasoning' = 'reasoningEffort'): Promise<Array<{ onPayload?: (payload: unknown) => unknown }>> {
   const { provider, captured } = capturingProvider()
   const adapter = new ZenAdapter(
     {
@@ -297,7 +297,7 @@ async function runStream(catalogReasoning: boolean, effort?: string): Promise<Ar
     { providerOverride: provider },
   )
   const options = { provider: 'oc2dsh', model: 'big-pickle', messages: [], temperature: 0, maxTokens: 16 }
-  const stream = adapter.stream({ ...options, ...(effort !== undefined ? { reasoningEffort: effort } : {}) } as never)
+  const stream = adapter.stream({ ...options, ...(effort !== undefined ? { [field]: effort } : {}) } as never)
   for await (const chunk of stream) void chunk
   return captured
 }
@@ -318,6 +318,11 @@ test('stream injects the selected reasoning_effort into the outgoing body', asyn
   assert.deepEqual(untouched, gateBody)
   assert.equal('reasoning_effort' in untouched, false)
   assert.deepEqual(Object.keys(untouched), ['model', 'messages', 'tools', 'stream'])
+})
+
+test('the chat path reads the older `reasoning` field like stream() and Responses do', async () => {
+  const viaReasoning = (await runStream(true, 'off', 'reasoning'))[0]!
+  assert.deepEqual(viaReasoning.onPayload?.({ ...gateBody }), { ...gateBody, reasoning_effort: 'none' })
 })
 
 test('the chat body leaves in the client\'s key order', async () => {
@@ -853,4 +858,34 @@ test('a relay_error settles the picked exit as a transport cut, on one origin', 
   }
   assert.equal(seen.length, settled.length, 'one grade per attempt')
   assert.equal(seen.length, 1, 'no origin switch: the connect never reached a door')
+})
+
+test('a refusal story never reclassifies the last attempt: refuse then 429 is RATE_LIMIT', async () => {
+  const seen: string[] = []
+  const chunks = await laneStream(['refuse', 'limited'], seen)
+  assert.deepEqual(seen, ['https://primary.test/v1', 'https://fallback.test/v1'])
+  const finish = chunks.at(-1)
+  assert.equal(finish?.reason?.failure?.code, 'RATE_LIMIT', 'the earlier 403 in the story must not make it AUTH')
+  assert.match(finish?.reason?.failure?.message ?? '', /^429/, 'the last attempt leads the surfaced message')
+  assert.match(finish?.reason?.failure?.message ?? '', /FreeTierError/, 'the story still names the earlier refusal')
+})
+
+test('a stream that closes without done/error finishes as a retryable TRANSPORT error', async () => {
+  for (const script of [[], [{ type: 'start' }], [{ type: 'start' }, { type: 'text_delta', contentIndex: 0, delta: 'x', partial: { content: [] } }]]) {
+    const adapter = new ZenAdapter(
+      {
+        list: () => ['big-pickle'],
+        decision: () => ({ allowed: true, source: 'test', known: true }),
+        reasoningCapability: () => undefined,
+      },
+      { providerOverride: { streamSimple: () => (async function* () { for (const e of script) yield e })() }, zenBaseUrl: 'https://zen.test' },
+    )
+    let finish: { kind: string; failure?: { code: string; message: string } } | undefined
+    for await (const chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [] } as never)) {
+      if (chunk.type === 'finish') finish = chunk.reason as never
+    }
+    assert.equal(finish?.kind, 'error', JSON.stringify(script))
+    assert.equal(finish?.failure?.code, 'TRANSPORT')
+    assert.equal(finish?.failure?.message, 'Stream ended without finish_reason')
+  }
 })

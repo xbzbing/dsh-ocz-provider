@@ -185,7 +185,9 @@ test('cancellation after the first request prevents recovery and preserves its u
   const { adapter, calls } = scripted([[...thinking(), { type: 'done', message: message() }]], [], () => controller.abort())
   const chunks = await collect(adapter, { ...options, signal: controller.signal })
   assert.equal(calls.length, 1)
-  assert.equal(calls[0]!.options.signal, controller.signal)
+  // each attempt gets its own signal, linked to the host's
+  assert.notEqual(calls[0]!.options.signal, controller.signal)
+  assert.equal(calls[0]!.options.signal?.aborted, true, 'the host abort reached the attempt')
   assert.deepEqual(chunks.at(-2), { type: 'usage', usage: { inputTokens: 10, outputTokens: 64, cacheReadTokens: 3, cacheWriteTokens: 2 } })
 })
 
@@ -200,7 +202,8 @@ test('retry failures keep their actual finish reason and account for the failed 
     const controller = new AbortController()
     const chunks = await collect(adapter, { ...options, signal: controller.signal })
     assert.equal(calls.length, 2)
-    assert.equal(calls[1]!.options.signal, controller.signal)
+    assert.ok(calls[1]!.options.signal instanceof AbortSignal)
+    assert.equal(calls[1]!.options.signal.aborted, false, 'a completed attempt is not cancelled')
     const finish = chunks.at(-1)
     assert.equal(finish?.type, 'finish')
     if (finish?.type === 'finish') assert.equal(finish.reason.kind, stopReason)
