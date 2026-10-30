@@ -110,7 +110,7 @@ interface RelaySupervisorOptions {
 interface RelayStatus {
   /** True while a relay process is up and answering health probes. */
   active: boolean;
-  /** `http://127.0.0.1:<port>` while active, null otherwise. */
+  /** `http://127.0.0.1:<port>` while active, null otherwise (never the token). */
   baseUrl: string | null;
   /** The bun binary in use (null when none was found). */
   bunPath: string | null;
@@ -138,9 +138,10 @@ declare class RelaySupervisor {
   constructor(options?: RelaySupervisorOptions);
   get upstream(): string;
   /**
-   * The base URL of a live relay (`http://127.0.0.1:<port>`), or null when it
-   * is not running. The adapter reads this PER REQUEST: a relay that died and
-   * came back (new port) is picked up without rebuilding anything.
+   * The base URL of a live relay (`http://127.0.0.1:<port>/_/<token>`), or null
+   * when it is not running. The adapter reads this PER REQUEST: a relay that
+   * died and came back (new port, new token) is picked up without rebuilding
+   * anything.
    */
   get baseUrl(): string | null;
   /** Diagnostics for the status file / bridge. */

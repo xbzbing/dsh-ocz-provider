@@ -10,6 +10,7 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { get as httpGet } from 'node:http'
 import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -62,7 +63,7 @@ export interface RelaySupervisorOptions {
 export interface RelayStatus {
   /** True while a relay process is up and answering health probes. */
   active: boolean
-  /** `http://127.0.0.1:<port>` while active, null otherwise. */
+  /** `http://127.0.0.1:<port>` while active, null otherwise (never the token). */
   baseUrl: string | null
   /** The bun binary in use (null when none was found). */
   bunPath: string | null
@@ -79,6 +80,45 @@ export const DEFAULT_RELAY_UPSTREAM = 'https://opencode.ai'
 
 /** Readiness marker the relay prints on stdout (relay/oc2dsh-relay.mjs). */
 const READY_MARKER = 'OC2DSH_RELAY_READY'
+
+/** Health path behind the token prefix (relay/oc2dsh-relay.mjs). */
+const HEALTH_PATH = '/__oc2dsh/health'
+
+/** Startup stdout kept for the failure message; a longer line is cut. */
+const STARTUP_EXCERPT_CHARS = 400
+const MAX_LINE_CHARS = 8_192
+
+/** Restart backoff: 500 ms doubling, 30 s ceiling (docs/relay.md §1). */
+function backoffMs(strikes: number): number {
+  return Math.min(30_000, 500 * 2 ** Math.max(0, strikes - 1))
+}
+
+/** warm() retry spacing once the restart budget is spent, or bun/the script is missing. */
+const EXHAUSTED_RETRY_MS = 5 * 60_000
+const UNAVAILABLE_RETRY_MS = 60_000
+
+/**
+ * Environment the child inherits: what bun needs to run on macOS, Linux and
+ * Windows, plus CA settings. Proxy variables are deliberately absent — Bun's
+ * fetch honours HTTP(S)_PROXY, which would turn `direct` into an env proxy.
+ */
+const CHILD_ENV_NAMES = new Set([
+  'PATH', 'PATHEXT', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'TMPDIR', 'TMP', 'TEMP', 'TZ',
+  'LANG', 'LANGUAGE', 'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA',
+  'PROGRAMDATA', 'HOMEDRIVE', 'HOMEPATH', 'NUMBER_OF_PROCESSORS', 'PROCESSOR_ARCHITECTURE',
+  'XDG_RUNTIME_DIR', 'XDG_CACHE_HOME', 'BUN_INSTALL', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS',
+])
+
+/** The allowlisted slice of `source` (names compared case-insensitively, as Windows does). */
+export function relayChildEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  for (const [name, value] of Object.entries(source)) {
+    if (value === undefined) continue
+    const upper = name.toUpperCase()
+    if (CHILD_ENV_NAMES.has(upper) || upper.startsWith('LC_')) env[name] = value
+  }
+  return env
+}
 
 /**
  * Candidate relay scripts, in order: next to the built `lib/` (the installed
@@ -168,7 +208,12 @@ export class RelaySupervisor {
   readonly #maxRestarts: number
   readonly #healthyResetMs: number
   #child: ChildProcessWithoutNullStreams | null = null
+  /** `http://127.0.0.1:<port>` of the live relay. */
+  #origin: string | null = null
+  /** {@link #origin} plus the per-spawn `/_/<token>` prefix every request needs. */
   #baseUrl: string | null = null
+  /** Earliest time warm() may spawn again (startup-failure backoff). */
+  #nextAttemptAt = 0
   #bunPath: string | null = null
   #lastError = ''
   #restarts = 0
@@ -192,9 +237,10 @@ export class RelaySupervisor {
   }
 
   /**
-   * The base URL of a live relay (`http://127.0.0.1:<port>`), or null when it
-   * is not running. The adapter reads this PER REQUEST: a relay that died and
-   * came back (new port) is picked up without rebuilding anything.
+   * The base URL of a live relay (`http://127.0.0.1:<port>/_/<token>`), or null
+   * when it is not running. The adapter reads this PER REQUEST: a relay that
+   * died and came back (new port, new token) is picked up without rebuilding
+   * anything.
    */
   get baseUrl(): string | null {
     return this.#baseUrl
@@ -204,7 +250,7 @@ export class RelaySupervisor {
   status(): RelayStatus {
     return {
       active: this.#baseUrl !== null,
-      baseUrl: this.#baseUrl,
+      baseUrl: this.#baseUrl === null ? null : this.#origin,
       bunPath: this.#bunPath,
       upstream: this.upstream,
       lastError: this.#lastError,
@@ -219,7 +265,8 @@ export class RelaySupervisor {
    * that never uses this provider.
    */
   warm(): void {
-    if (this.#baseUrl !== null || this.#starting !== null || this.#config.enabled === false) return
+    if (this.#stopping || this.#baseUrl !== null || this.#starting !== null || this.#config.enabled === false) return
+    if (Date.now() < this.#nextAttemptAt) return
     void this.start().catch(() => {})
   }
 
@@ -229,6 +276,7 @@ export class RelaySupervisor {
    * keeps sending directly and logs `lastError` once.
    */
   start(): Promise<string | null> {
+    if (this.#stopping) return Promise.resolve(null)
     if (this.#baseUrl !== null) return Promise.resolve(this.#baseUrl)
     if (this.#config.enabled === false) {
       this.#lastError = 'relay disabled by config'
@@ -263,33 +311,50 @@ export class RelaySupervisor {
     if (bun === null) {
       this.#lastError = 'no bun binary found (安装 bun 后重启，或设置 relay.bunPath)'
       this.#logger?.warn(`oc2dsh: ${this.#lastError} — upstream requests stay direct and will be answered 429 by the free lane`)
+      this.#nextAttemptAt = Date.now() + UNAVAILABLE_RETRY_MS
       return null
     }
     if (this.#scriptPath === '') {
       this.#lastError = 'relay script missing from the installed package (relay/oc2dsh-relay.mjs)'
       this.#logger?.warn(`oc2dsh: ${this.#lastError}`)
+      this.#nextAttemptAt = Date.now() + UNAVAILABLE_RETRY_MS
       return null
     }
+    // Per-spawn capability: the relay refuses any request path without it.
+    const token = randomBytes(24).toString('hex')
     try {
-      const port = await this.#spawnOnce(bun)
-      this.#baseUrl = `http://127.0.0.1:${port}`
+      const port = await this.#spawnOnce(bun, token)
+      if (this.#stopping) {
+        await this.#killChild()
+        return null
+      }
+      this.#origin = `http://127.0.0.1:${port}`
+      this.#baseUrl = `${this.#origin}/_/${token}`
       this.#lastError = ''
-      this.#logger?.info(`oc2dsh: upstream relay ready at ${this.#baseUrl} (bun ${bun})`)
+      this.#nextAttemptAt = 0
+      this.#logger?.info(`oc2dsh: upstream relay ready at ${this.#origin} (bun ${bun})`)
       return this.#baseUrl
     } catch (err) {
+      if (this.#stopping) return null
       this.#lastError = err instanceof Error ? err.message : String(err)
+      // A failed start is a strike in the same budget a crash spends, and
+      // warm() waits out the backoff instead of respawning on every call.
+      this.#restarts += 1
+      this.#nextAttemptAt = Date.now() + (this.#restarts >= this.#maxRestarts ? EXHAUSTED_RETRY_MS : backoffMs(this.#restarts))
       this.#logger?.warn(`oc2dsh: upstream relay failed to start: ${this.#lastError}`)
       return null
     }
   }
 
   /** One spawn attempt: start, read the ready line, health-check. */
-  #spawnOnce(bun: string): Promise<number> {
+  #spawnOnce(bun: string, token: string): Promise<number> {
     return new Promise<number>((resolve, reject) => {
       const env: NodeJS.ProcessEnv = {
-        ...process.env,
+        ...relayChildEnv(),
+        OC2DSH_RELAY_HOST: '127.0.0.1',
         OC2DSH_RELAY_PORT: String(this.#config.port ?? 0),
         OC2DSH_RELAY_UPSTREAM: this.upstream,
+        OC2DSH_RELAY_TOKEN: token,
         // stdin stays a pipe: EOF is how the child learns we are gone.
         OC2DSH_RELAY_WATCH_STDIN: '1',
       }
@@ -307,7 +372,9 @@ export class RelaySupervisor {
       // listening it is detached, because the relay must never keep its parent
       // alive.
       let settled = false
-      let stdout = ''
+      let sawReady = false
+      let excerpt = ''
+      let pending = ''
       const timer = setTimeout(() => {
         if (settled) return
         settled = true
@@ -321,37 +388,49 @@ export class RelaySupervisor {
         clearTimeout(timer)
         fn()
       }
+      const onReady = (port: number): void => {
+        sawReady = true
+        // Health-check before declaring victory: the ready line only proves the
+        // listener exists, and the adapter is about to send real traffic through it.
+        this.#probe(`http://127.0.0.1:${port}/_/${token}${HEALTH_PATH}`)
+          .then(() => settle(() => {
+            this.#detach(child)
+            this.#armBudgetReset(child)
+            resolve(port)
+          }))
+          .catch((err: unknown) => settle(() => {
+            void this.#killChild()
+            reject(err instanceof Error ? err : new Error(String(err)))
+          }))
+      }
+      /**
+       * One stdout line: the ready marker while starting, an excerpt kept for a
+       * startup failure, and the `OC2DSH_RELAY_TRACE=1` mirror to stderr (the
+       * child's log stays out of the host's stdout).
+       */
+      const onLine = (line: string): void => {
+        if (line.startsWith(READY_MARKER)) {
+          const port = Number(line.slice(READY_MARKER.length).trim())
+          if (!sawReady && Number.isFinite(port) && port > 0) onReady(port)
+          return
+        }
+        if (!settled && excerpt.length < STARTUP_EXCERPT_CHARS) {
+          excerpt = `${excerpt}${line}\n`.slice(0, STARTUP_EXCERPT_CHARS)
+        }
+        if (line.trim() !== '' && process.env.OC2DSH_RELAY_TRACE === '1') console.error('[relay]', line)
+      }
       child.stdout.setEncoding('utf8')
       child.stdout.on('data', (chunk: string) => {
-        stdout += chunk
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith(READY_MARKER)) continue
-          const port = Number(line.slice(READY_MARKER.length).trim())
-          if (!Number.isFinite(port) || port <= 0) continue
-          settle(() => {
-            // Health-check before declaring victory: the ready line only proves
-            // the listener exists, and the adapter is about to send real traffic
-            // through it.
-            const health = `http://127.0.0.1:${port}/__oc2dsh/health`
-            this.#probe(health)
-              .then(() => {
-                this.#detach(child)
-                this.#armBudgetReset(child)
-                resolve(port)
-              })
-              .catch((err: unknown) => {
-                void this.#killChild()
-                reject(err instanceof Error ? err : new Error(String(err)))
-              })
-          })
+        pending += chunk
+        let newline = pending.indexOf('\n')
+        while (newline !== -1) {
+          onLine(pending.slice(0, newline).replace(/\r$/, ''))
+          pending = pending.slice(newline + 1)
+          newline = pending.indexOf('\n')
         }
-      })
-      // The child's log stays out of the host's stdout: only `OC2DSH_RELAY_TRACE=1`
-      // mirrors these lines to stderr; stderr itself always lands in `lastError`.
-      child.stdout.on('data', (chunk: string) => {
-        for (const line of chunk.split('\n')) {
-          if (line.trim() === '' || line.startsWith(READY_MARKER)) continue
-          if (process.env.OC2DSH_RELAY_TRACE === '1') console.error('[relay]', line)
+        if (pending.length > MAX_LINE_CHARS) {
+          onLine(pending)
+          pending = ''
         }
       })
       child.stderr.setEncoding('utf8')
@@ -369,7 +448,7 @@ export class RelaySupervisor {
         // dies later is handled by the restart path below.
         if (!settled) {
           this.#detach(child)
-          settle(() => reject(new Error(`relay exited during startup (code ${code ?? 'null'}, signal ${signal ?? 'none'}): ${stdout.slice(0, 200)}`)))
+          settle(() => reject(new Error(`relay exited during startup (code ${code ?? 'null'}, signal ${signal ?? 'none'}): ${excerpt.trim()}`)))
           return
         }
         this.#onExit(code, signal)
@@ -410,20 +489,21 @@ export class RelaySupervisor {
     }
   }
 
-  /** After a start failure or a later crash: restart with backoff, bounded. */
+  /** After a crash of a ready relay: restart with backoff, bounded. */
   #onExit(code: number | null, signal: string | null): void {
-    const wasActive = this.#baseUrl !== null
     this.#baseUrl = null
+    this.#origin = null
     if (this.#stopping) return
     this.#lastError = `relay exited (code ${code ?? 'null'}, signal ${signal ?? 'none'})`
     this.#logger?.warn(`oc2dsh: ${this.#lastError}`)
-    if (!wasActive && this.#restarts >= this.#maxRestarts) return
     if (this.#restarts >= this.#maxRestarts) {
+      this.#nextAttemptAt = Date.now() + EXHAUSTED_RETRY_MS
       this.#logger?.warn(`oc2dsh: upstream relay gave up after ${this.#restarts} restarts; requests will go direct (429 expected)`)
       return
     }
     this.#restarts += 1
-    const delay = Math.min(30_000, 500 * 2 ** (this.#restarts - 1))
+    const delay = backoffMs(this.#restarts)
+    this.#nextAttemptAt = Date.now() + delay
     const timer = setTimeout(() => {
       if (this.#stopping) return
       void this.start().catch(() => {})
@@ -459,6 +539,7 @@ export class RelaySupervisor {
   async stop(): Promise<void> {
     this.#stopping = true
     this.#baseUrl = null
+    this.#origin = null
     await this.#killChild()
   }
 }

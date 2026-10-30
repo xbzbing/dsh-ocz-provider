@@ -1,6 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
   "inputs": {
+    "package.json": "770b5ea4e074323134c94b30d40826167f61e2fa",
+    "pnpm-lock.yaml": "6761f563ce0cbb6492ca94435b53d453dbb21fdb",
     "src/adapter/catalog.ts": "188e46a59c2aa0867efa062c4ba8395bc2e06122",
     "src/adapter/env-block.ts": "85a3814ed4ec2788d8811fd007c5bc016ea1478e",
     "src/adapter/events.ts": "eb026f0d117378de34f014971a85b244ac888e7b",
@@ -27,9 +29,13 @@
     "src/client/usage-format.ts": "786e0bded07ff0daf3b0c2274ab5dd1278155445",
     "src/config.ts": "43196bd91d9f1711ddef6eec7bc1b26d49a7df4e",
     "src/index.ts": "c666bde05f6279aa69964476d91a6fb3c7373c0f",
-    "src/ip-pool-settings/apply.ts": "1f0564490021ede1a4cf2bae8d1ef71321256d48",
-    "src/ip-pool-settings/bridge.ts": "4755c6fb48979ef547427c6aa72456afaa6f25ac",
+    "src/ip-pool-settings/apply.ts": "d37179ce4d1d15b34f22898895657c33f71b6f1c",
+    "src/ip-pool-settings/bridge.ts": "6578a32af7d61b7e00ffd5b5187ef87fa408aef5",
+    "src/ip-pool-settings/guard.ts": "816c10b9e077e8778510b48d1a05f138c9077c76",
+    "src/ip-pool-settings/handlers.ts": "c32d2f627cf2674ede3db9d1f67202283d6bf1be",
     "src/ip-pool-settings/namespace.ts": "5cfe6d597d0d6b37e831d63ae47c4c00c25f6c58",
+    "src/ip-pool-settings/routes.ts": "350562044cb12d4f5e034010b97c0c9d32397cd3",
+    "src/ip-pool-settings/views.ts": "02c512555ae799723a46e994450715a1aa0d5e64",
     "src/ip-pool.ts": "d0708a8bf8b96e011358cc34f6d88710a0597a56",
     "src/model-context.ts": "d1299e68421dfb78bbe4953f21e5e55d147b2575",
     "src/paths.ts": "cd3cacbf3bf87bb128012817fc46445aeafaa367",
@@ -50,10 +56,25 @@
     "src/pool/transport.ts": "82d6f9cc9138e64e0bd533370ea6267f2fe7b926",
     "src/pool/usage-store.ts": "075329ac2aed318df7381679715753b5777a24a2",
     "src/pool/usage.ts": "ec5ce8102f8b252a4ff41a3389cec3a3965fa856",
-    "src/relay/egress.ts": "07b599b85cea3e610ead4dc681247dcbdb4edf39",
-    "src/relay/supervisor.ts": "564c30ff3287415c3ba339e7f751d5baf3288f80",
+    "src/relay/egress.ts": "fd99761738eeed179abb27757f335b6da833e209",
+    "src/relay/supervisor.ts": "5c274d173629a66223a7a0488df7a8d5d196930e",
     "src/request-headers.ts": "c9d118795991ca09962225cad0ee1826541c0159",
     "tsdown.client.config.ts": "e46f94c0cc68dbbb0b102187dbc3a9e0aca71362",
     "tsdown.config.ts": "8a7ab511162178da30b1446cf9369c2cf2f7f90b"
+  },
+  "outputs": {
+    "lib/admission.js": "66f20adee8c756199180d2ba9ed3f13b2826d7e9",
+    "lib/admission2.js": "ba83a5b5a8a2eebc17baa5f5ec865d36d90e516b",
+    "lib/catalog.js": "4cb4cf875d49f74546f5468dd4604c2c78bfab25",
+    "lib/catalog2.js": "cb648db8e764be21fa0d790cf1aa085687dc7013",
+    "lib/client.js": "b90ecb9eceefd9d2657a9fcdf00b88aa27bb09d4",
+    "lib/client.js.map": "e4ae7f5a46bf7cf842da5477b6538b6aaf684ee6",
+    "lib/dispatcher.js": "e6fa9d2b947b2092cbafde7a2b0bfcb31002189a",
+    "lib/index.d.ts": "d85cee1d3a0012c6bdebe4882cb7f25b4d4a93ac",
+    "lib/index.js": "f67eba3ab007dc2b73170515ff71a710d3a6270b",
+    "lib/installer.js": "41ceb8b0b732c1f0691bf7c9d35cd0a9791a46a0",
+    "lib/ip-pool.js": "0085f20c3e398410ca93a863f072782e202d1a9a",
+    "lib/protocol.js": "85e3a4c1574370db12d41f14668734d4e5d1ed82",
+    "lib/smoke-content.js": "40a5d94dde37bd73ce17f31e2f5d810036d3efa4"
   }
 }

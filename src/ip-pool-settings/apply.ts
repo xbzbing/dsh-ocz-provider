@@ -17,7 +17,7 @@ import type { PluginContext } from '../index.ts'
 import type { OrdinaryPluginConfig } from '../config.ts'
 import type { IpPoolRuntime } from '../ip-pool.ts'
 import { IP_POOL_NAMESPACE, resolveIpPoolSettings, toIpPoolConfig, type IpPoolSettings } from './namespace.ts'
-import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type ProjectResolver, type WritePin } from './bridge.ts'
+import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type ConnectionFence, type ProjectResolver, type WritePin } from './bridge.ts'
 import { makeSessionTitleResolver, type SessionTitleResolver } from '../pool/session-titles.ts'
 import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
 import type { UsageStore } from '../pool/usage-store.ts'
@@ -217,6 +217,26 @@ export function applyIpPoolSettings(
     return true
   }
 
+  /**
+   * The host's `connection` service authenticates bridge callers (guard.ts):
+   * read at request time, so the routes can mount before it composes, and a
+   * request that arrives while it is absent is refused (403), never admitted.
+   */
+  let connection: ConnectionFence | undefined
+  if (typeof ctx.inject === 'function') {
+    void Promise.resolve(ctx.inject(['connection'], (cctx: PluginContext) => {
+      const service = Reflect.get(cctx, 'connection') as ConnectionFence | undefined
+      if (service === undefined || typeof service.requestRejection !== 'function') return
+      connection = service
+      const maybeEffect = (cctx as { effect?: PluginContext['effect'] }).effect
+      if (typeof maybeEffect === 'function') {
+        maybeEffect.call(cctx, () => () => {
+          if (connection === service) connection = undefined
+        })
+      }
+    })) as unknown as Promise<unknown>
+  }
+
   // Bridge: mount once webServer is up. The handlers read the live runtime
   // and the current settings value at request time (never stale closures).
   if (typeof ctx.inject === 'function') {
@@ -275,7 +295,7 @@ export function applyIpPoolSettings(
         },
       )
       const disposers: Array<() => void> = []
-      for (const route of makeBridgeRoutes(handlers)) {
+      for (const route of makeBridgeRoutes(handlers, { connection: () => connection })) {
         disposers.push(bctx.webServer.register(route as never))
       }
       logger.info(`oc2dsh: ip-pool bridge mounted at ${IP_POOL_BRIDGE_PREFIX} (${disposers.length} routes)`)

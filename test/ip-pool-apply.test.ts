@@ -227,6 +227,9 @@ test('an absent volatile reference degrades to defaults instead of throwing', as
   assert.equal(starts.length, 0)
 })
 
+/** A host `connection` service that admits every request (cookie present). */
+const admitAll = { requestRejection: () => undefined }
+
 test('the settings page is claimed lazily and never gates the fiber', async () => {
   // `settings` stays out of `inject`: SettingsForms needs a profileContext and
   // ships disabled headless, so demanding it up front would keep the provider
@@ -319,6 +322,7 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
           webServer: { register: (route: never) => { routes.push(route); return () => {} } },
         })
       }
+      if (services.includes('connection')) callback({ logger, connection: admitAll } as never)
     },
   }
   applyIpPoolSettings(ctx, ordinary(), () => host.ref.get(), ctx.logger, { assemble: runtimeAssemble })
@@ -378,6 +382,7 @@ test('the bridge wires the 清空 button to the same ledger the adapter writes',
           webServer: { register: (route: never) => { routes.push(route); return () => {} } },
         })
       }
+      if (services.includes('connection')) callback({ logger: { info() {}, warn() {}, error() {} }, connection: admitAll } as never)
     },
   }
   try {
@@ -406,4 +411,43 @@ test('the bridge wires the 清空 button to the same ledger the adapter writes',
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('bridge routes answer with the host connection fence, and 403 without it', async () => {
+  resetCalls()
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }> = []
+  const host = makeVolatileHost({ enabled: false })
+  let deliverConnection: ((service: unknown) => void) | undefined
+  const logger = { info() {}, warn() {}, error() {} }
+  const ctx: PluginContext = {
+    logger,
+    on: host.ctx.on,
+    inject(services, callback) {
+      if (services.includes('webServer')) {
+        callback({ logger, webServer: { register: (route: never) => { routes.push(route); return () => {} } } })
+      }
+      if (services.includes('connection')) deliverConnection = (service) => callback({ logger, connection: service } as never)
+    },
+  }
+  applyIpPoolSettings(ctx, ordinary(), () => host.ref.get(), ctx.logger, {})
+  await tick(10)
+  const status = routes.find((route) => route.path === `${IP_POOL_BRIDGE_PREFIX}/status`)!
+  assert.ok(deliverConnection, 'the connection service is requested')
+  const call = async (): Promise<{ status?: number; body?: unknown }> => {
+    const written: { status?: number; body?: unknown } = {}
+    await status.handler(
+      { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } },
+      { writeHead(code: number) { written.status = code }, end(body: string) { written.body = JSON.parse(body) } },
+    )
+    return written
+  }
+  assert.equal((await call()).status, 403, 'no connection service yet: fail closed')
+  const seen: unknown[] = []
+  deliverConnection!({ requestRejection: (req: unknown) => { seen.push(req); return 401 } })
+  const refused = await call()
+  assert.equal(refused.status, 401, 'a request without the login cookie is refused')
+  assert.deepEqual(refused.body, { error: 'unauthorized' })
+  assert.equal(seen.length, 1, 'the fence saw the raw request')
+  deliverConnection!(admitAll)
+  assert.equal((await call()).status, 200, 'an authenticated request reaches the handler')
 })

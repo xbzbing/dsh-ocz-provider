@@ -588,6 +588,46 @@ test('guard-rejected requests get 403 and never reach the handler', async () => 
   assert.deepEqual(written.body, { error: 'forbidden' })
 })
 
+test('routes fail closed without the host connection service and honour its verdict', async () => {
+  const handlers = makeBridgeHandlers(() => null, () => ({ pinnedStrict: false, proxyHosts: [] }))
+  const request = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }
+  const run = async (routes: unknown[], req: unknown = request): Promise<{ status?: number; body?: unknown }> => {
+    const written: { status?: number; body?: unknown } = {}
+    await (routes[0] as { handler: (req: unknown, res: unknown) => Promise<void> }).handler(req, {
+      writeHead(status: number) { written.status = status },
+      end(body: string) { written.body = JSON.parse(body) },
+    })
+    return written
+  }
+  assert.equal((await run(makeBridgeRoutes(handlers))).status, 403, 'no connection reader')
+  assert.equal((await run(makeBridgeRoutes(handlers, { connection: () => undefined }))).status, 403, 'service absent')
+  const noCookie = await run(makeBridgeRoutes(handlers, { connection: () => ({ requestRejection: () => 401 }) }))
+  assert.equal(noCookie.status, 401, 'a request without the login cookie is rejected')
+  assert.deepEqual(noCookie.body, { error: 'unauthorized' })
+  const throwing = { requestRejection: () => { throw new Error('boom') } }
+  assert.equal((await run(makeBridgeRoutes(handlers, { connection: () => throwing }))).status, 403, 'a throwing fence fails closed')
+  const admitted = makeBridgeRoutes(handlers, { connection: () => ({ requestRejection: () => undefined }) })
+  assert.equal((await run(admitted)).status, 200)
+  // The loopback fence still applies on top of an admitting service.
+  assert.equal((await run(admitted, { ...request, socket: { remoteAddress: '10.0.0.2' } })).status, 403)
+  assert.equal((await run(admitted, { ...request, headers: { host: '127.0.0.1:3080', origin: 'http://evil.com' } })).status, 403)
+})
+
+test('a handler that throws answers a JSON 500 envelope', async () => {
+  const handlers = {
+    ...makeBridgeHandlers(() => null, () => ({ pinnedStrict: false, proxyHosts: [] })),
+    status: async () => { throw new Error('runtime exploded') },
+  }
+  const routes = makeBridgeRoutes(handlers, { guard: () => true }) as unknown as Array<{ handler: (req: unknown, res: unknown) => Promise<void> }>
+  const written: { status?: number; body?: unknown } = {}
+  await routes[0]!.handler({ method: 'POST', headers: { host: '127.0.0.1:3928' } }, {
+    writeHead(status: number) { written.status = status },
+    end(body: string) { written.body = JSON.parse(body) },
+  })
+  assert.equal(written.status, 500)
+  assert.deepEqual(written.body, { ok: false, code: 'internal', message: 'runtime exploded' })
+})
+
 // -- bridge: the exit tables' row actions (固定 / 轮换) ------------------------------
 
 /** One exit node for the row-action tests. */

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { DEFAULT_RELAY_UPSTREAM, RelaySupervisor, defaultRelayScript, findBun } from '../src/relay/supervisor.ts'
-import { EGRESS_HEADER, hasRelayEgress, isRelayTransportFailure, pickRelayEgress, setRelayEgressSeams, settleRelayEgress, statusOfFailure } from '../src/relay/egress.ts'
+import { EGRESS_HEADER, directEgressDirective, hasRelayEgress, isRelayTransportFailure, pickRelayEgress, setRelayEgressSeams, settleRelayEgress, statusOfFailure } from '../src/relay/egress.ts'
 
 /**
  * The relay is the connection-stack half of the free-lane gate, which no
@@ -45,9 +45,12 @@ function makeSupervisor(options: {
   reportedPort?: number
   maxRestarts?: number
   healthyResetMs?: number
+  /** Replaces the default "report ready one tick later" behaviour. */
+  onSpawn?: (child: FakeChild) => void
 } = {}) {
   const children: FakeChild[] = []
   const calls: Array<{ command: string; args: string[]; env: NodeJS.ProcessEnv }> = []
+  const probes: string[] = []
   const warnings: string[] = []
   const supervisor = new RelaySupervisor({
     config: { ...(options.bunPath !== undefined ? { bunPath: options.bunPath } : {}), ...(options.port !== undefined ? { port: options.port } : {}) },
@@ -57,16 +60,37 @@ function makeSupervisor(options: {
       const child = new FakeChild()
       children.push(child)
       // The real relay reports its port one tick after spawn.
-      setTimeout(() => child.emitReady(options.reportedPort ?? 45678), 1)
+      if (options.onSpawn !== undefined) options.onSpawn(child)
+      else setTimeout(() => child.emitReady(options.reportedPort ?? 45678), 1)
       return child as unknown as never
     }) as never,
-    healthFetch: async () => (options.health ?? (async () => ({ ok: true })))(),
+    healthFetch: async (url: string) => {
+      probes.push(url)
+      return (options.health ?? (async () => ({ ok: true })))()
+    },
     readyTimeoutMs: 2_000,
     logger: { info: () => {}, warn: (message: string) => warnings.push(message) },
     ...(options.maxRestarts !== undefined ? { maxRestarts: options.maxRestarts } : {}),
     ...(options.healthyResetMs !== undefined ? { healthyResetMs: options.healthyResetMs } : {}),
   })
-  return { supervisor, children, calls, warnings }
+  return { supervisor, children, calls, probes, warnings }
+}
+
+/** The per-spawn token a supervisor handed its child. */
+function tokenOf(call: { env: NodeJS.ProcessEnv }): string {
+  return String(call.env.OC2DSH_RELAY_TOKEN ?? '')
+}
+
+/** A throwaway file that findBun() accepts as an explicit bun path. */
+async function withFakeBun(fn: (bun: string) => Promise<void>): Promise<void> {
+  const temp = await mkdtemp(join(tmpdir(), 'oc2dsh-bun-'))
+  const bun = join(temp, 'bun')
+  await writeFile(bun, '')
+  try {
+    await fn(bun)
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
 }
 
 test('the relay starts, reports its port, and exposes a loopback base URL', async () => {
@@ -74,11 +98,15 @@ test('the relay starts, reports its port, and exposes a loopback base URL', asyn
   const bun = join(temp, 'bun')
   await writeFile(bun, '')
   try {
-    const { supervisor, calls } = makeSupervisor({ bunPath: bun, port: 0 })
+    const { supervisor, calls, probes } = makeSupervisor({ bunPath: bun, port: 0 })
     const baseUrl = await supervisor.start()
-    assert.equal(baseUrl, 'http://127.0.0.1:45678')
+    const token = tokenOf(calls[0]!)
+    assert.match(token, /^[0-9a-f]{48}$/, 'a 192-bit per-spawn token')
+    assert.equal(baseUrl, `http://127.0.0.1:45678/_/${token}`)
     assert.equal(supervisor.baseUrl, baseUrl)
+    assert.deepEqual(probes, [`http://127.0.0.1:45678/_/${token}/__oc2dsh/health`], 'health rides the token prefix too')
     assert.equal(supervisor.status().active, true)
+    assert.equal(supervisor.status().baseUrl, 'http://127.0.0.1:45678', 'diagnostics never carry the token')
     assert.equal(supervisor.status().bunPath, bun)
     // The child is told to watch stdin (parent-death watchdog) and where to go.
     assert.equal(calls.length, 1)
@@ -99,12 +127,13 @@ test('baseUrlFor keeps the lane origin path (the ladder moves between /inference
   const bun = join(temp, 'bun')
   await writeFile(bun, '')
   try {
-    const { supervisor } = makeSupervisor({ bunPath: bun })
+    const { supervisor, calls } = makeSupervisor({ bunPath: bun })
     assert.equal(supervisor.baseUrlFor('https://opencode.ai/inference'), null, 'no relay yet')
     await supervisor.start()
-    assert.equal(supervisor.baseUrlFor('https://opencode.ai/inference'), 'http://127.0.0.1:45678/inference')
-    assert.equal(supervisor.baseUrlFor('https://opencode.ai/zen/'), 'http://127.0.0.1:45678/zen')
-    assert.equal(supervisor.baseUrlFor('not a url'), 'http://127.0.0.1:45678')
+    const base = `http://127.0.0.1:45678/_/${tokenOf(calls[0]!)}`
+    assert.equal(supervisor.baseUrlFor('https://opencode.ai/inference'), `${base}/inference`)
+    assert.equal(supervisor.baseUrlFor('https://opencode.ai/zen/'), `${base}/zen`)
+    assert.equal(supervisor.baseUrlFor('not a url'), base)
     await supervisor.stop()
   } finally {
     await rm(temp, { recursive: true, force: true })
@@ -152,7 +181,7 @@ test('a crash clears the base URL and restarts the relay', async () => {
   await writeFile(bun, '')
   try {
     const { supervisor, children } = makeSupervisor({ bunPath: bun })
-    assert.equal(await supervisor.start(), 'http://127.0.0.1:45678')
+    assert.match(String(await supervisor.start()), /^http:\/\/127\.0\.0\.1:45678\/_\/[0-9a-f]{48}$/)
     children[0]!.emit('exit', 1, null)
     assert.equal(supervisor.baseUrl, null, 'a dead relay is not offered to the adapter')
     assert.equal(supervisor.status().restarts, 1)
@@ -202,6 +231,112 @@ test('a relay that dies before the window keeps its strike', async () => {
   } finally {
     await rm(temp, { recursive: true, force: true })
   }
+})
+
+test('each spawn gets a fresh token and an env without proxy variables', async () => {
+  const saved = { HTTPS_PROXY: process.env.HTTPS_PROXY, http_proxy: process.env.http_proxy, NO_PROXY: process.env.NO_PROXY }
+  process.env.HTTPS_PROXY = 'http://10.0.0.1:3128'
+  process.env.http_proxy = 'http://10.0.0.1:3128'
+  process.env.NO_PROXY = 'localhost'
+  try {
+    await withFakeBun(async (bun) => {
+      const { supervisor, calls, children } = makeSupervisor({ bunPath: bun })
+      await supervisor.start()
+      const env = calls[0]!.env
+      for (const name of ['HTTPS_PROXY', 'http_proxy', 'NO_PROXY']) assert.equal(env[name], undefined, `${name} must not reach the relay`)
+      assert.equal(env.PATH, process.env.PATH, 'PATH is kept so bun can run')
+      assert.equal(env.OC2DSH_RELAY_HOST, '127.0.0.1')
+      children[0]!.emit('exit', 1, null)
+      await new Promise((resolve) => setTimeout(resolve, 650))
+      assert.equal(calls.length, 2)
+      assert.notEqual(tokenOf(calls[1]!), tokenOf(calls[0]!), 'a restart mints a new token')
+      await supervisor.stop()
+    })
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+})
+
+test('a ready line split across chunks still starts the relay', async () => {
+  await withFakeBun(async (bun) => {
+    const { supervisor } = makeSupervisor({
+      bunPath: bun,
+      onSpawn: (child) => {
+        setTimeout(() => child.stdout.write('RELAY READY 45678\nOC2DSH_RE'), 1)
+        setTimeout(() => child.stdout.write('LAY_READY 456'), 5)
+        setTimeout(() => child.stdout.write('78\n'), 10)
+      },
+    })
+    assert.match(String(await supervisor.start()), /^http:\/\/127\.0\.0\.1:45678\/_\//)
+    await supervisor.stop()
+  })
+})
+
+test('warm() after stop() never spawns an orphan relay', async () => {
+  await withFakeBun(async (bun) => {
+    const { supervisor, calls } = makeSupervisor({ bunPath: bun })
+    await supervisor.stop()
+    supervisor.warm()
+    assert.equal(await supervisor.start(), null)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(calls.length, 0)
+  })
+})
+
+test('stop() during startup kills the child and start resolves null', async () => {
+  await withFakeBun(async (bun) => {
+    const { supervisor, children } = makeSupervisor({
+      bunPath: bun,
+      onSpawn: (child) => { setTimeout(() => child.emitReady(45678), 20) },
+    })
+    const pending = supervisor.start()
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await supervisor.stop()
+    assert.equal(await pending, null)
+    assert.equal(supervisor.baseUrl, null)
+    assert.equal(children[0]!.killed, true)
+  })
+})
+
+test('stop() while the health probe runs leaves no live relay behind', async () => {
+  await withFakeBun(async (bun) => {
+    let release: () => void = () => {}
+    const { supervisor, children } = makeSupervisor({
+      bunPath: bun,
+      health: () => new Promise((resolve) => { release = () => resolve({ ok: true }) }),
+    })
+    const pending = supervisor.start()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const stopping = supervisor.stop()
+    release()
+    await stopping
+    assert.equal(await pending, null)
+    assert.equal(supervisor.baseUrl, null)
+    assert.equal(children[0]!.killed, true)
+  })
+})
+
+test('a child that dies before ready is a strike, and warm() backs off', async () => {
+  await withFakeBun(async (bun) => {
+    const { supervisor, calls } = makeSupervisor({
+      bunPath: bun,
+      onSpawn: (child) => { setTimeout(() => child.emit('exit', 1, null), 1) },
+    })
+    assert.equal(await supervisor.start(), null)
+    assert.match(supervisor.status().lastError, /exited during startup/)
+    assert.equal(supervisor.status().restarts, 1, 'startup failures spend the restart budget')
+    for (let i = 0; i < 5; i += 1) supervisor.warm()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(calls.length, 1, 'warm() inside the backoff window does not respawn')
+    await new Promise((resolve) => setTimeout(resolve, 520))
+    supervisor.warm()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    assert.equal(calls.length, 2, 'after the backoff a warm() tries again')
+    await supervisor.stop()
+  })
 })
 
 test('findBun honours an explicit path and refuses a missing one', async () => {
@@ -260,4 +395,10 @@ test('isRelayTransportFailure tells the relay envelope from an upstream answer',
 
 test('the egress header keeps the spelling the relay strips', () => {
   assert.equal(EGRESS_HEADER, 'x-oc2dsh-egress')
+})
+
+test('directEgressDirective spells the three family directives the relay parses', () => {
+  assert.equal(directEgressDirective(4), 'direct;family=4')
+  assert.equal(directEgressDirective(6), 'direct;family=6')
+  assert.equal(directEgressDirective('prefer6'), 'direct;family=prefer6')
 })

@@ -13,7 +13,14 @@ const host = resolve(process.argv[2] ?? '')
 const hostRequire = createRequire(join(host, 'package.json'))
 const hostImport = async (name) => import(pathToFileURL(hostRequire.resolve(name)).href)
 const { Context, Service } = await hostImport('@deepseek-ai/cordis')
-const { SlotCore } = await hostImport('@deepseek-ai/dsh-client-ui-slots')
+const pluginRequireEarly = createRequire(new URL('../package.json', import.meta.url))
+// Hosts from 0.2.2 ship browser packages as bundles only; their slot core is
+// then taken from this checkout's dev dependency and reported as such.
+let slotsSource = 'host'
+const { SlotCore } = await hostImport('@deepseek-ai/dsh-client-ui-slots').catch(async () => {
+  slotsSource = 'plugin devDependency (host ships no dsh-client-ui-slots)'
+  return import(pathToFileURL(pluginRequireEarly.resolve('@deepseek-ai/dsh-client-ui-slots')).href)
+})
 const { default: HostSchema } = await hostImport('@deepseek-ai/schemastery')
 const { createVolatile, updateVolatile } = await hostImport('@deepseek-ai/cosmokit')
 const { LlmRuntime } = await hostImport('@deepseek-ai/dsh-llm')
@@ -190,6 +197,20 @@ try {
 }
 
 const poolContext = new Context()
+// The bridge must read the host `connection` service through a real Cordis
+// inject: no service = 403, the service's verdict otherwise (guard.ts).
+const bridgeRoutes = new Map()
+poolContext.reflect.provide('webServer', { register: (route) => { bridgeRoutes.set(route.path, route); return () => bridgeRoutes.delete(route.path) } })
+let fenceVerdict = 401
+// /models: the fake runtime below has no pool, and /status would read it.
+const callStatus = async () => {
+  const written = {}
+  await bridgeRoutes.get('/api/oc2dsh/ip-pool/models').handler(
+    { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } },
+    { writeHead(status) { written.status = status }, end() {} },
+  )
+  return written.status
+}
 const logs = { info() {}, warn() {}, error() {} }
 let disposed = false
 let starts = 0
@@ -205,8 +226,16 @@ await new Promise((done) => setImmediate(done))
 assert.equal(starts, 1)
 assert.equal(controller.settings().enabled, true)
 assert.equal(reconfigured[0].ipPool.manual[0], 'http://127.0.0.1:7897')
+await new Promise((done) => setTimeout(done, 20))
+assert.ok(bridgeRoutes.has('/api/oc2dsh/ip-pool/models'), 'the bridge mounts on the webServer service')
+assert.equal(await callStatus(), 403, 'without a connection service the bridge fails closed')
+poolContext.reflect.provide('connection', { requestRejection: () => fenceVerdict })
+await new Promise((done) => setTimeout(done, 20))
+assert.equal(await callStatus(), 401, 'an unauthenticated request gets the connection verdict')
+fenceVerdict = undefined
+assert.equal(await callStatus(), 200, 'an authenticated loopback request is served')
 await poolContext.fiber.dispose()
 assert.equal(disposed, true)
 await ctx.fiber.dispose()
 assert.equal(core.entriesOfSlot('plugins.bundle.config').length, 0)
-console.log(JSON.stringify({ host: JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')).version, client: 'ACTIVE (also without optional forms)', server: 'ACTIVE', oldClient: 'PENDING (missing settingsScope)', rowSettings: 'registered and disposed', legacyListSettings: 'registered and disposed using 0.1.7 SlotCore', adapter: 'registered', livePool: 'applied and disposed' }, null, 2))
+console.log(JSON.stringify({ host: JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')).version, client: 'ACTIVE (also without optional forms)', slots: slotsSource, bridge: 'fails closed without connection; honours its verdict', server: 'ACTIVE', oldClient: 'PENDING (missing settingsScope)', rowSettings: 'registered and disposed', legacyListSettings: 'registered and disposed using 0.1.7 SlotCore', adapter: 'registered', livePool: 'applied and disposed' }, null, 2))

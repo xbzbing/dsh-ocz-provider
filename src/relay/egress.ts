@@ -12,6 +12,18 @@
 /** Per-request egress directive, understood by `relay/oc2dsh-relay.mjs`. */
 export const EGRESS_HEADER = 'x-oc2dsh-egress'
 
+/**
+ * Address family for this machine's own egress through the relay: `4` / `6`
+ * dial that family only, `prefer6` tries every AAAA answer first and falls
+ * back to A on a connect failure.
+ */
+export type DirectEgressFamily = 4 | 6 | 'prefer6'
+
+/** The {@link EGRESS_HEADER} value for a direct request on one family. */
+export function directEgressDirective(family: DirectEgressFamily): string {
+  return `direct;family=${family}`
+}
+
 /** One exit chosen for one request. */
 export interface RelayEgressPick {
   /** Proxy URL for the relay: `http://h:p` or `socks5://h:p` (bridge-side). */
