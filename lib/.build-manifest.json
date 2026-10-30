@@ -53,7 +53,7 @@
     "src/relay/egress.ts": "07b599b85cea3e610ead4dc681247dcbdb4edf39",
     "src/relay/supervisor.ts": "564c30ff3287415c3ba339e7f751d5baf3288f80",
     "src/request-headers.ts": "c9d118795991ca09962225cad0ee1826541c0159",
-    "tsdown.client.config.ts": "95892707cccd9583b8fbed7cd699284dde6a1a24",
+    "tsdown.client.config.ts": "e46f94c0cc68dbbb0b102187dbc3a9e0aca71362",
     "tsdown.config.ts": "8a7ab511162178da30b1446cf9369c2cf2f7f90b"
   }
 }

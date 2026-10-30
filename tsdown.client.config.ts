@@ -9,11 +9,15 @@
  */
 import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { basename, dirname, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, relative, resolve as resolvePath, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { transform } from 'lightningcss'
 import type { UserConfig } from 'tsdown'
 
 const ID = 'dsh-opencode2free-provider'
+
+/** Repo root: CSS module ids and class hashes are relative to it, so the bundle does not depend on the checkout path. */
+const ROOT = dirname(fileURLToPath(import.meta.url))
 
 /**
  * Browser platform modules the shell seeds into the frozen module table
@@ -75,15 +79,16 @@ const config: UserConfig = {
     resolveId(source: string, importer: string | undefined) {
       if (!source.endsWith('.module.css')) return null
       const abs = importer !== undefined ? sourceAssetPath(source, importer) : source
-      return CSS_VIRTUAL_PREFIX + abs + CSS_VIRTUAL_SUFFIX
+      return CSS_VIRTUAL_PREFIX + relative(ROOT, abs).split(sep).join('/') + CSS_VIRTUAL_SUFFIX
     },
     async load(virtualId: string) {
       if (!virtualId.startsWith(CSS_VIRTUAL_PREFIX)) return null
-      const fileId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+      const relId = virtualId.slice(CSS_VIRTUAL_PREFIX.length, -CSS_VIRTUAL_SUFFIX.length)
+      const fileId = resolvePath(ROOT, relId)
       this.addWatchFile(fileId)
       const source = await readFile(fileId)
       const { code, exports: cssExports } = transform({
-        filename: fileId,
+        filename: relId,
         code: source,
         cssModules: { pattern: '[hash]_[local]' },
         minify: true,
