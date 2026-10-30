@@ -109,19 +109,26 @@ export class Onboarder {
     return this.#reserve.length
   }
 
+  /** Every listener address the last run produced (selected and reserve). */
+  get addresses(): string[] {
+    return [...this.#candidates.keys()]
+  }
+
   /**
    * One onboarding round over a freshly converted candidate list.
    *
    * Called from the subscription refresh, after the full conversion produced
-   * every candidate's own local port.
+   * every candidate's own local port. `inherited` carries the addresses a
+   * previous onboarder produced, so a refresh that builds a new onboarder
+   * still prunes the ports the old conversion retired.
    */
-  async run(exits: ConvertedExit[]): Promise<OnboardResult> {
+  async run(exits: ConvertedExit[], inherited: Iterable<string> = []): Promise<OnboardResult> {
     const { pool, prober, admission, logger } = this.#deps
     // The addresses the PREVIOUS conversion produced, and the ones this one
     // serves. sing-box assigns one local port per node INDEX, so a refresh that
     // reorders or shrinks the subscription retires ports — and the pool would
     // keep dialling the retired ones (see #pruneVanished).
-    const previous = new Set(this.#candidates.keys())
+    const previous = new Set([...this.#candidates.keys(), ...inherited])
     const current = new Set(exits.map((exit) => exit.address))
     this.#candidates = new Map()
     this.#selected = new Set()

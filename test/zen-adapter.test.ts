@@ -796,3 +796,61 @@ test('both doors refusing surfaces one error that names both', async () => {
   // No exit rotation happened, so the story must not claim one.
   assert.equal(/轮换 \d+ 次/.test(message), false)
 })
+
+/**
+ * The relay answers its own 502 `relay_error` when the connect never produced
+ * a status (a pool listener gone, a refused port). That is a transport cut on
+ * the exit it picked, not an upstream 5xx: graded as 5xx the pool never strikes
+ * the row, and the same dead port is picked for every retry.
+ */
+test('a relay_error settles the picked exit as a transport cut, on one origin', async () => {
+  const { setRelayEgressSeams } = await import('../src/relay/egress.ts')
+  const settled: Array<{ exitId: string; status?: number; transport?: boolean }> = []
+  setRelayEgressSeams({
+    pick: () => ({ url: 'socks5://127.0.0.1:30042', exitId: '127.0.0.1:30042', model: 'big-pickle', session: 's' }),
+    settle: (pick, outcome) => settled.push({ exitId: pick.exitId, ...outcome }),
+  })
+  const seen: string[] = []
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }
+  const provider = {
+    streamSimple(model: { baseUrl: string }): AsyncIterable<unknown> {
+      seen.push(model.baseUrl)
+      return (async function* () {
+        yield {
+          type: 'error',
+          error: {
+            api: 'openai-completions', provider: 'oc2dsh', model: 'big-pickle', content: [], usage, stopReason: 'error',
+            errorMessage: '502: {"type":"relay_error","message":"ECONNREFUSED: Unable to connect. Is the computer able to access the url?"}',
+          },
+        }
+      })()
+    },
+  }
+  try {
+    const adapter = new ZenAdapter(
+      {
+        list: () => ['big-pickle'],
+        decision: () => ({ allowed: true, source: 'test', known: true }),
+        reasoningCapability: () => undefined,
+      },
+      {
+        zenBaseUrl: 'https://primary.test',
+        fallbackBaseUrl: 'https://fallback.test',
+        providerOverride: provider,
+        relay: { baseUrlFor: () => 'http://127.0.0.1:1', warm: () => {} },
+      } as never,
+    )
+    for await (const _chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] } as never)) {
+      // drain
+    }
+  } finally {
+    setRelayEgressSeams(null)
+  }
+  assert.ok(settled.length > 0, 'the picked exit was graded')
+  for (const outcome of settled) {
+    assert.equal(outcome.transport, true, 'graded as a transport cut')
+    assert.equal(outcome.status, undefined, 'never as an upstream 502')
+  }
+  assert.equal(seen.length, settled.length, 'one grade per attempt')
+  assert.equal(seen.length, 1, 'no origin switch: the connect never reached a door')
+})

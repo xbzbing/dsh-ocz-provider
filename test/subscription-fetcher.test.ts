@@ -349,3 +349,31 @@ test('a swap refused by the rebuild lock runs once the lock frees', async () => 
 
   fetcher.stop()
 })
+
+test('a refresh that shrinks the conversion drops the rows whose port it retired', async () => {
+  // Every refresh builds a NEW onboarder, so the retired-port prune only works
+  // when the previous round's addresses are handed over. Without it a row on
+  // a port sing-box no longer serves stays pickable and every request through
+  // it dies at CONNECT (ECONNREFUSED).
+  let body = TWO_ENCRYPTED
+  const { pool, fetcher } = makeFetcher((async () => new Response(body)) as unknown as typeof fetch)
+  fetcher.setUrls(['https://sub.example.com/x'])
+  fetcher.setSupervisor({
+    reload: async (nodes, keep) => {
+      const slots = keep ?? nodes.map((_, index) => index)
+      // Distinct address lengths: the seam's echo IP derives from the length.
+      return slots.map((index) => ({ address: index === 0 ? '127.0.0.1:30001' : '127.0.0.1:300001', protocol: 'socks5' as const, node: nodes[index]!, slot: index }))
+    },
+    stop: async () => {},
+    running: true,
+  })
+
+  await fetcher.refresh()
+  assert.ok(pool.has('127.0.0.1:30001') && pool.has('127.0.0.1:300001'), 'both converted exits are online')
+
+  body = TWO_ENCRYPTED.split('\n').slice(0, 6).join('\n')
+  await fetcher.refresh()
+  assert.ok(pool.has('127.0.0.1:30001'), 'the port the new conversion still serves stays')
+  assert.equal(pool.has('127.0.0.1:300001'), false, 'the retired port left the pool')
+  fetcher.stop()
+})

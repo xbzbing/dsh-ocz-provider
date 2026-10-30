@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { DEFAULT_RELAY_UPSTREAM, RelaySupervisor, defaultRelayScript, findBun } from '../src/relay/supervisor.ts'
-import { EGRESS_HEADER, hasRelayEgress, pickRelayEgress, setRelayEgressSeams, settleRelayEgress, statusOfFailure } from '../src/relay/egress.ts'
+import { EGRESS_HEADER, hasRelayEgress, isRelayTransportFailure, pickRelayEgress, setRelayEgressSeams, settleRelayEgress, statusOfFailure } from '../src/relay/egress.ts'
 
 /**
  * The relay is the connection-stack half of the free-lane gate, which no
@@ -250,6 +250,12 @@ test('statusOfFailure reads the status pi-ai folds into an error message', () =>
   assert.equal(statusOfFailure('403 FreeTierError: free tier can only be used from within OpenCode'), 403)
   assert.equal(statusOfFailure('fetch failed'), undefined)
   assert.equal(statusOfFailure('stream ended without finish_reason'), undefined)
+})
+
+test('isRelayTransportFailure tells the relay envelope from an upstream answer', () => {
+  assert.equal(isRelayTransportFailure('502: {"type":"relay_error","message":"ECONNREFUSED: Unable to connect. Is the computer able to access the url?"}'), true)
+  assert.equal(isRelayTransportFailure('502: Bad Gateway'), false)
+  assert.equal(isRelayTransportFailure('429 FreeUsageLimitError: quota'), false)
 })
 
 test('the egress header keeps the spelling the relay strips', () => {

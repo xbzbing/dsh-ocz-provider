@@ -86,3 +86,11 @@ export function statusOfFailure(message: string): number | undefined {
   const match = /\b([1-5]\d{2})\b/.exec(message)
   return match === null ? undefined : Number(match[1])
 }
+
+/**
+ * True when the failure is the relay's own envelope: its upstream fetch threw
+ * before any status existed, so the 502 in front is packaging, not an answer.
+ */
+export function isRelayTransportFailure(message: string): boolean {
+  return /\brelay_error\b/.test(message)
+}

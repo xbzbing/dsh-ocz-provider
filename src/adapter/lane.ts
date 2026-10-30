@@ -77,6 +77,8 @@ export function isOriginFailure(errorMessage: string): boolean {
   // RegionError is exit-shaped (pool/rotate.ts isRegionBlocked): the door is
   // fine, this exit's country is not — rotating the exit is the cure.
   if (/regionerror|not available in your country/.test(text)) return false
+  // The relay's own 502 envelope: the connection never reached a door.
+  if (/\brelay_error\b/.test(text)) return false
   if (/\b(?:401|403|404)\b/.test(text)) return true
   if (/free tiererror|free tier can only be used from within opencode/.test(text)) return true
   return /\b5\d\d\b|internal server error|server error|bad gateway|service unavailable/.test(text)

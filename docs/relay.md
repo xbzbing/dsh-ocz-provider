@@ -62,6 +62,11 @@
 - `statusOfFailure()` 用与 `PoolRoutingDispatcher.#observe` 同一张表
   （2xx / 429 = 出口正常，5xx / 传输错误 = 出口故障——pi-ai 只在 `errorMessage`
   文本里给出状态码），出口健康与用量归属在中继化之后仍然成立。
+- **中继自己的 502 不是上游状态**：`{"type":"relay_error"}` 只在中继的上游 fetch 抛错、
+  根本没有状态码时出现（端口没监听、连接被拒、握手超时）。`isRelayTransportFailure()`
+  识别它，适配器按**传输中断**结算（交给 `pool/transport.ts`，能把死端口一次判 dead），
+  而不是按 5xx 进 dead 桶（被动 5xx 从不判死，死端口会一直被选中）；`lane.ts`
+  `isOriginFailure()` 也不再为它换 origin——连接没到达任何一扇门。
 - **fail-closed**：池子无法承载请求且「本地出口兜底」关闭时，向调用方报 fail，
   而不是静默改走本机（与 `pool/dispatcher.ts` `#failClosed` 一致——该开关管的是中继流量）。
 

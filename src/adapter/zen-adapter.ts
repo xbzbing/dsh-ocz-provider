@@ -14,7 +14,7 @@ export { apiForModel, isResponsesModel } from './routing.ts'
 import { routingContext, type RoutingContext } from '../pool/dispatcher.ts'
 import { classifyStreamFailure, isIpReputationRefusal, isRegionBlocked, shouldRotate } from '../pool/rotate.ts'
 import { attributeUsage, LOCAL_EXIT_ID } from '../pool/usage.ts'
-import { EGRESS_HEADER, hasRelayEgress, pickRelayEgress, settleRelayEgress, statusOfFailure, type RelayEgressPick } from '../relay/egress.ts'
+import { EGRESS_HEADER, hasRelayEgress, isRelayTransportFailure, pickRelayEgress, settleRelayEgress, statusOfFailure, type RelayEgressPick } from '../relay/egress.ts'
 import type { RelaySupervisor } from '../relay/supervisor.ts'
 
 /**
@@ -817,8 +817,9 @@ export class ZenAdapter {
       // Grade the exit the relay used with the same verdict table the
       // dispatcher applies to a real status code: a named status rides
       // through (429 -> limited, 403 -> ok-but-refused, 5xx -> degraded), and a
-      // failure that named no status was a transport cut.
-      const failureStatus = statusOfFailure(failureMessage)
+      // failure that named no status was a transport cut. The relay's own 502
+      // envelope is a cut too: no upstream status ever existed.
+      const failureStatus = isRelayTransportFailure(failureMessage) ? undefined : statusOfFailure(failureMessage)
       settleRelayEgress(
         attemptStart.meta.egress,
         failureStatus !== undefined ? { status: failureStatus } : { transport: failure === 'transport' },

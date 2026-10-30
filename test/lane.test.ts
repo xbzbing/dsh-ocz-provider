@@ -48,6 +48,8 @@ test('origin-shaped failures fail over; exit-shaped ones keep to the pool', () =
     'stream ended before any content',
     // the door is fine; this exit's country is not (pool/rotate.ts isRegionBlocked)
     'OpenAI API error (403): {"type":"RegionError","message":"This model is not available in your country."}',
+    // the relay's own envelope: its connect never reached either door
+    '502: {"type":"relay_error","message":"ECONNREFUSED: Unable to connect. Is the computer able to access the url?"}',
   ]) {
     assert.equal(isOriginFailure(message), false, message)
   }

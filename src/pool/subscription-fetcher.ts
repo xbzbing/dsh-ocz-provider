@@ -364,6 +364,9 @@ export class SubscriptionFetcher {
           const exits = await supervisor.reload(pending)
           // Keep the speed-pass facts per address so a later swap can be
           // admitted from them without probing (the onboarder holds that state).
+          // The old onboarder's addresses ride along so the new round can prune
+          // the ports this conversion retired.
+          const inherited = this.#onboarder?.addresses ?? []
           const onboarder = new Onboarder({
             pool: this.#deps.pool,
             prober: this.#deps.prober,
@@ -372,7 +375,7 @@ export class SubscriptionFetcher {
             logger: this.#logger,
           })
           this.#onboarder = onboarder
-          const outcome = await onboarder.run(exits)
+          const outcome = await onboarder.run(exits, inherited)
           this.#state.convertedAdmitted = outcome.admitted
           // The conversion ran: nothing is parked any more — every screened
           // candidate is either in the pool or held as reserve (unmeasured
