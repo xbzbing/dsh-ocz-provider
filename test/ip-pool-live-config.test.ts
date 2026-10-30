@@ -189,6 +189,22 @@ test('relay transport failure never relabels a row that has measured facts', asy
   await runtime.dispose()
 })
 
+test('relay traffic egressing from this machine carries the 本机出口协议族 directive', async () => {
+  const runtime = await startIpPool(
+    { ipPool: { enabled: true, pinnedExitId: 'local', localIpFamily: 'ipv4' } },
+    quiet,
+    { makeInstaller: () => fakeInstaller() },
+  )
+  assert.ok(runtime !== null)
+  try {
+    assert.deepEqual(pickRelayEgress({ model: 'mimo-v2.6-flash-free', session: 'ses_abc' }), { directive: 'direct;family=4' })
+    await runtime.reconfigure({ ipPool: { enabled: true, pinnedExitId: 'local', localIpFamily: 'ipv6' } })
+    assert.deepEqual(pickRelayEgress({ model: 'mimo-v2.6-flash-free', session: 'ses_abc' }), { directive: 'direct;family=6' })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 // -- assembly wiring -----------------------------------------------------------
 
 test('assembly: an empty pool still installs the dispatcher (本地出口兜底 decides what a miss means)', async () => {

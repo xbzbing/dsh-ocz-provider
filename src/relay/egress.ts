@@ -48,8 +48,17 @@ export interface RelayEgressFail {
   fail: string
 }
 
-/** null = send direct (no pool, or the pool is not in this request's scope). */
-export type RelayEgressDecision = RelayEgressPick | RelayEgressFail | null
+/**
+ * The pool sends this request from this machine (固定本机, or 本地出口兜底 after
+ * a miss) on the 本机出口协议族 the settings chose: `directive` is the
+ * {@link EGRESS_HEADER} value. Nothing is settled: no exit carried it.
+ */
+export interface RelayEgressDirect {
+  directive: string
+}
+
+/** null = send direct with the relay's default address selection. */
+export type RelayEgressDecision = RelayEgressPick | RelayEgressFail | RelayEgressDirect | null
 
 /** What the relay request ended as. */
 export interface RelayOutcome {

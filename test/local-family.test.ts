@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_LOCAL_IP_FAMILY,
   localEgressConnectOptions,
+  relayDirectFamily,
   resolveLocalIpFamily,
   hasIpv6Address,
   ipv6FirstLookup,
@@ -80,6 +81,14 @@ test('the explicit positions pin the family; auto only reorders the answers', ()
   // auto without IPv6: no opinion at all — Node's own order (IPv4 first here).
   assert.deepEqual(localEgressConnectOptions('auto', IPV4_ONLY), {})
   assert.deepEqual(localEgressConnectOptions('auto', LINK_LOCAL_ONLY), {})
+})
+
+test('relay direct traffic gets the same family choice as the local agent', () => {
+  assert.equal(relayDirectFamily('ipv4', GLOBAL_V6), 4)
+  assert.equal(relayDirectFamily('ipv6', IPV4_ONLY), 6)
+  assert.equal(relayDirectFamily('auto', GLOBAL_V6), 'prefer6', 'auto keeps the IPv4 fallback')
+  assert.equal(relayDirectFamily('auto', IPV4_ONLY), null, 'no IPv6 = the relay keeps its own order')
+  assert.equal(relayDirectFamily('auto', LINK_LOCAL_ONLY), null)
 })
 
 /** Run the lookup and hand back its arguments (the resolver is IO-bound). */

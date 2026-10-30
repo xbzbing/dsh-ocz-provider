@@ -618,8 +618,9 @@ export class ZenAdapter {
     // pinning, stickiness and two-tier health still decide, and the answer
     // travels to the relay in a header it strips before forwarding.
     const decision = viaRelay && hasRelayEgress() ? pickRelayEgress({ model: options.model, session: ids.session }) : null
-    const egress: RelayEgressPick | null = decision !== null && !('fail' in decision) ? decision : null
+    const egress: RelayEgressPick | null = decision !== null && 'exitId' in decision ? decision : null
     const refusal: string | null = decision !== null && 'fail' in decision ? decision.fail : null
+    const directive: string | null = decision !== null && 'directive' in decision ? decision.directive : null
     const meta: AttemptMeta = { egress, viaRelay, fail: refusal }
     if (refusal !== null) {
       // 本地出口兜底 is off and the pool has nothing: refuse to egress (the
@@ -634,6 +635,7 @@ export class ZenAdapter {
     const target = { ...model, baseUrl: targetBase }
     const headers = disguiseHeaders(ids)
     if (meta.egress !== null) headers[EGRESS_HEADER] = meta.egress.url
+    else if (directive !== null) headers[EGRESS_HEADER] = directive
     return {
       meta,
       stream: provider.streamSimple(target, context as unknown as Context, {

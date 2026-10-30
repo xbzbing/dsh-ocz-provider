@@ -11,7 +11,8 @@
  * broken IPv6 path still reaches IPv4. `ipv4` and `ipv6` pin the family
  * outright, for operators who know their line.
  *
- * Scope: only the LOCAL egress agent. Exit traffic is unaffected (a ProxyAgent
+ * Scope: only the LOCAL egress (this agent, and the relay's direct requests
+ * via {@link relayDirectFamily}). Exit traffic is unaffected (a ProxyAgent
  * dials 127.0.0.1 and the family decision belongs to the far side), and so is
  * the router's plain `#direct` path, which carries loopback, out-of-pool hosts
  * and other lanes — a process-wide family flip is not this setting's job.
@@ -153,4 +154,17 @@ export function localEgressConnectOptions(
   if (family === 'ipv4') return { family: 4 }
   if (family === 'ipv6') return { family: 6 }
   return hasIpv6Address(listInterfaces) ? { lookup: ipv6FirstLookup } : {}
+}
+
+/**
+ * The same choice for traffic the Bun relay sends from this machine
+ * (src/relay/egress.ts `directEgressDirective`): null = the relay's own order.
+ */
+export function relayDirectFamily(
+  family: LocalIpFamily = DEFAULT_LOCAL_IP_FAMILY,
+  listInterfaces: InterfaceReader = networkInterfaces as InterfaceReader,
+): 4 | 6 | 'prefer6' | null {
+  if (family === 'ipv4') return 4
+  if (family === 'ipv6') return 6
+  return hasIpv6Address(listInterfaces) ? 'prefer6' : null
 }

@@ -889,3 +889,48 @@ test('a stream that closes without done/error finishes as a retryable TRANSPORT 
     assert.equal(finish?.failure?.message, 'Stream ended without finish_reason')
   }
 })
+
+test('a local-egress decision travels to the relay as a direct directive, settling nothing', async () => {
+  const { setRelayEgressSeams } = await import('../src/relay/egress.ts')
+  const settled: string[] = []
+  setRelayEgressSeams({
+    pick: () => ({ directive: 'direct;family=6' }),
+    settle: (pick) => settled.push(pick.exitId),
+  })
+  const headers: Array<string | undefined> = []
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }
+  const provider = {
+    streamSimple(_model: unknown, _context: unknown, options: { headers: Record<string, string> }): AsyncIterable<unknown> {
+      headers.push(options.headers['x-oc2dsh-egress'])
+      return (async function* () {
+        yield { type: 'text_delta', contentIndex: 0, delta: 'ok', partial: {} }
+        yield {
+          type: 'done',
+          reason: 'stop',
+          message: { api: 'openai-completions', provider: 'oc2dsh', model: 'big-pickle', content: [{ type: 'text', text: 'ok' }], usage, stopReason: 'stop' },
+        }
+      })()
+    },
+  }
+  try {
+    const adapter = new ZenAdapter(
+      {
+        list: () => ['big-pickle'],
+        decision: () => ({ allowed: true, source: 'test', known: true }),
+        reasoningCapability: () => undefined,
+      },
+      {
+        zenBaseUrl: 'https://primary.test',
+        providerOverride: provider,
+        relay: { baseUrlFor: () => 'http://127.0.0.1:1', warm: () => {} },
+      } as never,
+    )
+    for await (const _chunk of adapter.stream({ provider: 'oc2dsh', model: 'big-pickle', messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }] } as never)) {
+      // drain
+    }
+  } finally {
+    setRelayEgressSeams(null)
+  }
+  assert.deepEqual(headers, ['direct;family=6'])
+  assert.deepEqual(settled, [], 'no exit carried it, so nothing is graded')
+})

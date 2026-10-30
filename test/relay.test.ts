@@ -370,8 +370,8 @@ test('egress seams are inert without a pool and complete with one', () => {
   try {
     assert.equal(hasRelayEgress(), true)
     const pick = pickRelayEgress({ model: 'm', session: 's' })
-    assert.equal(pick !== null && !('fail' in pick) ? pick.exitId : null, '127.0.0.1:30033')
-    settleRelayEgress(pick !== null && !('fail' in pick) ? pick : null, { status: 429 })
+    assert.equal(pick !== null && 'exitId' in pick ? pick.exitId : null, '127.0.0.1:30033')
+    settleRelayEgress(pick !== null && 'exitId' in pick ? pick : null, { status: 429 })
     settleRelayEgress(null, { status: 200 })
     assert.deepEqual(settled, [{ exitId: '127.0.0.1:30033', status: 429 }], 'a null pick settles nothing')
   } finally {

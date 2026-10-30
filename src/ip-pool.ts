@@ -18,10 +18,10 @@ import { LOCAL_EXIT_ID } from './pool/usage.ts'
 import { NO_EXIT_MESSAGE, exitProxyUri, type UndiciSeam } from './pool/dispatcher.ts'
 import { mayEgressLocally, settleStatus, settleTransport } from './pool/outcome.ts'
 import { parseManualProxy } from './proxy-entry.ts'
-import { setRelayEgressSeams } from './relay/egress.ts'
+import { directEgressDirective, setRelayEgressSeams, type RelayEgressDecision } from './relay/egress.ts'
 import { detectProxyProtocol, type ProxyProtocol } from './pool/protocol.ts'
 import { TransportVerdicts } from './pool/transport.ts'
-import { resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts'
+import { relayDirectFamily, resolveLocalIpFamily, type LocalIpFamily } from './pool/local-family.ts'
 import type { AdmissionDeps, AdmissionResult } from './pool/admission.ts'
 import type { InstallerDeps } from './pool/installer.ts'
 import { Prober } from './pool/prober.ts'
@@ -350,6 +350,9 @@ export async function startIpPool(
     return subscriptions
   }
 
+  /** What relay traffic carries when this machine egresses (本机出口协议族). */
+  let localDecision: RelayEgressDecision = null
+
   /** Apply the config to the live objects (initial start + reconfigure). */
   const applyConfig = (): void => {
     const current = config.ipPool ?? {}
@@ -371,6 +374,8 @@ export async function startIpPool(
     // 本机出口协议族 is the same kind of policy: it decides which family the
     // local-egress socket dials with, live, without touching the exit table.
     installer.setLocalIpFamily?.(resolveLocalIpFamily(current.localIpFamily))
+    const relayFamily = relayDirectFamily(resolveLocalIpFamily(current.localIpFamily))
+    localDecision = relayFamily === null ? null : { directive: directEgressDirective(relayFamily) }
 
     // Subscription layer: (re)create on URL change, keep the fetcher across
     // refresh-interval edits.
@@ -585,7 +590,7 @@ export async function startIpPool(
       const exitId = pool.pick(session, model)
       const exit = exitId === null ? undefined : pool.get(exitId)
       if (exitId === null || exit === undefined) {
-        return mayEgressLocally(pool, config.ipPool?.localFallback === true) ? null : { fail: NO_EXIT_MESSAGE }
+        return mayEgressLocally(pool, config.ipPool?.localFallback === true) ? localDecision : { fail: NO_EXIT_MESSAGE }
       }
       // The pin is serving again: re-arm the warning for the NEXT outage.
       pinSkips.delete(exitId)
