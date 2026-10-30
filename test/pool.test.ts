@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { ABUSIVE_COOLDOWN_MS, ExitPool, gradeOf, type ExitNode } from '../src/pool/pool.ts'
+import { Prober } from '../src/pool/prober.ts'
 
 let clock = 1_000_000
 const now = () => clock
@@ -157,7 +158,7 @@ test('pick: session stickiness keeps one conversation on one exit (3.3)', () => 
 test('pick: null when everything is unusable (direct fallback decision, 3.3)', () => {
   const p = pool()
   p.add(node({ id: 'a:1' }))
-  p.markDead('a:1')
+  p.markDeadStrike('a:1')
   assert.equal(p.pick('ses', 'm'), null)
 })
 
@@ -231,15 +232,6 @@ test('rerouteSession drops the sticky exit (degraded exit loses the session)', (
   assert.notEqual(p.pick('ses', 'm'), 'a:1' === first ? first : first)
 })
 
-test('markStreamFailure counts passive buckets (mid-flight §3.4)', () => {
-  const p = pool()
-  p.add(node({ id: 'e:1', source: 'manual', exitIP: '9.9.9.9' }))
-  p.markStreamFailure('e:1', '429')
-  p.markStreamFailure('e:1', 'model', 'muse')
-  assert.equal(p.passiveStats('e:1').limited, 1)
-  assert.equal(p.passiveStats('e:1').refused, 1)
-})
-
 test('markDeadStrike stamps deadAt and markOk clears it (revival bookkeeping)', () => {
   const p = pool()
   p.add(node({ id: 'd:1', source: 'manual', exitIP: '7.7.7.7' }))
@@ -281,7 +273,7 @@ test('markUnverified: keeps the node, drops the ok claim, and yields to verified
   for (let i = 0; i < 16; i += 1) {
     assert.equal(p.pick(`ses-${i}`, 'm'), 'sub:2', 'verified exits are picked first')
   }
-  p.markDead('sub:2')
+  p.markDeadStrike('sub:2')
   assert.equal(p.pick('ses-last', 'm'), 'sub:1', 'unverified is still a last resort')
 
   // A real transport failure still strikes it dead (it is not protected).
@@ -436,8 +428,8 @@ test('a dead exit moves to the end of the pool order, once per transition', () =
   assert.deepEqual(deaths, ['a:1'], 'one transition, one rotation request')
   assert.deepEqual(p.list().map((entry) => entry.id), ['b:2', 'c:3', 'a:1'])
 
-  // markDead() (the disable-without-dropping path) reports the same way.
-  p.markDead('b:2')
+  // a second strike path reports the same way.
+  p.markDeadStrike('b:2')
   assert.deepEqual(deaths, ['a:1', 'b:2'])
   assert.deepEqual(p.list().map((entry) => entry.id), ['c:3', 'a:1', 'b:2'])
 })
@@ -602,7 +594,7 @@ test('pick records the sticky binding on the pin path too', () => {
   p.pin('sub:1')
   assert.equal(p.pick('ses-A', 'm'), 'sub:1')
   assert.equal(p.exitOfSession('ses-A'), 'sub:1', 'the verdict knows which exit answered')
-  p.breakStickySession('ses-A')
+  p.rerouteSession('ses-A')
   assert.equal(p.exitOfSession('ses-A'), null)
 })
 
@@ -687,7 +679,7 @@ test('pick reports a pin skipped in favour of the session\'s sticky exit', () =>
   p.add(node({ id: 'pin:1', source: 'manual', exitIP: '' }))
   p.add(node({ id: 'sticky:1', source: 'manual', exitIP: '3.3.3.3' }))
   p.pin('pin:1')
-  p.breakStickySession('ses-1')
+  p.rerouteSession('ses-1')
   p.markDeadStrike('pin:1')
   // Learn the sticky exit through a plain pick, then pin again.
   const first = p.pick('ses-1', 'm')
@@ -696,4 +688,71 @@ test('pick reports a pin skipped in favour of the session\'s sticky exit', () =>
   p.onPinnedSkip((pinned, used) => { skips.push([pinned, used]) })
   assert.equal(p.pick('ses-1', 'm'), 'sticky:1')
   assert.deepEqual(skips, [['pin:1', 'sticky:1']])
+})
+
+test('evictWorst never evicts pinned or manual rows', () => {
+  const p = pool()
+  p.add(node({ id: 'm:1', source: 'manual', exitIP: '1.1.1.1', quality: 'C', latencyMs: 9000 }))
+  p.add(node({ id: 'pin:2', source: 'subscription', exitIP: '2.2.2.2', quality: 'C', latencyMs: 8000 }))
+  p.add(node({ id: 's:3', source: 'subscription', exitIP: '3.3.3.3', quality: 'S', latencyMs: 100 }))
+  p.pin('pin:2')
+  assert.equal(p.evictWorst(), 's:3', 'the only evictable row goes, however good it is')
+  assert.equal(p.evictWorst(), null, 'manual and pinned rows stay')
+  assert.ok(p.has('m:1') && p.has('pin:2'))
+})
+
+test('evictWorst(than) evicts only a row that ranks below the candidate', () => {
+  const p = pool()
+  p.add(node({ id: 's:1', source: 'subscription', exitIP: '1.1.1.1', quality: 'A', latencyMs: 700 }))
+  assert.equal(p.evictWorst({ quality: 'B', latencyMs: 1500 }), null, 'a slower candidate does not displace a faster row')
+  assert.equal(p.evictWorst({ quality: 'A', latencyMs: 700 }), null, 'a tie keeps the incumbent')
+  assert.equal(p.evictWorst({ quality: 'S', latencyMs: 200 }), 's:1')
+})
+
+test('health marks never touch the probe lock; only take/release do', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  assert.equal(p.takeProbeLock('a:1'), true)
+  p.markDeadStrike('a:1')
+  p.markUnverified('a:1')
+  assert.equal(p.takeProbeLock('a:1'), false, 'a strike mid-probe keeps the lock held')
+  p.releaseProbeLock('a:1')
+  assert.equal(p.takeProbeLock('a:1'), true)
+})
+
+test('list() hands out copies: a caller cannot write the pool state', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.markOk('a:1', 'm')
+  const row = p.list()[0]!
+  row.health.state = 'dead'
+  row.health.cooldownUntil = Number.MAX_SAFE_INTEGER
+  row.bans[0]!.ban.state = 'banned'
+  assert.equal(p.isUsable('a:1', 'm'), true)
+  assert.equal(p.list()[0]!.health.state, 'ok')
+})
+
+test('session bindings stay bounded: the least recently bound session is forgotten', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  p.pick('first', 'm')
+  for (let i = 0; i < 2_000; i += 1) p.pick(`s-${i}`, 'm')
+  assert.equal(p.exitOfSession('first'), null)
+  assert.equal(p.exitOfSession('s-1999'), 'a:1')
+})
+
+test('prober: a candidate admitted mid-task never has a lock released that it did not take', async () => {
+  const pool = new ExitPool()
+  const prober = new Prober({ pool, maxConcurrentProbes: 2 })
+  let admitted = false
+  await prober.enqueue({
+    exitId: 'new:1',
+    kind: 'screen',
+    run: async () => {
+      pool.add({ id: 'new:1', protocol: 'http', source: 'subscription', pinned: false, exitIP: '', exitLocation: '', latencyMs: 0, quality: 'C', addedAt: 0 })
+      admitted = pool.takeProbeLock('new:1')
+    },
+  })
+  assert.equal(admitted, true)
+  assert.equal(pool.takeProbeLock('new:1'), false, 'the lock taken inside the task is still held')
 })

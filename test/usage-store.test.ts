@@ -238,3 +238,61 @@ test('localDay keys by the local calendar, not UTC', () => {
   const shanghaiMorning = new Date('2026-10-14T07:00:00+08:00').getTime()
   assert.equal(localDay(shanghaiMorning), '2026-10-14')
 })
+
+test('a corrupt or unknown-version ledger is renamed aside before a fresh one is written', async () => {
+  const { readdirSync } = await import('node:fs')
+  for (const content of ['{ this is not json', JSON.stringify({ version: 2, totals: { requests: 99 } })]) {
+    const { dir, path } = tempPath()
+    try {
+      writeFileSync(path, content, 'utf8')
+      const store = new UsageStore({ path, flushMs: 0, now: () => 1_700_000_000_000 })
+      store.record('a:1', usage(1, 1))
+      await store.flush()
+      assert.equal(readFileSync(join(dir, 'usage.json.corrupt-1700000000000'), 'utf8'), content, 'the bad file is kept for inspection')
+      assert.equal(JSON.parse(readFileSync(path, 'utf8')).totals.requests, 1)
+      assert.deepEqual(readdirSync(dir).filter((name) => name.endsWith('.tmp')), [], 'no temp file left behind')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+})
+
+test('two processes sharing one ledger keep each other\'s counters', async () => {
+  const { dir, path } = tempPath()
+  try {
+    const first = new UsageStore({ path, flushMs: 0 })
+    const second = new UsageStore({ path, flushMs: 0 })
+    first.record('a:1', usage(10, 0), { session: 'ses_a', label: 'from first' })
+    second.record('b:2', usage(0, 5), { session: 'ses_b', label: 'from second' })
+    await first.flush()
+    await second.flush()
+    first.record('a:1', usage(1, 0), { session: 'ses_a' })
+    await first.flush()
+    const document = JSON.parse(readFileSync(path, 'utf8'))
+    assert.equal(document.totals.requests, 3, 'no flush erased the other one')
+    assert.equal(document.totals.inputTokens, 11)
+    assert.equal(document.totals.outputTokens, 5)
+    assert.equal(document.exits['a:1'].totals.requests, 2)
+    assert.equal(document.exits['b:2'].totals.requests, 1)
+    assert.deepEqual(Object.keys(document.sessions).sort(), ['ses_a', 'ses_b'])
+    assert.equal(first.totals().requests, 3, 'the reader sees the merged ledger too')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('clear() writes the empty ledger even when another process wrote meanwhile', async () => {
+  const { dir, path } = tempPath()
+  try {
+    const store = new UsageStore({ path, flushMs: 0 })
+    store.record('a:1', usage(1, 1))
+    await store.flush()
+    const other = new UsageStore({ path, flushMs: 0 })
+    other.record('b:2', usage(1, 1))
+    await other.flush()
+    await store.clear()
+    assert.equal(JSON.parse(readFileSync(path, 'utf8')).totals.requests, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -7,11 +7,11 @@
  * milliseconds with `502 relay_error ECONNRESET`, and the pool sees only
  * "transport" — so it keeps re-picking the row (AGENTS.md, egress row hygiene).
  *
- * The two probes are protocol-level and never reach the upstream: a SOCKS5
- * greeting (`05 01 00`) and an HTTP CONNECT to a reserved-by-RFC5737 address
- * (nothing is dialled — only the proxy's own reply is read). Both are one
- * connect + one short read, and a refused port answers immediately, so this is
- * cheap enough to run on a pin click and after a transport failure.
+ * The probes are protocol-level and never reach the upstream: a SOCKS5
+ * greeting (`05 01 00`), then an origin-form HTTP request and an HTTP CONNECT
+ * to a reserved-by-RFC5737 address (only the proxy's own reply is read). Each
+ * is one connect + one short read, and a refused port answers immediately, so
+ * this is cheap enough to run on a pin click and after a transport failure.
  */
 
 import net from 'node:net'
@@ -64,14 +64,21 @@ function probeSocks(endpoint: ProxyEndpoint, timeoutMs: number): Promise<boolean
 }
 
 /**
- * HTTP proxies answer the CONNECT verb with a status line. The target is
- * documentation-reserved (RFC 5737) and never dialled by a well-behaved proxy
- * for a detection probe; a 407/403/502 reply is just as good a signature as
- * 200, because only an HTTP proxy can emit it at all.
+ * HTTP proxies answer with a status line, and any status counts: only an HTTP
+ * speaker can emit one. Two requests, cheapest first:
+ *
+ *   1. an origin-form `GET /` — a proxy answers it (400/403/404/…) without
+ *      dialling anything, so proxies that resolve a CONNECT target before
+ *      replying (squid, tinyproxy) still answer inside the timeout;
+ *   2. a CONNECT to a documentation-reserved address (RFC 5737), for proxies
+ *      that drop an origin-form request without a reply.
  */
-function probeHttp(endpoint: ProxyEndpoint, timeoutMs: number): Promise<boolean> {
-  const head = 'CONNECT 203.0.113.1:443 HTTP/1.1\r\nHost: 203.0.113.1:443\r\n\r\n'
-  return probeBytes(endpoint, Buffer.from(head, 'latin1'), (first) => first.length >= 5 && first.subarray(0, 5).toString('latin1') === 'HTTP/', timeoutMs)
+async function probeHttp(endpoint: ProxyEndpoint, timeoutMs: number): Promise<boolean> {
+  const isStatus = (first: Buffer): boolean => first.length >= 5 && first.subarray(0, 5).toString('latin1') === 'HTTP/'
+  const origin = 'GET / HTTP/1.1\r\nHost: 203.0.113.1\r\nConnection: close\r\n\r\n'
+  if (await probeBytes(endpoint, Buffer.from(origin, 'latin1'), isStatus, timeoutMs)) return true
+  const connect = 'CONNECT 203.0.113.1:443 HTTP/1.1\r\nHost: 203.0.113.1:443\r\n\r\n'
+  return probeBytes(endpoint, Buffer.from(connect, 'latin1'), isStatus, timeoutMs)
 }
 
 /**

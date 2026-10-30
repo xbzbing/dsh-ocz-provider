@@ -472,3 +472,100 @@ test('supervisor: reload([]) stops cleanly; missing binary surfaces a clear erro
   // a binary that cannot be resolved rejects with an actionable message
   await assert.rejects(() => supervisor.reload([vmessNode()]), /not found/i)
 })
+
+// -- process supervision against a stand-in binary -----------------------------
+
+import { mkdtempSync, readFileSync, writeFileSync, chmodSync, existsSync as fileExists } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join as joinPath } from 'node:path'
+
+/** A stand-in `sing-box`: `check` passes, `run` records its pid and sleeps. */
+function fakeSingBox(): { bin: string; dir: string; pids: () => number[] } {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'oc2dsh-sb-'))
+  const bin = joinPath(dir, 'sing-box')
+  const pidFile = joinPath(dir, 'pids')
+  writeFileSync(bin, `#!/bin/sh\ncase "$1" in\n  version|check) exit 0 ;;\n  run) echo $$ >> "${pidFile}"; exec sleep 60 ;;\nesac\n`)
+  chmodSync(bin, 0o755)
+  const pids = (): number[] => (fileExists(pidFile) ? readFileSync(pidFile, 'utf8').split('\n').filter(Boolean).map(Number) : [])
+  return { bin, dir, pids }
+}
+
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+test('supervisor: concurrent reloads never orphan a child, and stop() returns for a signal-killed child', { skip: process.platform === 'win32' }, async () => {
+  const fake = fakeSingBox()
+  const supervisor = new SingBoxSupervisor({ binPath: fake.bin, dataDir: fake.dir, readyTimeoutMs: 100, basePort: 39_000, logger: { info: () => {}, warn: () => {} } })
+  await Promise.all([supervisor.reload([vmessNode()]), supervisor.reload([vmessNode()])])
+  const pids = fake.pids()
+  assert.equal(pids.length, 2, 'both reloads ran, one after the other')
+  await settle(50)
+  assert.equal(pids.filter(alive).length, 1, 'the first child was stopped before the second spawned')
+  const started = Date.now()
+  await supervisor.stop()
+  assert.ok(Date.now() - started < 4_000, 'a child that dies by signal (exitCode null) is seen as exited')
+  await settle(50)
+  assert.equal(pids.filter(alive).length, 0)
+  assert.equal(supervisor.running, false)
+})
+
+test('supervisor: a reload requested before stop() never spawns after it', { skip: process.platform === 'win32' }, async () => {
+  const fake = fakeSingBox()
+  const supervisor = new SingBoxSupervisor({ binPath: fake.bin, dataDir: fake.dir, readyTimeoutMs: 100, basePort: 39_100, logger: { info: () => {}, warn: () => {} } })
+  const pending = supervisor.reload([vmessNode()])
+  await supervisor.stop()
+  await assert.rejects(pending, /stopped/)
+  assert.deepEqual(fake.pids(), [], 'no child was spawned after the stop')
+  // The supervisor stays reusable: a reload asked AFTER the stop runs.
+  await supervisor.reload([vmessNode()])
+  assert.equal(fake.pids().length, 1)
+  await supervisor.stop()
+})
+
+test('supervisor: an unexpected child exit is logged as a warning', { skip: process.platform === 'win32' }, async () => {
+  const fake = fakeSingBox()
+  const warnings: string[] = []
+  const supervisor = new SingBoxSupervisor({ binPath: fake.bin, dataDir: fake.dir, readyTimeoutMs: 100, basePort: 39_200, logger: { info: () => {}, warn: (m) => warnings.push(m) } })
+  await supervisor.reload([vmessNode()])
+  process.kill(fake.pids()[0]!, 'SIGKILL')
+  await settle(200)
+  assert.equal(supervisor.running, false)
+  assert.ok(warnings.some((line) => line.includes('exited unexpectedly')), warnings.join('\n'))
+  await supervisor.stop()
+})
+
+test('supervisor: ports follow node identity across reorders; new nodes take the lowest free port', { skip: process.platform === 'win32' }, async () => {
+  const fake = fakeSingBox()
+  const supervisor = new SingBoxSupervisor({ binPath: fake.bin, dataDir: fake.dir, readyTimeoutMs: 100, basePort: 39_300, logger: { info: () => {}, warn: () => {} } })
+  const a = vmessNode({ name: 'a', raw: { type: 'vmess', uuid: 'ua' } })
+  const b = vmessNode({ name: 'b', raw: { type: 'vmess', uuid: 'ub' } })
+  const c = vmessNode({ name: 'c', raw: { type: 'vmess', uuid: 'uc' } })
+  const first = await supervisor.reload([a, b])
+  const portOf = (exits: typeof first, uuid: string) => exits.find((exit) => exit.node.raw.uuid === uuid)?.address
+  assert.equal(portOf(first, 'ua'), '127.0.0.1:39301')
+  assert.equal(portOf(first, 'ub'), '127.0.0.1:39302')
+  const reordered = await supervisor.reload([c, b, a])
+  assert.equal(portOf(reordered, 'ua'), '127.0.0.1:39301', 'a keeps its port though it moved')
+  assert.equal(portOf(reordered, 'ub'), '127.0.0.1:39302')
+  assert.equal(portOf(reordered, 'uc'), '127.0.0.1:39303', 'the newcomer takes the next free port')
+  assert.notEqual(reordered[0]!.key, reordered[1]!.key)
+  await supervisor.stop()
+})
+
+test('buildOutbound: invalid nodes are dropped instead of failing the whole config', () => {
+  assert.equal(buildOutbound(vmessNode({ port: 70_000 }), 'x'), null, 'port out of range')
+  assert.equal(buildOutbound(vmessNode({ raw: { type: 'vmess', uuid: '' } }), 'x'), null, 'empty uuid')
+  assert.equal(buildOutbound({ name: 't', type: 'trojan', server: 't.example.com', port: 443, raw: { type: 'trojan' } }, 'x'), null, 'no password')
+  const ws = buildOutbound(vmessNode({ raw: { type: 'vmess', uuid: 'u', network: 'ws', 'ws-opts': { headers: { Host: 'h', Bad: { nested: true }, N: 1 } } } }), 'x')
+  assert.deepEqual((ws?.transport as { headers?: unknown }).headers, { Host: 'h', N: '1' }, 'headers become string -> string')
+  const { ports } = generateConfig([vmessNode({ port: 0 }), vmessNode()], 30_000)
+  assert.deepEqual(ports, [0, 30_002])
+})

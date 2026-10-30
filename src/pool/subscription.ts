@@ -99,6 +99,25 @@ export function tryBase64Decode(content: string): string | null {
   }
 }
 
+/**
+ * `decodeURIComponent` that never throws: a node name like `倍率100%` is not
+ * valid percent-encoding, and one such name must not fail the whole round.
+ */
+export function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    // Decode each well-formed escape run on its own; a stray `%` stays literal.
+    return value.replace(/(?:%[0-9A-Fa-f]{2})+/g, (run) => {
+      try {
+        return decodeURIComponent(run)
+      } catch {
+        return run
+      }
+    })
+  }
+}
+
 /** One Clash YAML proxy entry -> ParsedNode (GoProxy parseClashProxy). */
 export function parseClashProxy(proxy: Record<string, unknown>): ParsedNode | null {
   if (typeof proxy !== 'object' || proxy === null) return null
@@ -153,7 +172,7 @@ export function parseVmessLink(link: string): ParsedNode | null {
   }
   const server = String(info.add ?? '')
   const port = Number(info.port ?? 0)
-  if (server === '' || !Number.isFinite(port) || port < 1) return null
+  if (server === '' || !Number.isInteger(port) || port < 1 || port > 65535) return null
   const name = typeof info.ps === 'string' && info.ps.length > 0 ? info.ps : server
   const raw: Record<string, unknown> = {
     type: 'vmess',
@@ -194,14 +213,14 @@ export function parseStandardLink(link: string, type: string): ParsedNode | null
   const server = url.hostname.replace(/^\[|\]$/g, '')
   let port = Number(url.port)
   if (!Number.isFinite(port) || port < 1) port = 443
-  const name = decodeURIComponent(url.hash.slice(1)) || server
+  const name = safeDecode(url.hash.slice(1)) || server
   const raw: Record<string, unknown> = { type, name, server, port }
-  const username = url.username ? decodeURIComponent(url.username) : ''
+  const username = url.username ? safeDecode(url.username) : ''
   if (username !== '') {
     if (type === 'trojan' || type === 'hysteria2') raw.password = username
     else if (type === 'vless' || type === 'tuic') {
       raw.uuid = username
-      if (url.password) raw.password = decodeURIComponent(url.password)
+      if (url.password) raw.password = safeDecode(url.password)
     }
   }
   for (const [key, value] of url.searchParams) raw[key] = value
@@ -213,7 +232,7 @@ export function parseShadowsocksLink(link: string): ParsedNode | null {
   // variant A: ss://base64(method:password)@host:port#name
   // variant B: ss://base64(method:password@host:port)#name  (legacy SIP002-pre)
   const hashIndex = link.indexOf('#')
-  const name = hashIndex >= 0 ? decodeURIComponent(link.slice(hashIndex + 1)) : ''
+  const name = hashIndex >= 0 ? safeDecode(link.slice(hashIndex + 1)) : ''
   const body = hashIndex >= 0 ? link.slice('ss://'.length, hashIndex) : link.slice('ss://'.length)
   const at = body.lastIndexOf('@')
   if (at > 0) {
@@ -222,14 +241,18 @@ export function parseShadowsocksLink(link: string): ParsedNode | null {
     const hostMatch = /^(\[[^\]]+\]|[^:]+):(\d{1,5})$/.exec(hostPart)
     if (userinfo === null || !hostMatch?.[1] || !hostMatch[2]) return null
     const port = Number(hostMatch[2])
-    if (port < 1) return null
+    if (port < 1 || port > 65535) return null
     const server = hostMatch[1].replace(/^\[|\]$/g, '')
+    // SIP002 userinfo is `method:password`; the password may itself hold colons.
+    const colon = userinfo.indexOf(':')
+    const method = colon > 0 ? userinfo.slice(0, colon) : userinfo
+    const password = colon > 0 ? userinfo.slice(colon + 1) : ''
     return {
       name: name || server,
       type: 'shadowsocks',
       server,
       port,
-      raw: { type: 'shadowsocks', name: name || server, server, port, cipher: userinfo },
+      raw: { type: 'shadowsocks', name: name || server, server, port, cipher: userinfo, method, password },
     }
   }
   const decoded = tryBase64Decode(body)
@@ -237,6 +260,7 @@ export function parseShadowsocksLink(link: string): ParsedNode | null {
   const match = /^(\S+?)@(\[[^\]]+\]|[^:]+):(\d{1,5})$/.exec(decoded)
   if (!match?.[1] || !match[2] || !match[3]) return null
   const port = Number(match[3])
+  if (port < 1 || port > 65535) return null
   const server = match[2].replace(/^\[|\]$/g, '')
   const colon = match[1].indexOf(':')
   const method = colon > 0 ? match[1].slice(0, colon) : match[1]
@@ -269,7 +293,13 @@ export function parseProxyLinks(content: string): { nodes: ParsedNode[]; skipped
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim()
     if (line === '' || line.startsWith('#')) continue
-    const node = parseProxyLink(line)
+    // One malformed line costs that line, never the rest of the document.
+    let node: ParsedNode | null = null
+    try {
+      node = parseProxyLink(line)
+    } catch {
+      node = null
+    }
     if (node) nodes.push(node)
     else skipped += 1
   }

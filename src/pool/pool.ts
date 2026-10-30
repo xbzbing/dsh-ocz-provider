@@ -123,6 +123,18 @@ const GRADE_RANK: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3
 
 const banKey = (exitId: string, model: string) => `${exitId}\u0000${model}`
 
+/** Does `node` rank below `other` for eviction (grade, then latency, then age)? */
+function ranksBelow(node: Pick<ExitNode, 'quality' | 'latencyMs' | 'addedAt'>, other: Pick<ExitNode, 'quality' | 'latencyMs' | 'addedAt'>): boolean {
+  const byGrade = GRADE_RANK[node.quality] - GRADE_RANK[other.quality]
+  if (byGrade !== 0) return byGrade > 0
+  const byLatency = node.latencyMs - other.latencyMs
+  if (byLatency !== 0) return byLatency > 0
+  return node.addedAt < other.addedAt
+}
+
+/** Sticky session bindings kept at most; the least recently bound go first. */
+const SESSION_BINDING_CAP = 2_000
+
 export class ExitPool {
   readonly #nodes = new Map<string, ExitNode>()
   readonly #health = new Map<string, ExitHealth>()
@@ -213,28 +225,21 @@ export class ExitPool {
   }
 
   /**
-   * Evict the worst exit to make room for a better candidate (whole pool, any
-   * source, pinned never). Worst = lowest quality grade, then slowest, then
-   * oldest.
+   * Evict the worst exit to make room for a better candidate. Pinned and manual
+   * rows are explicit user config and are never evicted. Worst = lowest quality
+   * grade, then slowest, then oldest. With `than`, the worst row leaves only
+   * when it ranks below that candidate.
    * Returns the evicted id (null when nothing can be evicted), because the
    * caller has to close that exit's local listener too — see `Onboarder.trim()`.
    */
-  evictWorst(): string | null {
+  evictWorst(than?: Pick<ExitNode, 'quality' | 'latencyMs'>): string | null {
     let worst: ExitNode | null = null
     for (const node of this.#nodes.values()) {
-      if (node.pinned) continue
-      if (worst === null) {
-        worst = node
-        continue
-      }
-      const byGrade = GRADE_RANK[node.quality] - GRADE_RANK[worst.quality]
-      const byLatency = node.latencyMs - worst.latencyMs
-      const worse = byGrade > 0
-        || (byGrade === 0 && byLatency > 0)
-        || (byGrade === 0 && byLatency === 0 && node.addedAt < worst.addedAt)
-      if (worse) worst = node
+      if (node.pinned || node.source === 'manual') continue
+      if (worst === null || ranksBelow(node, worst)) worst = node
     }
     if (worst === null) return null
+    if (than !== undefined && !ranksBelow(worst, { ...than, addedAt: Number.NEGATIVE_INFINITY })) return null
     this.remove(worst.id)
     return worst.id
   }
@@ -345,6 +350,15 @@ export class ExitPool {
     return false
   }
 
+  /** The row already egressing from this exit IP (one quota bucket, §3.1), if any. */
+  exitIPHolder(exitIP: string): string | undefined {
+    if (exitIP === '') return undefined
+    for (const node of this.#nodes.values()) {
+      if (node.exitIP === exitIP) return node.id
+    }
+    return undefined
+  }
+
   has(id: string): boolean {
     return this.#nodes.has(id)
   }
@@ -369,26 +383,13 @@ export class ExitPool {
     this.#clearPinnedIf(id)
   }
 
-  /** Disable without dropping (dead manual/subscription/goproxy nodes, 3.5). */
-  markDead(id: string): void {
-    const health = this.#health.get(id)
-    if (!health) return
-    const wasDead = health.state === 'dead'
-    health.state = 'dead'
-    health.inflight = false
-    if (!wasDead) {
-      this.#moveToTail(id)
-      this.#notifyDead(id)
-    }
-  }
-
   /**
    * A probe could not verify this exit (trusted-source admission fallback):
    * keep the node — a subscription line is paid and `admission.admitTrusted`
    * promises to revisit it — but drop its `ok` claim, so it leaves the
    * verified tier that `pick()` ranks first.
    *
-   * 'unknown' is still *usable* (`#isAvailable` only hides 'dead'), which is
+   * 'unknown' is still *usable* (`isUsable()` only hides 'dead'), which is
    * deliberate: a probe-side failure (Zen rejecting the smoke request, an
    * echo endpoint hiccup) must not empty a healthy pool. It only means an
    * exit that was never measured no longer outranks one that was.
@@ -402,7 +403,6 @@ export class ExitPool {
     const health = this.#health.get(id)
     if (!health) return
     if (health.state !== 'dead') health.state = 'unknown'
-    health.inflight = false
   }
 
   /**
@@ -574,7 +574,6 @@ export class ExitPool {
     if (!this.#nodes.has(id) || !health) return
     const wasDead = health.state === 'dead'
     health.state = 'dead'
-    health.inflight = false
     health.deadStrikes += 1
     health.deadAt = this.#now()
     // A dead exit sinks to the end of the table and tells the runtime to
@@ -583,17 +582,6 @@ export class ExitPool {
     if (!wasDead) {
       this.#moveToTail(id)
       this.#notifyDead(id)
-    }
-  }
-
-  /** Death from a mid-flight stream (no retry path): same strike accounting. */
-  markStreamFailure(id: string, kind: '429' | 'model', model?: string): void {
-    if (kind === '429') {
-      this.markLimited(id)
-      this.#countPassive(id, 'limited')
-    } else if (model !== undefined) {
-      this.markModelSignal(id, model)
-      this.#countPassive(id, 'refused')
     }
   }
 
@@ -761,7 +749,7 @@ export class ExitPool {
       // to know which exit answered, and while a pin is set that is always the
       // pinned one. Without this binding a refusal lands with no exit to blame,
       // so the row is never benched.
-      this.#sessionExit.set(session, pinned)
+      this.#bindSession(session, pinned)
       return pinned
     }
 
@@ -799,8 +787,19 @@ export class ExitPool {
     })
     const chosen = usable[0]
     if (chosen === undefined) return null
-    this.#sessionExit.set(session, chosen)
+    this.#bindSession(session, chosen)
     return chosen
+  }
+
+  /** Bind a session to its exit; the map stays bounded, least recent first out. */
+  #bindSession(session: string, exitId: string): void {
+    this.#sessionExit.delete(session)
+    this.#sessionExit.set(session, exitId)
+    while (this.#sessionExit.size > SESSION_BINDING_CAP) {
+      const oldest = this.#sessionExit.keys().next().value
+      if (oldest === undefined) break
+      this.#sessionExit.delete(oldest)
+    }
   }
 
   /**
@@ -821,37 +820,6 @@ export class ExitPool {
         /* swallowed on purpose: routing is not the watcher's */
       }
     }
-  }
-
-  /** Drop the session's sticky exit (cooldown/dead/ban broke it). */
-  breakStickySession(session: string): void {
-    this.#sessionExit.delete(session)
-  }
-
-  // -- four-state machine (3.5) -------------------------------------------------
-
-  /** Usable = not dead, not cooling, and not banned for every probe model —
-   *  approximation: nodes banned for all their known models count as
-   *  unusable; with no ban data they stay usable (they are only banned for
-   *  specific models, which the caller's model already filters). */
-  #isAvailable(id: string): boolean {
-    const health = this.#health.get(id)
-    if (!health || health.state === 'dead') return false
-    if (health.cooldownUntil > this.#now()) return false
-    // A node with at least one banned pairing and no healthy pairing for any
-    // model it serves is effectively exhausted. Track by distinct models:
-    const nodeModels = new Set<string>()
-    let allBanned = true
-    let sawBan = false
-    for (const [key, ban] of this.#bans) {
-      if (!key.startsWith(`${id}\u0000`)) continue
-      const model = key.slice(id.length + 1)
-      nodeModels.add(model)
-      if (ban.state !== 'banned') allBanned = false
-      else sawBan = true
-    }
-    if (sawBan && nodeModels.size > 0 && allBanned) return false
-    return true
   }
 
   // -- diagnostics ------------------------------------------------------------
@@ -876,9 +844,10 @@ export class ExitPool {
       const health = this.#health.get(id)!
       const bans: Array<{ model: string; ban: ModelBan }> = []
       for (const [key, ban] of this.#bans) {
-        if (key.startsWith(`${id}\u0000`)) bans.push({ model: key.slice(id.length + 1), ban })
+        if (key.startsWith(`${id}\u0000`)) bans.push({ model: key.slice(id.length + 1), ban: { ...ban } })
       }
-      out.push({ ...node, health, bans })
+      // Copies: a caller holding a row must never write the pool's own state.
+      out.push({ ...node, health: { ...health }, bans })
     }
     return out
   }

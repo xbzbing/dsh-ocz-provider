@@ -43,6 +43,8 @@ export class Prober {
   #maxConcurrent: number
   #queue: QueueSlot[] = []
   #inFlight = 0
+  /** Candidates outside the pool with a task running (no pool lock to hold). */
+  readonly #busy = new Set<string>()
   #drained: (() => void) | null = null
   /** Queue snapshot counter for the settings-page progress (x/y). */
   #enqueued = 0
@@ -105,16 +107,20 @@ export class Prober {
 
   #pump(): void {
     while (this.#inFlight < this.#maxConcurrent) {
-      // Skip exits whose lock is held (a task of the same exit is running):
-      // their tasks stay queued in order; other exits' tasks proceed.
-      const index = this.#queue.findIndex(
-        (slot) => !this.#isExitBusy(slot.task.exitId),
-      )
+      // Skip exits with a task in flight: their tasks stay queued in order;
+      // other exits' tasks proceed.
+      let locked = false
+      const index = this.#queue.findIndex((slot) => {
+        const claim = this.#claim(slot.task.exitId)
+        if (claim === null) return false
+        locked = claim
+        return true
+      })
       if (index < 0) break
       const [slot] = this.#queue.splice(index, 1)
       if (!slot) break
       this.#inFlight += 1
-      void this.#runSlot(slot)
+      void this.#runSlot(slot, locked)
     }
     if (this.idle) {
       const waiter = this.#drained
@@ -123,23 +129,29 @@ export class Prober {
     }
   }
 
-  #isExitBusy(exitId: string): boolean {
-    // The pool's per-exit lock is the single source of truth for "a probe of
-    // this exit is in flight": the running slot holds it until settled.
-    const node = this.#pool.get(exitId)
-    return node !== undefined && !this.#pool.takeProbeLock(exitId)
+  /**
+   * Claim the exit for one task: the pool's per-exit lock for a row in the
+   * table (true), the scheduler's own busy set for a candidate outside it
+   * (false), or null when a task of that exit is already running.
+   */
+  #claim(exitId: string): boolean | null {
+    if (this.#busy.has(exitId)) return null
+    if (this.#pool.get(exitId) !== undefined) return this.#pool.takeProbeLock(exitId) ? true : null
+    this.#busy.add(exitId)
+    return false
   }
 
-  async #runSlot(slot: QueueSlot): Promise<void> {
-    // The lock was acquired in #isExitBusy (via takeProbeLock) when this exit
-    // was picked as runnable. Run, always release, then settle the waiter.
+  async #runSlot(slot: QueueSlot, locked: boolean): Promise<void> {
     try {
       await slot.task.run()
     } catch {
       // Task failures are the caller's diagnostics (they own the pool marks);
       // the scheduler itself must never break.
     } finally {
-      this.#pool.releaseProbeLock(slot.task.exitId)
+      // Release only what this slot took: a candidate the task admitted into
+      // the pool mid-run never held the pool lock.
+      if (locked) this.#pool.releaseProbeLock(slot.task.exitId)
+      else this.#busy.delete(slot.task.exitId)
       slot.resolve()
       this.#finishSlot()
     }

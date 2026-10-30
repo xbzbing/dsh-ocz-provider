@@ -11,7 +11,8 @@
  *
  * All requests carry their own ProxyAgent (per-request dispatch, verified
  * against npm undici): the admission path never touches the global
- * dispatcher.
+ * dispatcher. The exception is the smoke's hop to the local Bun relay, which
+ * rides a plain agent: the relay dials the exit its egress header names.
  *
  * Which steps a source runs:
  *   - manual/subscription/   -> admitTrusted: smoke only (their node facts
@@ -43,7 +44,9 @@ export interface AdmissionDeps {
   pool: ExitPool
   undici: {
     ProxyAgent: new (options: { uri: string; clientFactory?: (origin: URL | string, options?: unknown) => unknown }) => Dispatcher
-    request(url: string, options: { dispatcher: Dispatcher; method?: string; headers?: Record<string, string>; body?: string }): Promise<{ statusCode: number; body: { text(): Promise<string> } }>
+    /** A plain (proxy-less) agent for the loopback relay hop; absent = undici's default dispatcher. */
+    Agent?: new () => Dispatcher
+    request(url: string, options: { dispatcher?: Dispatcher; method?: string; headers?: Record<string, string>; body?: string }): Promise<{ statusCode: number; body: { text(): Promise<string> } }>
   }
   /** zen endpoint override for tests. */
   zenBaseUrl?: string
@@ -79,6 +82,10 @@ export interface AdmissionDeps {
    * gate: sent without the relay it is answered 429 whatever its payload, which
    * the verdict table reads as spent quota and cools a healthy exit. The
    * models-list step stays direct on purpose (docs/relay.md §6).
+   *
+   * Used verbatim as a base (it may carry a path prefix). The hop to it never
+   * rides the candidate: the relay is on THIS machine, and the exit is chosen
+   * by the egress header instead.
    */
   relayBaseUrl?: () => string | null
   logger?: { warn(message: string): void }
@@ -254,12 +261,15 @@ export async function admitCandidate(
     return { admitted: false, reason: `agent-build: ${err instanceof Error ? err.message : String(err)}` }
   }
 
-  const request = (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) =>
+  /** `via: null` = undici's default dispatcher (no proxy). */
+  const request = (url: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}, via: Dispatcher | null = agent) =>
     withTimeout(
-      deps.undici.request(url, { dispatcher: agent!, ...init }),
+      deps.undici.request(url, { ...(via !== null ? { dispatcher: via } : {}), ...init }),
       timeout,
       init.method === 'POST' ? 'smoke' : 'probe',
     )
+  /** Built only when a relay smoke runs; destroyed with the probe agent. */
+  let relayAgent: Dispatcher | undefined
 
   /**
    * Ask each origin in ladder order and keep the best answer: 200 wins
@@ -351,8 +361,9 @@ export async function admitCandidate(
       max_completion_tokens: 1,
     })
     const smokeEgress = exitProxyUri(candidate.address, candidate.protocol)
+    if (relayBase !== null && deps.undici.Agent !== undefined) relayAgent = new deps.undici.Agent()
     const smokeStatus = relayBase !== null
-      ? await request(`${relayBase}${relayChatPath()}`, {
+      ? await request(`${relayBase.replace(/\/+$/, '')}${relayChatPath()}`, {
         method: 'POST',
         headers: {
           authorization: 'Bearer public',
@@ -361,7 +372,7 @@ export async function admitCandidate(
           ...probeHeaders(),
         },
         body: smokeBody,
-      }).then((response) => response.statusCode)
+      }, relayAgent ?? null).then((response) => response.statusCode)
       : await probeLane('/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -392,6 +403,7 @@ export async function admitCandidate(
     return { admitted: false, reason: err instanceof Error ? err.message : String(err) }
   } finally {
     releaseProbeAgent(agent)
+    if (relayAgent !== undefined) releaseProbeAgent(relayAgent)
   }
 }
 

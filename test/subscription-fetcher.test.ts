@@ -377,3 +377,43 @@ test('a refresh that shrinks the conversion drops the rows whose port it retired
   assert.equal(pool.has('127.0.0.1:300001'), false, 'the retired port left the pool')
   fetcher.stop()
 })
+
+test('subscription refresh: plaintext nodes respect poolSize and leave when the subscription drops them', async () => {
+  const lines = (servers: string[]) => ['proxies:', ...servers.flatMap((server, index) => [
+    `  - name: "p${index}"`,
+    '    type: http',
+    `    server: ${server}`,
+    '    port: 8080',
+  ])].join('\n')
+  let body = lines(['1.2.3.4', '11.22.33.44', '111.122.133.144'])
+  const pool = new ExitPool({ poolSize: 2 })
+  const prober = new Prober({ pool, maxConcurrentProbes: 1 })
+  const fetcher = new SubscriptionFetcher(
+    { pool, prober, undici: seam() as never, fetchImpl: (async () => new Response(body)) as unknown as typeof fetch },
+    { logger: { info: () => {}, warn: () => {} } },
+  )
+  fetcher.setUrls(['https://sub.example.com/token-abcdef-123456'])
+  await fetcher.refresh()
+  assert.equal(pool.list().length, 2, 'a full pool does not grow past poolSize')
+
+  body = lines(['1.2.3.4'])
+  await fetcher.refresh()
+  assert.deepEqual(pool.list().map((row) => row.id), ['1.2.3.4:8080'], 'nodes the subscription dropped leave the pool')
+})
+
+test('subscription refresh: a failed fetch never prunes plaintext rows', async () => {
+  let fail = false
+  const body = ['proxies:', '  - name: "p"', '    type: http', '    server: 1.2.3.4', '    port: 8080'].join('\n')
+  const pool = new ExitPool()
+  const prober = new Prober({ pool })
+  const fetcher = new SubscriptionFetcher(
+    { pool, prober, undici: seam() as never, fetchImpl: (async () => (fail ? new Response('', { status: 502 }) : new Response(body))) as unknown as typeof fetch },
+    { logger: { info: () => {}, warn: () => {} } },
+  )
+  fetcher.setUrls(['https://sub.example.com/token-abcdef-123456'])
+  await fetcher.refresh()
+  assert.ok(pool.has('1.2.3.4:8080'))
+  fail = true
+  await fetcher.refresh()
+  assert.ok(pool.has('1.2.3.4:8080'), 'an airport hiccup is not an empty subscription')
+})

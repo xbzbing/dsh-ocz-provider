@@ -110,6 +110,8 @@ export class SubscriptionFetcher {
    *  swaps once; drained the moment the lock frees (see replaceExit). */
   #deferred = new Set<string>()
   #draining = false
+  /** Plaintext rows this fetcher put in the pool (pruned when the subscription drops them). */
+  #plaintext = new Set<string>()
   #logger?: SubscriptionOptions['logger']
 
   constructor(deps: SubscriptionDeps, options: SubscriptionOptions = {}) {
@@ -309,6 +311,7 @@ export class SubscriptionFetcher {
       const unroutable: ParsedNode[] = []
       const plaintext: Array<{ address: string; protocol: 'http' | 'socks5' }> = []
       let lastError = ''
+      let failedFetches = 0
       for (const url of this.#urls) {
         try {
           const body = await this.#fetch(url)
@@ -324,7 +327,7 @@ export class SubscriptionFetcher {
             }
             if (node.type === 'http' || node.type === 'socks5') {
               plaintext.push({
-                address: `${node.server}:${node.port}`,
+                address: `${node.server.includes(':') ? `[${node.server}]` : node.server}:${node.port}`,
                 protocol: node.type,
               })
             } else {
@@ -334,6 +337,7 @@ export class SubscriptionFetcher {
           this.#logger?.info(`oc2dsh: subscription parsed ${report.nodes.length} node(s) (${report.detected}) from ${this.#redact(url)}`)
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err)
+          failedFetches += 1
           this.#logger?.warn(`oc2dsh: subscription fetch failed for ${this.#redact(url)}: ${lastError}`)
         }
       }
@@ -358,24 +362,26 @@ export class SubscriptionFetcher {
       // poolSize -> shrink the conversion to them -> admit from the speed
       // facts; later swaps reuse the cached facts, no probe — onboard.ts).
       // Without a supervisor configured they stay parked as pending.
-      if (pending.length > 0 && this.#supervisor) {
+      if (pending.length > 0 && this.#supervisor && !this.#stopped) {
         const supervisor = this.#supervisor
         try {
           const exits = await supervisor.reload(pending)
+          if (this.#stopped) return this.state
           // Keep the speed-pass facts per address so a later swap can be
           // admitted from them without probing (the onboarder holds that state).
           // The old onboarder's addresses ride along so the new round can prune
           // the ports this conversion retired.
           const inherited = this.#onboarder?.addresses ?? []
+          const inheritedKeys = this.#onboarder?.identities ?? new Map<string, string>()
           const onboarder = new Onboarder({
             pool: this.#deps.pool,
             prober: this.#deps.prober,
             admission: this.#deps,
-            select: (slots) => supervisor.reload(pending, slots),
+            select: (slots) => (this.#stopped ? Promise.reject(new Error('subscription layer stopped')) : supervisor.reload(pending, slots)),
             logger: this.#logger,
           })
           this.#onboarder = onboarder
-          const outcome = await onboarder.run(exits, inherited)
+          const outcome = await onboarder.run(exits, inherited, inheritedKeys)
           this.#state.convertedAdmitted = outcome.admitted
           // The conversion ran: nothing is parked any more — every screened
           // candidate is either in the pool or held as reserve (unmeasured
@@ -395,7 +401,11 @@ export class SubscriptionFetcher {
       // latency), never a request to OpenCode (docs/ip-pool.md §4.5), and
       // never the hot coarse screen either: subscription nodes are paid
       // resources, so the single speed request still rides the bounded Prober
-      // (docs 4.1: subscription never goes hot).
+      // (docs 4.1: subscription never goes hot). They enter under the same
+      // capacity rule as converted exits, and rows the subscription no longer
+      // lists leave (only after a round in which every URL answered).
+      if (this.#stopped) return this.state
+      if (failedFetches === 0) this.#prunePlaintext(new Set(plaintext.map((candidate) => candidate.address)))
       const tasks: ProbeTask[] = plaintext
         .filter((candidate) => !this.#deps.pool.has(candidate.address))
         .map((candidate): ProbeTask => ({
@@ -407,13 +417,8 @@ export class SubscriptionFetcher {
               protocol: candidate.protocol,
               source: 'subscription',
             })
-            if (verdict.admitted && verdict.node) {
-              if (this.#deps.pool.add(verdict.node)) {
-                if (verdict.unverified) this.#deps.pool.markUnverified(verdict.node.id)
-                else this.#deps.pool.markOk(verdict.node.id)
-                this.#state.plaintextAdmitted += 1
-              }
-            }
+            if (this.#stopped || !verdict.admitted || !verdict.node) return
+            if (this.#admitPlaintext(verdict.node, verdict.unverified === true)) this.#state.plaintextAdmitted += 1
           },
         }))
       if (tasks.length > 0) await this.#deps.prober.enqueueAll(tasks)
@@ -421,6 +426,35 @@ export class SubscriptionFetcher {
     } finally {
       this.#running = false
     }
+  }
+
+  /**
+   * One speed-tested plaintext node into the pool, under `poolSize`: a full pool
+   * makes room only by evicting a row that ranks below it (pinned and manual
+   * rows never leave). False when it did not get in.
+   */
+  #admitPlaintext(node: ExitNode, unverified: boolean): boolean {
+    const pool = this.#deps.pool
+    if (!pool.has(node.id) && pool.isFull() && (unverified || pool.evictWorst(node) === null)) return false
+    if (!pool.add(node)) return false
+    if (unverified) pool.markUnverified(node.id)
+    else pool.markOk(node.id)
+    this.#plaintext.add(node.id)
+    return true
+  }
+
+  /** Drop plaintext rows this fetcher admitted that the subscription no longer lists. */
+  #prunePlaintext(listed: Set<string>): void {
+    const dropped: string[] = []
+    for (const address of this.#plaintext) {
+      if (listed.has(address)) continue
+      this.#plaintext.delete(address)
+      const row = this.#deps.pool.get(address)
+      if (row?.source !== 'subscription') continue
+      this.#deps.pool.remove(address)
+      dropped.push(address)
+    }
+    if (dropped.length > 0) this.#logger?.info(`oc2dsh: dropped ${dropped.length} plaintext exit(s) the subscription no longer lists (${dropped.join(', ')})`)
   }
 
   async #fetch(url: string): Promise<string> {

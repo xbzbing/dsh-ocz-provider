@@ -2,8 +2,9 @@
  * What ONE transport cut means for the exit it landed on.
  *
  * A cut on a row that has NO measured facts is a QUESTION, not an answer: ask
- * the listener what it speaks (pool/protocol.ts dials nothing — a greeting
- * and a CONNECT to an RFC 5737 address), then
+ * the listener what it speaks (pool/protocol.ts dials nothing — a SOCKS
+ * greeting, then an origin-form HTTP request and a CONNECT to an RFC 5737
+ * address), then
  *
  *   - nothing answers           -> the row really is unusable: strike it dead;
  *   - it speaks the other scheme -> relabel it, revive it, keep it working;
@@ -60,6 +61,11 @@ export class TransportVerdicts {
     this.#deps = deps
   }
 
+  /** Rows holding a spent pardon (diagnostics/tests). */
+  get pardoned(): string[] {
+    return [...this.#pardonedAt.keys()]
+  }
+
   /** Rows whose diagnosis has not answered yet (diagnostics/tests). */
   get pending(): string[] {
     return [...this.#inflight]
@@ -73,6 +79,10 @@ export class TransportVerdicts {
    */
   cut(exitId: string): TransportVerdict {
     const pool = this.#deps.pool
+    // Pardons of rows that left the table are moot; the map stays as big as the pool.
+    for (const id of this.#pardonedAt.keys()) {
+      if (!pool.has(id)) this.#pardonedAt.delete(id)
+    }
     const node = pool.get(exitId)
     if (node === undefined) return 'ignored'
     // A measured row: the label is proven, so a cut is the line's own verdict.
@@ -115,7 +125,10 @@ export class TransportVerdicts {
       const found = await this.#deps.detect(exitId)
       // The row can leave the table while the socket probe runs (a rotation, a
       // capacity trim, an operator's 删除): its verdict is moot then.
-      if (!this.#deps.pool.has(exitId)) return
+      if (!this.#deps.pool.has(exitId)) {
+        this.#pardonedAt.delete(exitId)
+        return
+      }
       if (found === null) {
         this.#deps.pool.recordPassiveTransport(exitId)
         this.#warn(`oc2dsh: 出口 ${exitId} 连不上（端口没有监听，或监听的不是代理）；已判 dead`)

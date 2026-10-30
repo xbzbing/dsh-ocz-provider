@@ -409,3 +409,44 @@ test('an empty conversion prunes every port the last one opened', async () => {
   await onboarder.run([])
   assert.equal(pool.list().length, 0, 'sing-box stopped: no listener survives, so no row survives')
 })
+
+test('a port that comes back serving a different node starts over as a new exit', async () => {
+  const { pool, nodes, onboarder } = harness({ count: 2, poolSize: 2 })
+  const keyed = (keys: string[]): ConvertedExit[] => nodes.map((exit, index) => ({ ...exit, key: keys[index]! }))
+  await onboarder.run(keyed(['node-a', 'node-b']))
+  const first = `127.0.0.1:${BASE_PORT + 1}`
+  const second = `127.0.0.1:${BASE_PORT + 2}`
+  pool.markLimited(first)
+  pool.markLimited(second)
+  await onboarder.run(keyed(['node-c', 'node-b']))
+  assert.ok(pool.has(first), 'the address is re-admitted for its new node')
+  assert.equal(pool.list().find((row) => row.id === first)!.health.cooldownUntil, 0, 'the old node\'s cooldown did not carry over')
+  assert.ok(pool.list().find((row) => row.id === second)!.health.cooldownUntil > 0, 'an unchanged node keeps its health')
+})
+
+test('rows that stay online take the new round\'s speed facts', async () => {
+  let slow = false
+  const { pool, nodes, onboarder } = harness({ count: 1, poolSize: 1, latencyMs: () => (slow ? 250 : 5) })
+  await onboarder.run(nodes)
+  const before = pool.list()[0]!.latencyMs
+  slow = true
+  await onboarder.run(nodes)
+  const after = pool.list()[0]!.latencyMs
+  assert.ok(after > before + 150, `latency refreshed (${before} -> ${after})`)
+})
+
+test('a candidate egressing from an exit IP another row holds is not selected', async () => {
+  // The harness derives the exit IP from port % 250: 30001 and 30251 share one.
+  const { pool, onboarder, selections } = harness({ count: 0, poolSize: 2 })
+  const exits: ConvertedExit[] = [BASE_PORT + 1, BASE_PORT + 251, BASE_PORT + 2].map((port, slot) => ({
+    address: `127.0.0.1:${port}`,
+    protocol: 'socks5' as const,
+    node: node(`d${slot}`),
+    slot,
+  }))
+  const result = await onboarder.run(exits)
+  assert.equal(result.admitted, 2)
+  const ips = pool.list().map((row) => row.exitIP)
+  assert.equal(new Set(ips).size, 2, 'one row per exit IP')
+  assert.equal(selections.at(-1)?.length, 2, 'the duplicate never got a listener')
+})

@@ -18,14 +18,19 @@
  *  - `exits`    — keyed by exit id (slot-stable ports, so a node keeps its
  *                 bucket across restarts); capped the same way.
  *
- * Writes are DEBOUNCED and ATOMIC (temp file + rename): a response is a few
- * hundred bytes of accounting, and rewriting the document per token would be
- * absurd; a crash between flushes loses at most the last few seconds.
+ * Writes are DEBOUNCED and ATOMIC (a per-process temp file + rename): a
+ * response is a few hundred bytes of accounting, and rewriting the document per
+ * token would be absurd; a crash between flushes loses at most the last few
+ * seconds. Each flush re-reads the file and adds only this process's unflushed
+ * deltas onto it, so two hosts sharing one state root do not erase each other's
+ * counters (docs/ip-pool.md §5.6). A file that cannot be read as a ledger is
+ * renamed aside (`usage.json.corrupt-<ms>`) before a fresh one is written.
  *
  * The same `record()` call also feeds the in-process tracker, so one code path
  * produces both scopes the UI switches between: `run` (this process) and
  * `total` (persisted).
  */
+import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -73,6 +78,18 @@ interface StoredSession {
 interface StoredExit {
   lastAt: number
   totals: TokenTotals
+}
+
+/** What this process recorded since its last successful flush. */
+interface PendingDeltas {
+  totals: TokenTotals
+  days: Map<string, TokenTotals>
+  sessions: Map<string, StoredSession>
+  exits: Map<string, StoredExit>
+}
+
+function emptyPending(): PendingDeltas {
+  return { totals: emptyTotals(), days: new Map(), sessions: new Map(), exits: new Map() }
 }
 
 interface PersistedDocument {
@@ -150,6 +167,10 @@ export class UsageStore {
 
   /** Run-scope session buckets (this process only). */
   #runSessions = new Map<string, StoredSession>()
+  /** Deltas not yet written; merged onto the file's current content at flush. */
+  #pending: PendingDeltas = emptyPending()
+  /** The next flush writes memory as-is instead of merging (after clear()). */
+  #replaceOnFlush = false
 
   constructor(options: UsageStoreOptions = {}) {
     this.#pathOverride = options.path
@@ -178,29 +199,66 @@ export class UsageStore {
     if (this.#loaded) return
     this.#loaded = true
     if (this.#readOnly) return
+    const document = this.#readDocument()
+    if (document !== null) this.#adopt(document)
+    this.prune()
+  }
+
+  /**
+   * The ledger on disk, or null when there is none. A file that is not a
+   * version-1 ledger (corrupt JSON, a hand edit, a future version) is renamed
+   * aside so the next write never destroys it.
+   */
+  #readDocument(): Partial<PersistedDocument> | null {
     let raw: string
     try {
       raw = readFileSync(this.path, 'utf8')
     } catch {
-      return // no ledger yet (first run) — not an error
+      return null // no ledger yet (first run) — not an error
     }
     try {
-      const parsed = JSON.parse(raw) as Partial<PersistedDocument>
-      if (parsed.version !== 1) return
-      this.#totals = { ...emptyTotals(), ...parsed.totals }
-      for (const [day, bucket] of Object.entries(parsed.days ?? {})) this.#days.set(day, { ...emptyTotals(), ...bucket })
-      for (const [id, row] of Object.entries(parsed.sessions ?? {})) {
-        this.#sessions.set(id, { label: row.label ?? '', firstAt: row.firstAt ?? 0, lastAt: row.lastAt ?? 0, totals: { ...emptyTotals(), ...row.totals } })
-      }
-      for (const [id, row] of Object.entries(parsed.exits ?? {})) {
-        this.#exits.set(id, { lastAt: row.lastAt ?? 0, totals: { ...emptyTotals(), ...row.totals } })
-      }
+      const parsed = JSON.parse(raw) as Partial<PersistedDocument> | null
+      if (parsed !== null && typeof parsed === 'object' && parsed.version === 1) return parsed
     } catch {
-      // A corrupt ledger must not take the pool down: start fresh rather than
-      // throwing on every request. The bad file is left alone for inspection.
-      return
+      /* fall through: not a ledger */
     }
-    this.prune()
+    try {
+      renameSync(this.path, `${this.path}.corrupt-${this.#now()}`)
+    } catch { /* already moved by another process */ }
+    return null
+  }
+
+  /** Replace the persisted maps with a document's content. */
+  #adopt(parsed: Partial<PersistedDocument>): void {
+    this.#totals = { ...emptyTotals(), ...parsed.totals }
+    this.#days.clear()
+    this.#sessions.clear()
+    this.#exits.clear()
+    for (const [day, bucket] of Object.entries(parsed.days ?? {})) this.#days.set(day, { ...emptyTotals(), ...bucket })
+    for (const [id, row] of Object.entries(parsed.sessions ?? {})) {
+      this.#sessions.set(id, { label: row.label ?? '', firstAt: row.firstAt ?? 0, lastAt: row.lastAt ?? 0, totals: { ...emptyTotals(), ...row.totals } })
+    }
+    for (const [id, row] of Object.entries(parsed.exits ?? {})) {
+      this.#exits.set(id, { lastAt: row.lastAt ?? 0, totals: { ...emptyTotals(), ...row.totals } })
+    }
+  }
+
+  /** Add this process's unflushed deltas onto the persisted maps. */
+  #applyPending(): void {
+    const pending = this.#pending
+    addInto(this.#totals, pending.totals)
+    for (const [day, delta] of pending.days) {
+      const bucket = this.#days.get(day) ?? emptyTotals()
+      addInto(bucket, delta)
+      this.#days.set(day, bucket)
+    }
+    for (const [id, delta] of pending.sessions) mergeSession(this.#sessions, id, delta)
+    for (const [id, delta] of pending.exits) {
+      const row = this.#exits.get(id) ?? { lastAt: 0, totals: emptyTotals() }
+      addInto(row.totals, delta.totals)
+      row.lastAt = Math.max(row.lastAt, delta.lastAt)
+      this.#exits.set(id, row)
+    }
   }
 
   /** Attribute one response's usage to one exit (and its session). */
@@ -220,30 +278,29 @@ export class UsageStore {
     delta.totalTokens = input + output
     delta.outputMs = usage.durationMs ?? 0
 
-    addInto(this.#totals, delta)
     const day = localDay(at)
-    const dayBucket = this.#days.get(day) ?? emptyTotals()
-    addInto(dayBucket, delta)
-    this.#days.set(day, dayBucket)
-
-    const exit = this.#exits.get(exitId) ?? { lastAt: 0, totals: emptyTotals() }
-    addInto(exit.totals, delta)
-    exit.lastAt = at
-    this.#exits.set(exitId, exit)
-
     const sessionId = meta.session ?? ''
-    if (sessionId !== '') {
-      const stored = this.#sessions.get(sessionId) ?? { label: '', firstAt: at, lastAt: 0, totals: emptyTotals() }
-      if (stored.label === '' && meta.label !== undefined && meta.label !== '') stored.label = meta.label
-      addInto(stored.totals, delta)
-      stored.lastAt = at
-      this.#sessions.set(sessionId, stored)
+    const label = meta.label ?? ''
+    // The same delta lands in memory (what reads see) and in the pending set
+    // (what the next flush adds onto the file).
+    for (const target of [
+      { totals: this.#totals, days: this.#days, sessions: this.#sessions, exits: this.#exits },
+      this.#pending,
+    ]) {
+      addInto(target.totals, delta)
+      const dayBucket = target.days.get(day) ?? emptyTotals()
+      addInto(dayBucket, delta)
+      target.days.set(day, dayBucket)
+      const exit = target.exits.get(exitId) ?? { lastAt: 0, totals: emptyTotals() }
+      addInto(exit.totals, delta)
+      exit.lastAt = at
+      target.exits.set(exitId, exit)
+      if (sessionId !== '') mergeSession(target.sessions, sessionId, { label, firstAt: at, lastAt: at, totals: delta })
+    }
 
-      const run = this.#runSessions.get(sessionId) ?? { label: stored.label, firstAt: at, lastAt: 0, totals: emptyTotals() }
-      if (run.label === '' && meta.label !== undefined && meta.label !== '') run.label = meta.label
-      addInto(run.totals, delta)
-      run.lastAt = at
-      this.#runSessions.set(sessionId, run)
+    if (sessionId !== '') {
+      mergeSession(this.#runSessions, sessionId, { label: this.#sessions.get(sessionId)?.label ?? label, firstAt: at, lastAt: at, totals: delta })
+      this.#cap(this.#runSessions, SESSION_CAP, (row) => row.lastAt)
     }
 
     this.#dirty = true
@@ -341,10 +398,22 @@ export class UsageStore {
     this.#timer.unref?.()
   }
 
-  /** Write the document atomically (temp file + rename); no-op when clean. */
+  /**
+   * Write the document atomically (temp file + rename); no-op when clean.
+   * The file is re-read first and this process's pending deltas are added onto
+   * it, so another process's flushes survive; only a write landing between
+   * this read and this rename can still be lost (last writer wins there).
+   */
   async flush(): Promise<void> {
     if (this.#readOnly || !this.#dirty) return
     this.load()
+    if (!this.#replaceOnFlush) {
+      const onDisk = this.#readDocument()
+      if (onDisk !== null) {
+        this.#adopt(onDisk)
+        this.#applyPending()
+      }
+    }
     this.prune()
     const document: PersistedDocument = {
       version: 1,
@@ -354,12 +423,15 @@ export class UsageStore {
       exits: Object.fromEntries(this.#exits),
       savedAt: this.#now(),
     }
-    const temp = `${this.path}.tmp`
+    // Per-process temp name: two hosts sharing the state root never write one file.
+    const temp = `${this.path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
     try {
       mkdirSync(dirname(this.path), { recursive: true })
       writeFileSync(temp, JSON.stringify(document), 'utf8')
       renameSync(temp, this.path)
       this.#dirty = false
+      this.#pending = emptyPending()
+      this.#replaceOnFlush = false
     } catch {
       // A failed write must never fail the request that triggered it; the next
       // flush retries with the same in-memory state.
@@ -392,6 +464,7 @@ export class UsageStore {
     this.load()
     this.reset()
     this.#dirty = true
+    this.#replaceOnFlush = true
     await this.flush()
   }
 
@@ -403,8 +476,22 @@ export class UsageStore {
     this.#sessions.clear()
     this.#exits.clear()
     this.#runSessions.clear()
+    this.#pending = emptyPending()
     this.#dirty = false
   }
+}
+
+/** Fold one session delta into a session map (labels: first non-empty wins). */
+function mergeSession(map: Map<string, StoredSession>, id: string, delta: StoredSession): void {
+  const row = map.get(id)
+  if (row === undefined) {
+    map.set(id, { label: delta.label, firstAt: delta.firstAt, lastAt: delta.lastAt, totals: { ...delta.totals } })
+    return
+  }
+  if (row.label === '' && delta.label !== '') row.label = delta.label
+  row.firstAt = row.firstAt === 0 ? delta.firstAt : Math.min(row.firstAt, delta.firstAt)
+  row.lastAt = Math.max(row.lastAt, delta.lastAt)
+  addInto(row.totals, delta.totals)
 }
 
 /** The process-wide ledger: adapter writes, status bridge reads. */

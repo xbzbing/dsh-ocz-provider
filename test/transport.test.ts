@@ -213,3 +213,16 @@ test('a success re-arms the free diagnosis (the outage is over)', async () => {
   await h.settle()
   assert.equal(h.pool.isUsable('127.0.0.1:30035', 'm'), true)
 })
+
+test('pardons of rows that left the table are dropped', async () => {
+  const h = harness({ answer: async () => 'http' })
+  h.pool.add(node({ id: 'gone:1', source: 'manual', exitIP: '' }))
+  h.pool.add(node({ id: 'stay:2', source: 'manual', exitIP: '' }))
+  h.verdicts.cut('gone:1')
+  await h.settle()
+  assert.deepEqual(h.verdicts.pardoned, ['gone:1'])
+  h.pool.remove('gone:1')
+  h.verdicts.cut('stay:2')
+  await h.settle()
+  assert.deepEqual(h.verdicts.pardoned, ['stay:2'], 'the removed row\'s pardon does not linger')
+})

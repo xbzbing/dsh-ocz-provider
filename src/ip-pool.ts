@@ -16,6 +16,8 @@ import { join } from 'node:path'
 import { ExitPool, gradeOf, type ExitNode } from './pool/pool.ts'
 import { LOCAL_EXIT_ID } from './pool/usage.ts'
 import { NO_EXIT_MESSAGE, exitProxyUri, type UndiciSeam } from './pool/dispatcher.ts'
+import { mayEgressLocally, settleStatus, settleTransport } from './pool/outcome.ts'
+import { parseManualProxy } from './proxy-entry.ts'
 import { setRelayEgressSeams } from './relay/egress.ts'
 import { detectProxyProtocol, type ProxyProtocol } from './pool/protocol.ts'
 import { TransportVerdicts } from './pool/transport.ts'
@@ -41,20 +43,8 @@ function dataDir(): string {
  * pool/transport.ts for diagnosis (relabel + revive, or strike) before it counts.
  */
 
-/** Parse one manual proxy string into an exit id + protocol, or null. */
-export function parseManualProxy(
-  entry: string,
-): { id: string; protocol: 'http' | 'socks5' } | null {
-  const trimmed = entry.trim()
-  if (trimmed === '') return null
-  const schemeMatch = /^([a-z0-9+.-]+):\/\//i.exec(trimmed)
-  const scheme = schemeMatch?.[1]?.toLowerCase()
-  const rest = schemeMatch ? trimmed.slice(schemeMatch[0].length) : trimmed
-  if (!/^\[[^\]]+\]|[^:]+:\d{1,5}$/.test(rest)) return null
-  if (scheme !== undefined && scheme !== 'http' && scheme !== 'socks5' && scheme !== 'https' && scheme !== 'socks4' && scheme !== 'socks5h') return null
-  const protocol = scheme === 'socks5' || scheme === 'socks4' || scheme === 'socks5h' ? 'socks5' : 'http'
-  return { id: trimmed, protocol }
-}
+/** The shared manual-entry parser (src/proxy-entry.ts), re-exported for callers of this module. */
+export { parseManualProxy }
 
 /**
  * Which health mark one probe verdict earns: a verified pass marks the exit
@@ -329,8 +319,27 @@ export async function startIpPool(
     return supervisor
   }
 
+  /**
+   * Tear the subscription layer down (no URLs left, or the pool switched off):
+   * no more fetches, sing-box stopped, and the rows it fed leave the table,
+   * because nothing serves their listeners any more. Enabling again (or adding
+   * a URL) builds a fresh fetcher.
+   */
+  const stopSubscriptions = (): void => {
+    if (subscriptions === null) return
+    subscriptions.stop()
+    subscriptions = null
+    fetcherActive = false
+    for (const node of pool.list()) {
+      if (node.source === 'subscription') pool.remove(node.id)
+    }
+  }
+
   const ensureSubscriptions = (urls: string[]): SubscriptionFetcher | null => {
-    if (urls.length === 0) return null
+    if (urls.length === 0 || config.ipPool?.enabled === false) {
+      stopSubscriptions()
+      return null
+    }
     if (subscriptions === null) {
       subscriptions = new SubscriptionFetcher(
         { ...admissionDeps, prober, supervisor: ensureSupervisor() },
@@ -574,12 +583,9 @@ export async function startIpPool(
     pick: ({ model, session }) => {
       if (config.ipPool?.enabled === false) return null
       const exitId = pool.pick(session, model)
-      if (exitId === null) {
-        return config.ipPool?.localFallback === true || pool.pinnedLocal ? null : { fail: NO_EXIT_MESSAGE }
-      }
-      const exit = pool.get(exitId)
-      if (exit === undefined) {
-        return config.ipPool?.localFallback === true || pool.pinnedLocal ? null : { fail: NO_EXIT_MESSAGE }
+      const exit = exitId === null ? undefined : pool.get(exitId)
+      if (exitId === null || exit === undefined) {
+        return mayEgressLocally(pool, config.ipPool?.localFallback === true) ? null : { fail: NO_EXIT_MESSAGE }
       }
       // The pin is serving again: re-arm the warning for the NEXT outage.
       pinSkips.delete(exitId)
@@ -589,11 +595,9 @@ export async function startIpPool(
     settle: (pick, outcome) => {
       try {
         if (outcome.transport === true) {
-          transportVerdicts.cut(pick.exitId)
-          pool.rerouteSession(pick.session)
+          settleTransport(pool, pick, (exitId) => { transportVerdicts.cut(exitId) })
         } else if (outcome.status !== undefined) {
-          const verdict = pool.recordPassive(pick.exitId, outcome.status, pick.model)
-          if (verdict !== 'ok') pool.rerouteSession(pick.session)
+          settleStatus(pool, pick, outcome.status)
         }
       } finally {
         pool.endRequest(pick.exitId)

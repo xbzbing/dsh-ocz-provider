@@ -17,7 +17,7 @@
  *      active request from this flow.
  *   2. SELECT — keep the fastest `pool.poolSize`, in speed order.
  *   3. SHRINK — re-run the conversion with only those slots, which is what
- *      actually caps the local listeners. The ports are slot-stable, so
+ *      actually caps the local listeners. Ports follow node identity, so
  *      nothing that stays selected is repointed.
  *   4. ADMIT — put the selection in the pool from its speed facts: measured
  *      rows claim `ok` with the speed-test latency/grade they displayed,
@@ -99,6 +99,8 @@ export class Onboarder {
   #selected = new Set<number>()
   /** Screened but not selected, fastest first. */
   #reserve: Candidate[] = []
+  /** Node identity per listener address from the last run (ConvertedExit.key). */
+  #keys = new Map<string, string>()
 
   constructor(deps: OnboardDeps) {
     this.#deps = deps
@@ -114,25 +116,38 @@ export class Onboarder {
     return [...this.#candidates.keys()]
   }
 
+  /** Which node each address served in the last run (handed to the next onboarder). */
+  get identities(): ReadonlyMap<string, string> {
+    return new Map(this.#keys)
+  }
+
   /**
    * One onboarding round over a freshly converted candidate list.
    *
    * Called from the subscription refresh, after the full conversion produced
-   * every candidate's own local port. `inherited` carries the addresses a
-   * previous onboarder produced, so a refresh that builds a new onboarder
-   * still prunes the ports the old conversion retired.
+   * every candidate's own local port. `inherited` / `inheritedKeys` carry the
+   * addresses and node identities a previous onboarder produced, so a refresh
+   * that builds a new onboarder still prunes retired ports and notices a port
+   * that now serves another node.
    */
-  async run(exits: ConvertedExit[], inherited: Iterable<string> = []): Promise<OnboardResult> {
+  async run(
+    exits: ConvertedExit[],
+    inherited: Iterable<string> = [],
+    inheritedKeys: ReadonlyMap<string, string> = new Map(),
+  ): Promise<OnboardResult> {
     const { pool, prober, admission, logger } = this.#deps
     // The addresses the PREVIOUS conversion produced, and the ones this one
-    // serves. sing-box assigns one local port per node INDEX, so a refresh that
-    // reorders or shrinks the subscription retires ports — and the pool would
-    // keep dialling the retired ones (see #pruneVanished).
+    // serves: a refresh that drops nodes retires ports, and the pool would keep
+    // dialling them (see #pruneVanished).
     const previous = new Set([...this.#candidates.keys(), ...inherited])
     const current = new Set(exits.map((exit) => exit.address))
+    const previousKeys = new Map([...inheritedKeys, ...this.#keys])
     this.#candidates = new Map()
     this.#selected = new Set()
     this.#reserve = []
+    this.#keys = new Map()
+    this.#pruneVanished(previous, current)
+    this.#dropReassigned(exits, previousKeys)
     const result: OnboardResult = {
       candidates: exits.length,
       screened: 0,
@@ -142,11 +157,7 @@ export class Onboarder {
       demoted: 0,
       reserve: 0,
     }
-    if (exits.length === 0) {
-      // Nothing converted: every listener the last round opened is gone.
-      this.#pruneVanished(previous, current)
-      return result
-    }
+    if (exits.length === 0) return result
 
     // 1. Speed pass: one coarse screen per candidate, through its own port.
     //    Bounded by the shared prober (same-exit serial, cross-exit capped), so
@@ -201,15 +212,30 @@ export class Onboarder {
       ranked = [...this.#candidates.values()].sort((left, right) => left.slot - right.slot)
     }
 
-    // 2. Keep what is already online — its measured facts, health, counters and
-    //    session stickiness survive a refresh — and fill the rest of the pool
-    //    with the fastest of the remainder, which becomes the reserve.
+    // 2. Keep what is already online — its health, counters and session
+    //    stickiness survive a refresh, its facts take this round's measurement —
+    //    and fill the rest of the pool with the fastest of the remainder, which
+    //    becomes the reserve. A candidate egressing from an exit IP another row
+    //    already holds is one quota bucket (§3.1): it waits at the reserve tail.
     const wanted = pool.poolSize
     const online = ranked.filter((candidate) => pool.has(candidate.address))
+    for (const candidate of online) this.#refreshFacts(candidate)
     const fresh = ranked.filter((candidate) => !pool.has(candidate.address))
     const room = Math.max(0, wanted - online.length)
-    const selected = fresh.slice(0, room)
-    this.#reserve = fresh.slice(room)
+    const selected: Candidate[] = []
+    const duplicates: Candidate[] = []
+    const reserve: Candidate[] = []
+    const claimed = new Set<string>()
+    for (const candidate of fresh) {
+      const exitIP = candidate.facts?.exitIP ?? ''
+      const taken = exitIP !== '' && (claimed.has(exitIP) || pool.exitIPHolder(exitIP) !== undefined)
+      if (taken) duplicates.push(candidate)
+      else if (selected.length < room) {
+        selected.push(candidate)
+        if (exitIP !== '') claimed.add(exitIP)
+      } else reserve.push(candidate)
+    }
+    this.#reserve = [...reserve, ...duplicates]
     this.#selected = new Set([...online, ...selected].map((candidate) => candidate.slot))
     result.online = online.length
     result.reserve = this.#reserve.length
@@ -240,20 +266,55 @@ export class Onboarder {
         result.demoted += 1
         continue
       }
-      this.#admit(candidate)
-      result.admitted += 1
+      if (this.#admit(candidate)) result.admitted += 1
     }
     result.reserve = this.#reserve.length
-    this.#pruneVanished(previous, current)
     return result
+  }
+
+  /**
+   * A port that now serves a DIFFERENT node is a new exit: the row's health,
+   * stickiness and counters belong to the node that left, so it leaves with it.
+   * Identities come from the conversion (ConvertedExit.key); exits without one
+   * are not judged.
+   */
+  #dropReassigned(exits: ConvertedExit[], previousKeys: ReadonlyMap<string, string>): void {
+    const { pool, logger } = this.#deps
+    const dropped: string[] = []
+    for (const exit of exits) {
+      if (exit.key === undefined) continue
+      const before = previousKeys.get(exit.address)
+      if (before !== undefined && before !== exit.key && pool.has(exit.address)) {
+        pool.remove(exit.address)
+        dropped.push(exit.address)
+      }
+      this.#keys.set(exit.address, exit.key)
+    }
+    if (dropped.length > 0) {
+      logger?.info(`oc2dsh: ${dropped.length} listener(s) now serve a different node; their rows start over (${dropped.join(', ')})`)
+    }
+  }
+
+  /** Write this round's speed facts onto a row that stayed online. */
+  #refreshFacts(candidate: Candidate): void {
+    const facts = candidate.facts
+    if (facts === null) return
+    const holder = this.#deps.pool.exitIPHolder(facts.exitIP)
+    this.#deps.pool.refresh(candidate.address, {
+      // An exit IP another row holds stays off this row (one bucket, one row).
+      ...(holder === undefined || holder === candidate.address ? { exitIP: facts.exitIP } : {}),
+      exitLocation: facts.exitLocation,
+      latencyMs: facts.latencyMs,
+      quality: gradeOf(facts.latencyMs),
+    })
   }
 
   /**
    * Drop pool rows whose local listener this conversion no longer serves.
    *
-   * Every address this onboarder creates is a sing-box inbound port, and ports
-   * follow node INDEX — so a subscription refresh that reorders or shrinks the
-   * node list retires ports while the pool keeps the old addresses. Dialling a
+   * Every address this onboarder creates is a sing-box inbound port, and a
+   * subscription refresh that drops nodes retires their ports while the pool
+   * keeps the old addresses. Dialling a
    * retired port fails at CONNECT ("Connection error."), which the pool reads
    * as an exit-shaped failure: it rotates, strikes the exit dead, re-admits it
    * as an unverified trusted line, and does it all again (docs §3.2).
@@ -369,7 +430,12 @@ export class Onboarder {
    * spending traffic on that exit first).
    */
   async #promoteAfterRefusal(refused: Candidate, result: OnboardResult): Promise<void> {
-    const next = this.#reserve.shift()
+    // The first reserve whose exit IP no other row holds (the refused row is leaving).
+    const index = this.#reserve.findIndex((candidate) => {
+      const holder = this.#deps.pool.exitIPHolder(candidate.facts?.exitIP ?? '')
+      return holder === undefined || holder === refused.address || holder === candidate.address
+    })
+    const next = index < 0 ? undefined : this.#reserve.splice(index, 1)[0]
     if (next === undefined) {
       this.#keepDemoted(refused)
       result.demoted += 1
@@ -387,7 +453,7 @@ export class Onboarder {
       await this.#deps.select([...nextSelection])
     } catch (err) {
       // The rebuild failed: keep the refused exit rather than losing a slot.
-      this.#reserve.unshift(next)
+      this.#reserve.splice(index, 0, next)
       this.#keepDemoted(refused)
       result.demoted += 1
       this.#deps.logger?.warn(`oc2dsh: sing-box rebuild failed while promoting ${next.address} (${message(err)}); ${refused.address} stays at the tail`)
@@ -405,8 +471,7 @@ export class Onboarder {
       this.#keepDemoted(next)
       return
     }
-    this.#admit(next)
-    result.admitted += 1
+    if (this.#admit(next)) result.admitted += 1
   }
 
   /**
@@ -418,8 +483,12 @@ export class Onboarder {
    * recordPassiveTransport), the standing liveness model (docs §4.3). Called
    * only for rows NOT yet in the table (the `fresh` slice), so it never clears
    * an existing row's bench or bans.
+   *
+   * Returns false when the pool refused the row (its exit IP is another row's
+   * quota bucket): the slot leaves the selection, and its listener closes with
+   * the next rebuild.
    */
-  #admit(candidate: Candidate): void {
+  #admit(candidate: Candidate): boolean {
     const { pool } = this.#deps
     if (!pool.has(candidate.address) && pool.isFull()) {
       // The pool is at capacity (free/manual rows landed first): make room by
@@ -428,7 +497,7 @@ export class Onboarder {
       pool.evictWorst()
     }
     const facts = candidate.facts
-    pool.add({
+    const added = pool.add({
       id: candidate.address,
       protocol: candidate.protocol,
       source: 'subscription',
@@ -439,7 +508,13 @@ export class Onboarder {
       quality: facts === null ? UNVERIFIED_QUALITY : gradeOf(facts.latencyMs),
       addedAt: Date.now(),
     })
+    if (!added) {
+      this.#selected.delete(candidate.slot)
+      this.#deps.logger?.warn(`oc2dsh: exit ${candidate.address} egresses from ${facts?.exitIP ?? '?'}, which another row already uses; not admitted`)
+      return false
+    }
     pool.markOk(candidate.address)
+    return true
   }
 
   /** Keep a refused exit as the last resort: in the pool, but at the tail. */

@@ -4,8 +4,8 @@
  * plugin will ever spawn, and only when the user's subscriptions carry
  * encrypted nodes:
  *
- *   ParsedNode[] -> config JSON (one local SOCKS5 inbound per node, port
- *   30000+ ascending) -> `sing-box check` preflight -> `sing-box run` ->
+ *   ParsedNode[] -> config JSON (one local SOCKS5 inbound per node, ports
+ *   from 30001 keyed by node identity) -> `sing-box check` preflight -> `sing-box run` ->
  *   port-readiness wait. The converted nodes return as local http-address
  *   exits and join the pool through the trusted admission path.
  *
@@ -22,7 +22,10 @@ import { existsSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+import { buildOutbound, nodeKey } from './singbox-outbound.ts'
 import type { ParsedNode } from './subscription.ts'
+
+export { buildOutbound, nodeKey }
 
 export interface SingBoxOptions {
   /** sing-box binary: PATH name or absolute path. */
@@ -42,9 +45,15 @@ export interface ConvertedExit {
   protocol: 'socks5'
   /** The source node this exit serves (diagnostics + dedupe key). */
   node: ParsedNode
-  /** The node's index in the candidate list — its stable port slot, and the
-   *  handle the onboarding passes back to reload() when it shrinks or promotes. */
+  /** The node's index in the candidate list: the handle the onboarding passes
+   *  back to reload() when it shrinks or promotes. */
   slot: number
+  /**
+   * The node's identity (its outbound config). The local port follows it across
+   * refreshes; a port that comes back serving a different key is a different
+   * exit. Absent from conversion seams that do not track identity.
+   */
+  key?: string
 }
 
 /**
@@ -91,180 +100,6 @@ function isUnroutableIPv6(host: string): boolean {
   return false
 }
 
-// -- outbound mapping (GoProxy buildOutbound, verbatim semantics) ----------
-
-const getStr = (raw: Record<string, unknown>, key: string): string => {
-  const value = raw[key]
-  return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value)
-}
-const getStrDefault = (raw: Record<string, unknown>, key: string, fallback: string): string => {
-  const value = getStr(raw, key)
-  return value !== '' ? value : fallback
-}
-const getInt = (raw: Record<string, unknown>, key: string): number => {
-  const value = Number(raw[key])
-  return Number.isFinite(value) ? value : 0
-}
-const getBool = (raw: Record<string, unknown>, key: string): boolean => raw[key] === true
-
-function applyTLS(raw: Record<string, unknown>, out: Record<string, unknown>): void {
-  const hasTLS =
-    getBool(raw, 'tls') ||
-    getStr(raw, 'sni') !== '' ||
-    getStr(raw, 'client-fingerprint') !== '' ||
-    // reality implies TLS even without an explicit sni (vless reality nodes
-    // sometimes carry only reality-opts)
-    (raw['reality-opts'] !== undefined && typeof raw['reality-opts'] === 'object')
-  if (!hasTLS) return
-  const tls: Record<string, unknown> = { enabled: true }
-  const sni = getStr(raw, 'sni') || getStr(raw, 'servername')
-  if (sni !== '') tls.server_name = sni
-  if (getBool(raw, 'skip-cert-verify')) tls.insecure = true
-  const alpn = raw.alpn
-  if (Array.isArray(alpn)) {
-    const list = alpn.filter((entry): entry is string => typeof entry === 'string')
-    if (list.length > 0) tls.alpn = list
-  }
-  const fingerprint = getStr(raw, 'client-fingerprint')
-  if (fingerprint !== '') tls.utls = { enabled: true, fingerprint }
-  const reality = raw['reality-opts']
-  if (reality && typeof reality === 'object') {
-    const opts = reality as Record<string, unknown>
-    tls.reality = {
-      enabled: true,
-      public_key: getStr(opts, 'public-key'),
-      short_id: getStr(opts, 'short-id'),
-    }
-  }
-  out.tls = tls
-}
-
-function applyTransport(raw: Record<string, unknown>, out: Record<string, unknown>): void {
-  const network = getStrDefault(raw, 'network', 'tcp')
-  if (network === 'ws') {
-    const transport: Record<string, unknown> = { type: 'ws' }
-    const opts = raw['ws-opts']
-    if (opts && typeof opts === 'object') {
-      const ws = opts as Record<string, unknown>
-      const path = getStr(ws, 'path')
-      if (path !== '') transport.path = path
-      const headers = ws.headers
-      if (headers && typeof headers === 'object') transport.headers = headers
-    }
-    out.transport = transport
-  } else if (network === 'grpc') {
-    const transport: Record<string, unknown> = { type: 'grpc' }
-    const opts = raw['grpc-opts']
-    if (opts && typeof opts === 'object') {
-      const sn = getStr(opts as Record<string, unknown>, 'grpc-service-name')
-      if (sn !== '') transport.service_name = sn
-    }
-    out.transport = transport
-  } else if (network === 'h2') {
-    const transport: Record<string, unknown> = { type: 'http' }
-    const opts = raw['h2-opts']
-    if (opts && typeof opts === 'object') {
-      const h2 = opts as Record<string, unknown>
-      const path = getStr(h2, 'path')
-      if (path !== '') transport.path = path
-      const host = h2.host
-      if (Array.isArray(host) && typeof host[0] === 'string') transport.host = [host[0]]
-    }
-    out.transport = transport
-  } else if (network === 'httpupgrade') {
-    const transport: Record<string, unknown> = { type: 'httpupgrade' }
-    const opts = raw['ws-opts']
-    if (opts && typeof opts === 'object') {
-      const ws = opts as Record<string, unknown>
-      const path = getStr(ws, 'path')
-      if (path !== '') transport.path = path
-      const headers = ws.headers
-      if (headers && typeof headers === 'object') {
-        const host = (headers as Record<string, unknown>).Host
-        if (typeof host === 'string') transport.host = host
-      }
-    }
-    out.transport = transport
-  }
-}
-
-/** One ParsedNode -> one sing-box outbound (GoProxy buildOutbound). */
-export function buildOutbound(node: ParsedNode, tag: string): Record<string, unknown> | null {
-  const raw = node.raw
-  const out: Record<string, unknown> = {
-    tag,
-    server: node.server,
-    server_port: node.port, // sing-box uses server_port, not port
-  }
-  switch (node.type) {
-    case 'vmess':
-      out.type = 'vmess'
-      out.uuid = getStr(raw, 'uuid')
-      out.alter_id = getInt(raw, 'alterId')
-      out.security = getStrDefault(raw, 'cipher', 'auto')
-      applyTLS(raw, out)
-      applyTransport(raw, out)
-      break
-    case 'vless':
-      out.type = 'vless'
-      out.uuid = getStr(raw, 'uuid')
-      const flow = getStr(raw, 'flow')
-      if (flow !== '') out.flow = flow
-      applyTLS(raw, out)
-      applyTransport(raw, out)
-      break
-    case 'trojan':
-      out.type = 'trojan'
-      out.password = getStr(raw, 'password')
-      applyTLS(raw, out)
-      applyTransport(raw, out)
-      break
-    case 'shadowsocks': {
-      out.type = 'shadowsocks'
-      out.method = getStr(raw, 'cipher') || getStr(raw, 'method')
-      out.password = getStr(raw, 'password')
-      const plugin = getStr(raw, 'plugin')
-      if (plugin !== '') {
-        out.plugin = plugin
-        const opts = raw['plugin-opts']
-        if (opts && typeof opts === 'object') {
-          out.plugin_opts = Object.entries(opts as Record<string, unknown>)
-            .map(([key, value]) => `${key}=${String(value)}`)
-            .join(';')
-        }
-      }
-      break
-    }
-    case 'hysteria2':
-      out.type = 'hysteria2'
-      out.password = getStr(raw, 'password')
-      // TLS-mandatory (QUIC + TLS), like anytls below. A node whose Clash
-      // entry carries no sni/tls/client-fingerprint/reality-opts would emit
-      // an outbound with no tls at all, and `sing-box check` then rejects the
-      // ENTIRE config ("initialize outbound[N]: TLS required"), parking every
-      // node of the subscription over a few such entries (sing-box 1.14.3).
-      applyTLS({ ...raw, tls: true }, out)
-      break
-    case 'tuic':
-      out.type = 'tuic'
-      out.uuid = getStr(raw, 'uuid')
-      out.password = getStr(raw, 'password')
-      out.congestion_control = getStrDefault(raw, 'congestion-controller', 'bbr')
-      // TUIC is TLS-mandatory too (measured the same way as hysteria2).
-      applyTLS({ ...raw, tls: true }, out)
-      break
-    case 'anytls':
-      out.type = 'anytls'
-      out.password = getStr(raw, 'password')
-      // anytls is TLS-mandatory (GoProxy forceTLS)
-      applyTLS({ ...raw, tls: true }, out)
-      break
-    default:
-      return null
-  }
-  return out
-}
-
 // -- config generation --------------------------------------------------------
 
 export interface GeneratedConfig {
@@ -289,15 +124,16 @@ export interface GeneratedConfig {
  * The full sing-box config for a node list (GoProxy generateConfig).
  *
  * `keep` restricts the emitted inbounds to those candidate indexes (the
- * onboarding's selection). Ports are assigned from the node's position in the
- * CANDIDATE list, never from its position in the emitted subset — so shrinking
+ * onboarding's selection). `assigned` carries the supervisor's per-node ports
+ * (see `SingBoxSupervisor`); without it a node's port is its position in the
+ * CANDIDATE list, never its position in the emitted subset — so shrinking
  * the config to the fastest N, or promoting a reserve later, leaves every node
  * that stays selected on the same local port. That stability is what lets the
  * pool keep its exit ids (and their health, counters and session stickiness)
  * across a rebuild; a positional subset would renumber every survivor and
  * silently repoint the pool at different nodes.
  */
-export function generateConfig(nodes: ParsedNode[], basePort = 30_000, keep?: readonly number[]): GeneratedConfig {
+export function generateConfig(nodes: ParsedNode[], basePort = 30_000, keep?: readonly number[], assigned?: readonly number[]): GeneratedConfig {
   const ports: number[] = []
   const inbounds: Array<Record<string, unknown>> = []
   const outbounds: Array<Record<string, unknown>> = []
@@ -316,7 +152,11 @@ export function generateConfig(nodes: ParsedNode[], basePort = 30_000, keep?: re
       ports.push(0)
       return
     }
-    const port = basePort + 1 + index
+    const port = assigned !== undefined ? assigned[index] ?? 0 : basePort + 1 + index
+    if (port <= 0) {
+      ports.push(0)
+      return
+    }
     ports.push(port)
     inbounds.push({
       type: 'socks',
@@ -356,6 +196,16 @@ function canConnect(port: number, timeoutMs = 1_000): Promise<boolean> {
   })
 }
 
+/**
+ * One sing-box child at a time. `reload()` and `stop()` run under one mutex, so
+ * two refreshes can never leave an orphaned child holding the same ports, and a
+ * reload requested before a `stop()` never spawns after it.
+ *
+ * Ports follow node IDENTITY (`nodeKey`), not list position: a node keeps its
+ * port across refreshes and reorders, new nodes take the lowest free port, and
+ * a port whose node vanished can be reused by a new node — the onboarding sees
+ * the key change and treats the address as a new exit (docs/ip-pool.md §4.7).
+ */
 export class SingBoxSupervisor {
   readonly #options: SingBoxOptions
   #child: ChildProcess | null = null
@@ -365,6 +215,12 @@ export class SingBoxSupervisor {
   /** Port per node of the last reload(), index-aligned (`0` = no inbound). */
   #ports: number[] = []
   #nodes: ParsedNode[] = []
+  /** Port per node identity, carried across reloads. */
+  #portByKey = new Map<string, number>()
+  /** Serializes reload/stop. */
+  #lock: Promise<void> = Promise.resolve()
+  /** Bumped by every stop(); a reload requested before it never spawns. */
+  #stopEpoch = 0
 
   constructor(options: SingBoxOptions) {
     this.#options = options
@@ -388,6 +244,12 @@ export class SingBoxSupervisor {
     return [...this.#ports]
   }
 
+  #exclusive<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.#lock.then(job, job)
+    this.#lock = run.then(() => undefined, () => undefined)
+    return run
+  }
+
   /** The binary location: absolute path as-is; bare name must exist on PATH
    *  (verified through `sing-box version` — LookPath equivalent). */
   async #resolveBinary(): Promise<string> {
@@ -406,14 +268,54 @@ export class SingBoxSupervisor {
     return bin
   }
 
+  /** Per-node ports for this node list: identities keep theirs, new ones take the lowest free. */
+  #assignPorts(nodes: ParsedNode[]): number[] {
+    const base = this.#options.basePort ?? 30_000
+    const seen = new Map<string, number>()
+    // Byte-identical nodes are distinct listeners: the occurrence count keeps their keys apart.
+    const keys = nodes.map((node) => {
+      const key = nodeKey(node)
+      if (key === '') return ''
+      const occurrence = seen.get(key) ?? 0
+      seen.set(key, occurrence + 1)
+      return `${occurrence}:${key}`
+    })
+    const ports = keys.map(() => 0)
+    const used = new Set<number>()
+    const next = new Map<string, number>()
+    keys.forEach((key, index) => {
+      const previous = key === '' ? undefined : this.#portByKey.get(key)
+      if (previous === undefined || used.has(previous)) return
+      ports[index] = previous
+      used.add(previous)
+      next.set(key, previous)
+    })
+    let free = base + 1
+    keys.forEach((key, index) => {
+      if (key === '' || ports[index] !== 0) return
+      while (used.has(free)) free += 1
+      ports[index] = free
+      used.add(free)
+      next.set(key, free)
+    })
+    this.#portByKey = next
+    return ports
+  }
+
   /**
    * Full reload: regenerate the config for the node list and (re)start.
    *
    * `keep` (candidate indexes) emits only those nodes' inbounds — the
    * onboarding's "keep the fastest N" and its later reserve promotions — while
-   * every kept node stays on its own stable port. Absent = every node.
+   * every kept node stays on its own port. Absent = every node.
    */
-  async reload(input: ParsedNode[], keep?: readonly number[]): Promise<ConvertedExit[]> {
+  reload(input: ParsedNode[], keep?: readonly number[]): Promise<ConvertedExit[]> {
+    const epoch = this.#stopEpoch
+    return this.#exclusive(() => this.#reload(input, keep, epoch))
+  }
+
+  async #reload(input: ParsedNode[], keep: readonly number[] | undefined, epoch: number): Promise<ConvertedExit[]> {
+    if (epoch !== this.#stopEpoch) throw new Error('sing-box was stopped; reload abandoned')
     // One pass splits dialable nodes from placeholder servers (private /
     // loopback / link-local literals a public subscription should never hand
     // out); only the dialable half reaches the config.
@@ -433,13 +335,18 @@ export class SingBoxSupervisor {
     // selection that matches nothing is the same state: nothing to run.
     const emit = keep === undefined ? nodes.length : keep.length
     if (nodes.length === 0 || emit === 0) {
-      await this.stop()
+      await this.#stopChild()
       this.#nodes = []
       this.#ports = []
       return []
     }
     const binary = await this.#resolveBinary()
-    const { config, ports } = generateConfig(nodes, this.#options.basePort ?? 30_000, keep)
+    const assigned = this.#assignPorts(nodes)
+    const invalid = assigned.filter((port) => port === 0).length
+    if (invalid > 0 && keep === undefined) {
+      this.#options.logger?.warn(`oc2dsh: sing-box conversion skipped ${invalid} node(s) with an unsupported type or an invalid config (bad port, missing credentials)`)
+    }
+    const { config, ports } = generateConfig(nodes, this.#options.basePort ?? 30_000, keep, assigned)
 
     // atomic config write (tmp + rename)
     await mkdir(this.#dataDir, { recursive: true })
@@ -458,7 +365,8 @@ export class SingBoxSupervisor {
       throw new Error('sing-box config check failed (run `sing-box check` on the generated config for details)')
     }
 
-    await this.stop()
+    await this.#stopChild()
+    if (epoch !== this.#stopEpoch) throw new Error('sing-box was stopped; reload abandoned')
     this.#child = spawn(binary, ['run', '-c', this.#configPath, '-D', this.#dataDir], {
       stdio: ['ignore', 'ignore', 'pipe'],
     })
@@ -470,11 +378,16 @@ export class SingBoxSupervisor {
       const text = chunk.toString('utf8').trim()
       if (text.length > 0) this.#options.logger?.info(`[sing-box] ${text}`)
     })
-    child.once('exit', () => {
-      if (this.#child === child) this.#running = false
+    child.once('exit', (code, signal) => {
+      // Our own stop() clears #child first, so only an unexpected exit lands here.
+      if (this.#child !== child) return
+      this.#running = false
+      this.#options.logger?.warn(`oc2dsh: sing-box exited unexpectedly (${signal !== null ? `signal ${signal}` : `code ${code}`}); converted exits are unreachable until the next refresh`)
     })
-    child.once('error', () => {
-      if (this.#child === child) this.#running = false
+    child.once('error', (err) => {
+      if (this.#child !== child) return
+      this.#running = false
+      this.#options.logger?.warn(`oc2dsh: sing-box failed: ${err.message}`)
     })
 
     // port readiness (GoProxy: 20 x 500ms over the first port)
@@ -498,43 +411,70 @@ export class SingBoxSupervisor {
     nodes.forEach((node, index) => {
       const port = ports[index] ?? 0
       if (port <= 0) return
-      exits.push({ address: `127.0.0.1:${port}`, protocol: 'socks5', node, slot: index })
+      exits.push({ address: `127.0.0.1:${port}`, protocol: 'socks5', node, slot: index, key: nodeKey(node) })
     })
     return exits
   }
 
-  /** Graceful stop: interrupt -> grace -> kill (taskkill /T on Windows). */
-  async stop(): Promise<void> {
+  /**
+   * Stop the child: interrupt -> grace -> kill (taskkill /T on Windows). Any
+   * reload requested before this call is abandoned instead of spawning later.
+   */
+  stop(): Promise<void> {
+    this.#stopEpoch += 1
+    return this.#exclusive(() => this.#stopChild())
+  }
+
+  async #stopChild(): Promise<void> {
     const child = this.#child
-    if (child === null || child.exitCode !== null) {
-      this.#running = false
-      return
-    }
     this.#child = null
+    this.#running = false
+    if (child === null || exited(child)) return
+    // Listen before signalling: an exit that lands between kill() and a later
+    // `once('exit')` would never be seen.
+    const gone = new Promise<void>((resolve) => {
+      if (exited(child)) resolve()
+      else child.once('exit', () => resolve())
+    })
     if (process.platform === 'win32' && child.pid) {
-      // graceful attempt first, then /T /F
-      await new Promise<void>((resolve) => {
-        const killer = spawn('taskkill', ['/T', '/PID', String(child.pid)], { stdio: 'ignore' })
-        killer.once('exit', () => resolve())
-        killer.once('error', () => resolve())
-      })
+      await taskkill(['/T', '/PID', String(child.pid)])
     } else {
       child.kill('SIGINT')
     }
-    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()))
-    const grace = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), STOP_GRACE_MS))
-    if ((await Promise.race([exited.then(() => 'exit' as const), grace])) === 'timeout') {
-      if (process.platform === 'win32' && child.pid) {
-        await new Promise<void>((resolve) => {
-          const killer = spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' })
-          killer.once('exit', () => resolve())
-          killer.once('error', () => resolve())
-        })
-      } else {
-        child.kill('SIGKILL')
-      }
-      await exited
+    if (await settles(gone, STOP_GRACE_MS)) return
+    if (process.platform === 'win32' && child.pid) {
+      await taskkill(['/T', '/F', '/PID', String(child.pid)])
+    } else {
+      child.kill('SIGKILL')
     }
-    this.#running = false
+    if (!(await settles(gone, STOP_GRACE_MS))) {
+      this.#options.logger?.warn(`oc2dsh: sing-box (pid ${child.pid ?? '?'}) did not exit after SIGKILL; giving up on it`)
+    }
   }
+}
+
+/** True once the child is gone, by exit code OR by signal. */
+function exited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
+/** Did `promise` settle within `ms`? */
+async function settles(promise: Promise<void>, ms: number): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms)
+  })
+  try {
+    return await Promise.race([promise.then(() => true as const), timeout])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function taskkill(args: string[]): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const killer = spawn('taskkill', args, { stdio: 'ignore' })
+    killer.once('exit', () => resolve())
+    killer.once('error', () => resolve())
+  })
 }

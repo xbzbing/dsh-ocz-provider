@@ -26,6 +26,10 @@ import {
   type LocalEgressConnectOptions,
   type LocalIpFamily,
 } from './local-family.ts'
+import { parseManualProxy } from '../proxy-entry.ts'
+import { ExitAgentCache } from './agent-cache.ts'
+import { observeExitRequest } from './observer.ts'
+import { mayEgressLocally } from './outcome.ts'
 import type { ExitPool } from './pool.ts'
 import { DIRECT_EXIT_ID, LOCAL_EXIT_ID } from './usage.ts'
 
@@ -249,10 +253,18 @@ export function isLoopback(host: string): boolean {
   return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1'
 }
 
-/** Map an exit address to a ProxyAgent URI ('h:1' -> 'http://h:1'). */
+/**
+ * The URI an exit is dialled with: its host:port under the row's CURRENT
+ * protocol, never the scheme the id was typed with, so a relabelled row dials
+ * what the listener speaks. `https` survives only for an https entry still
+ * labelled http.
+ */
 export function exitProxyUri(exitId: string, protocol: 'http' | 'socks5'): string {
-  const scheme = protocol === 'socks5' ? 'socks5' : 'http'
-  return PROXY_PROTOCOL_PREFIX.test(exitId) ? exitId : `${scheme}://${exitId}`
+  const trimmed = exitId.trim()
+  const parsed = parseManualProxy(trimmed)
+  const authority = parsed !== null ? `${parsed.host}:${parsed.port}` : trimmed.replace(PROXY_PROTOCOL_PREFIX, '')
+  if (protocol === 'socks5') return `socks5://${authority}`
+  return /^https:\/\//i.test(trimmed) ? `https://${authority}` : `http://${authority}`
 }
 
 /**
@@ -271,7 +283,6 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   #undici: UndiciSeam
   #proxyHosts: Set<string>
   #proxyPathPrefixes: string[]
-  #agentLruCap: number
   #sentinelMs: number
   #headersMs: number
   /** 本地出口兜底 in force (docs §3.3); false = pool-only, never local. */
@@ -298,9 +309,8 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
    * family is not what 本机使用 IPv4 还是 IPv6 promises.
    */
   #localEgress: Dispatcher
-  /** LRU of per-exit ProxyAgents (docs/ip-pool.md 2, exit multi-instance). */
-  #agents = new Map<string, Dispatcher>()
-  #agentsOrder: string[] = []
+  /** Per-exit ProxyAgents (docs/ip-pool.md 2, exit multi-instance). */
+  #agents: ExitAgentCache
   #closed = false
 
   constructor(options: PoolRoutingOptions) {
@@ -308,7 +318,14 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     this.#undici = options.undici
     this.#proxyHosts = new Set(resolveProxyHosts(options.proxyHosts))
     this.#proxyPathPrefixes = resolveProxyPathPrefixes(options.proxyPathPrefixes)
-    this.#agentLruCap = options.agentLruCap ?? 16
+    // dsh-llm-proxy's measured keep-alive pitfall: the ProxyAgent's proxy-side
+    // pool reuses silently-dead CONNECT tunnels; pipelining: 0 forces a fresh
+    // tunnel per request.
+    const seam = options.undici
+    this.#agents = new ExitAgentCache(options.agentLruCap ?? 16, (uri) => new seam.ProxyAgent({
+      uri,
+      clientFactory: (_origin: URL | string, opts?: unknown) => new seam.Agent({ ...(opts as object), pipelining: 0 }),
+    }))
     this.#sentinelMs = options.sentinelMs ?? 2_000
     // Window (b) must stay looser than the ADAPTER's own first-event budget,
     // not just looser than window (a): the adapter tolerates a slow first
@@ -352,11 +369,11 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /**
    * Live re-apply of 本机出口协议族 (settings page, local-family.ts).
    *
-   * A family is a property of the socket, so the switch means a NEW agent: the
-   * old one is destroyed after the swap (its pooled connections were dialled
-   * under the previous family and would otherwise keep serving it). A no-op
-   * position does not churn the socket pool — `auto` on an IPv4-only machine
-   * resolves to the same empty options twice.
+   * A family is a property of the socket, so the switch means a NEW agent; the
+   * old one is closed after the swap, so requests already on it finish while
+   * nothing new is dialled under the previous family. A no-op position does
+   * not churn the socket pool — `auto` on an IPv4-only machine resolves to the
+   * same empty options twice.
    */
   setLocalIpFamily(value: unknown): void {
     const family = resolveLocalIpFamily(value)
@@ -366,7 +383,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     if (previous.family === next.family && previous.lookup === next.lookup) return
     const dying = this.#localEgress
     this.#localEgress = new this.#undici.Agent({ connect: next })
-    if (!this.#closed) void dying.destroy().catch(() => {})
+    if (!this.#closed) void dying.close().catch(() => {})
   }
 
   /** 本机出口协议族 in force (diagnostics / status bridge). */
@@ -444,42 +461,16 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
    * it, but the operator asked for this machine, so the request rides direct.
    */
   #poolMissed(context: RoutingContext, options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean {
-    if (this.#localFallback || this.#pool.pinnedLocal) return this.#directFallback(context, options, handler)
+    if (mayEgressLocally(this.#pool, this.#localFallback)) return this.#directFallback(context, options, handler)
     return this.#failClosed(handler)
   }
 
-  /** The agent for one exit, LRU-capped (docs/ip-pool.md 2). */
+  /** The agent for one exit, dialling its current protocol (docs/ip-pool.md 2). */
   #agentFor(exitId: string): Dispatcher | null {
-    const cached = this.#agents.get(exitId)
-    if (cached) {
-      const index = this.#agentsOrder.indexOf(exitId)
-      if (index >= 0) this.#agentsOrder.splice(index, 1)
-      this.#agentsOrder.push(exitId)
-      return cached
-    }
     const exit = this.#pool.get(exitId)
     if (!exit) return null
     try {
-      // dsh-llm-proxy's measured keep-alive pitfall (routing-dispatcher.js):
-      // the ProxyAgent's proxy-side pool reuses silently-dead CONNECT
-      // tunnels; pipelining: 0 forces a fresh tunnel per request.
-      const seam = this.#undici
-      const agent = new seam.ProxyAgent({
-        uri: exitProxyUri(exit.id, exit.protocol),
-        clientFactory: (origin: URL | string, opts?: unknown) =>
-          new seam.Agent({ ...(opts as object), pipelining: 0 }),
-      })
-      this.#agents.set(exitId, agent)
-      this.#agentsOrder.push(exitId)
-      if (this.#agentsOrder.length > this.#agentLruCap) {
-        const evict = this.#agentsOrder.shift()
-        if (evict !== undefined) {
-          const old = this.#agents.get(evict)
-          this.#agents.delete(evict)
-          void old?.destroy().catch(() => {})
-        }
-      }
-      return agent
+      return this.#agents.get(exitId, exitProxyUri(exit.id, exit.protocol))
     } catch (err) {
       this.#logger?.warn(`oc2dsh: failed to build proxy agent for ${exitId}: ${err instanceof Error ? err.message : String(err)}`)
       return null
@@ -539,177 +530,28 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     // the request lifecycle (begin at pick, end in the observer's terminals).
     context.exitId = exitId
     this.#pool.beginRequest(exitId)
-    return agent.dispatch(options, this.#observe(exitId, model, session, handler))
-  }
-
-  /**
-   * Wrap the downstream handler with the passive-signal observer
-   * (docs/ip-pool.md §4.2 rule table, §4.3 被动): the real request's own
-   * outcome feeds the two-tier health — free liveness data no probe spends
-   * quota on. Body bytes stream through untouched; only the response start
-   * line and terminal transport errors are read.
-   *
-   * Forwarding discipline (measured against undici 8.10): the fetch handler's
-   * methods live on a prototype with private state, so a spread would strip
-   * them and Object.create delegation would re-enter them with the wrong
-   * `this`. The wrapper is a fresh plain object that forwards every
-   * DispatchHandler callback to the original with the original as `this` —
-   * the same shape undici's own wrappers use.
-   *
-   * Response-silence sentinel: undici's Pool fires NONE of the handler
-   * callbacks (not even onResponseError) when a proxy CONNECT fails at the
-   * connection stage — the failure surfaces only as a fetch rejection (and
-   * an APIConnectionError/"Connection error." upstream). Without a fallback
-   * the passive signal is blind exactly when a dead exit needs to be evicted.
-   * So the wrapper arms a timer at dispatch time; any handler callback
-   * disarms it, and silence past the deadline counts as a transport failure
-   * (dead strike + session reroute). The sentinel never aborts the request
-   * itself — fetch and pi-ai own their own timeouts.
-   */
-  #observe(exitId: string, model: string, session: string, handler: Dispatcher.DispatchHandler): Dispatcher.DispatchHandler {
-    const pool = this.#pool
-    const forward = (method: keyof Dispatcher.DispatchHandler, args: unknown[]): void => {
-      const fn = handler[method]
-      if (typeof fn === 'function') (fn as (...a: unknown[]) => void).apply(handler, args)
-    }
-    let classified = false
-    // Request-lifecycle bookkeeping (exit-stats): exactly one end per
-    // dispatch, whichever terminal lands first — response end, transport
-    // error, upgrade, or the silence sentinel firing with no callback at all.
-    let ended = false
-    const end = (): void => {
-      if (ended) return
-      ended = true
-      pool.endRequest(exitId)
-    }
-    const classify = (statusCode: number): void => {
-      if (classified) return
-      classified = true
-      const verdict = pool.recordPassive(exitId, statusCode, model)
-      // A degraded sticky exit must not keep the session pinned to it.
-      if (verdict !== 'ok') pool.rerouteSession(session)
-    }
-    // The most recent controller the wrapper has seen (undici hands a fresh
-    // one to each handler callback; abort must go to the live one).
-    let liveController: { abort?(reason: Error): void } | null = null
-    const classifyTransport = (why: string): void => {
-      if (classified) return
-      classified = true
-      // The cut goes to the runtime's judge when one is wired (pool/transport.ts
-      // decides between a mislabelled listener, a transient cut and a dead
-      // line); with no judge, a cut is a strike.
-      if (this.#onTransportCut !== undefined) this.#onTransportCut(exitId)
-      else pool.recordPassiveTransport(exitId)
-      pool.rerouteSession(session)
-      end()
-      // A strike retires the exit (`markDeadStrike`) and `isUsable()` hides it
-      // from pick(). With no periodic probe, liveness is judged by real
-      // requests only: a struck row leaves through the strike threshold (free),
-      // the reserve swap (subscription), the card's 探测 action, or the
-      // diagnosis above when the row was never measured (manual/pinned). Log
-      // WHY: the two silence windows and a real transport error mean very
-      // different things, and without this line the three are indistinguishable
-      // after the fact.
-      this.#logger?.warn(`oc2dsh: exit ${exitId} transport cut (${why})`)
-      // After the tunnel stands, a dead-behind-the-tunnel exit answers NOTHING
-      // — no headers, no onResponseError — and neither fetch nor pi-ai owns a
-      // body-silence timeout, so the request hangs forever. The sentinel
-      // therefore does more than bookkeeping: it tears the dispatch down BOTH
-      // ways — abort the controller when we have one, and when the blackhole
-      // path never handed us a single callback (no controller exists)
-      // synthesize the response-error the handler owes, so fetch rejects at
-      // once, pi-ai turns that into an error event, and the adapter's rotate
-      // loop gets to move the session to a live exit.
-      const reason = new Error('oc2dsh: exit response silence')
-      if (typeof handler.onResponseError === 'function') {
-        ;(handler.onResponseError as (c: unknown, e: Error) => void).call(handler, liveController ?? ({} as never), reason)
-      }
-      liveController?.abort?.(reason)
-    }
-    // Silence deadline, in two windows: (a) dispatch -> first callback (a dead
-    // CONNECT fires NONE of the handler callbacks, undici 8.10 measured); (b)
-    // tunnel established -> response headers (onRequestStart disarms window
-    // (a) only). Window (b) must be MUCH looser than (a): the tunnel standing
-    // proves the exit is alive, and the remaining wait is the LLM upstream
-    // composing the first token (1.7-2.7s measured), so a 2s window (b) kills
-    // healthy streams. Body pacing stays uncovered (a live stream disarms at
-    // onResponseStart); (a) keeps sitting under the host's 1-5s retry cadence
-    // and the coarse-screen latency gate (3s).
-    const armSentinel = (): void => {
-      clearTimeout(sentinel)
-      const window = sawRequestStart ? this.#headersMs : this.#sentinelMs
-      sentinel = setTimeout(
-        () => classifyTransport(sawRequestStart
-          ? `no response headers within ${this.#headersMs}ms of request start`
-          : `no request start within ${this.#sentinelMs}ms of dispatch (proxy CONNECT never completed)`),
-        window,
-      )
-      sentinel.unref?.()
-    }
-    let sawRequestStart = false
-    let sentinel: NodeJS.Timeout | undefined = undefined
-    armSentinel()
-    const disarm = (): void => {
-      clearTimeout(sentinel)
-    }
-    return {
-      onRequestStart: (controller, context) => {
-        liveController = controller
-        // window (a) ends; window (b) begins: headers must still arrive,
-        // on the looser upstream-composition budget (see armSentinel)
-        sawRequestStart = true
-        armSentinel()
-        forward('onRequestStart', [controller, context])
-      },
-      onRequestUpgrade: (controller, statusCode, headers, socket) => {
-        liveController = controller
-        disarm()
-        end()
-        forward('onRequestUpgrade', [controller, statusCode, headers, socket])
-      },
-      onResponseStart: (controller, statusCode, headers, statusMessage) => {
-        liveController = controller
-        disarm()
-        classify(statusCode)
-        forward('onResponseStart', [controller, statusCode, headers, statusMessage])
-      },
-      onResponseData: (controller, chunk) => {
-        liveController = controller
-        forward('onResponseData', [controller, chunk])
-      },
-      onResponseEnd: (controller, trailers) => {
-        liveController = controller
-        disarm()
-        end()
-        forward('onResponseEnd', [controller, trailers])
-      },
-      onResponseError: (controller, error) => {
-        liveController = controller
-        disarm()
-        classifyTransport(`transport error: ${error instanceof Error ? error.message : String(error)}`)
-        end()
-        forward('onResponseError', [controller, error])
-      },
-      onResponseStarted: () => {
-        disarm()
-        forward('onResponseStarted', [])
-      },
-      onBodySent: (chunk) => forward('onBodySent', [chunk]),
-      onRequestSent: () => forward('onRequestSent', []),
-    }
+    return agent.dispatch(options, observeExitRequest({
+      pool: this.#pool,
+      exitId,
+      model,
+      session,
+      sentinelMs: this.#sentinelMs,
+      headersMs: this.#headersMs,
+      onTransportCut: this.#onTransportCut,
+      logger: this.#logger,
+    }, handler))
   }
 
   close(): Promise<void> {
     this.#closed = true
-    const jobs = [this.#direct.close(), this.#localEgress.close(), ...[...this.#agents.values()].map((a) => a.close())]
+    const jobs = [this.#direct.close(), this.#localEgress.close(), ...this.#agents.agents().map((a) => a.close())]
     return Promise.all(jobs).then(() => undefined)
   }
 
   destroy(): Promise<void> {
     this.#closed = true
-    const jobs = [this.#direct.destroy(), this.#localEgress.destroy(), ...[...this.#agents.values()].map((a) => a.destroy())]
+    const jobs = [this.#direct.destroy(), this.#localEgress.destroy(), ...this.#agents.agents().map((a) => a.destroy())]
     this.#agents.clear()
-    this.#agentsOrder = []
     return Promise.all(jobs).then(() => undefined)
   }
 }

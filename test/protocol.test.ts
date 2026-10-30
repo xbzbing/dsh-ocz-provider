@@ -110,3 +110,65 @@ test('a closed port is undecided and answers fast', async () => {
 test('an unparsable address is undecided without touching the network', async () => {
   assert.equal(await detectProxyProtocol('not-an-address'), null)
 })
+
+/** A listener that answers by request line: `reply(line)` returns the bytes and their delay. */
+function scripted(reply: (line: string) => { bytes: string; delayMs: number } | null): Promise<Listening> {
+  return new Promise((resolve) => {
+    const sockets = new Set<net.Socket>()
+    const server = net.createServer((socket) => {
+      sockets.add(socket)
+      socket.on('error', () => {})
+      socket.once('data', (chunk: Buffer) => {
+        const line = chunk.toString('latin1').split('\r\n')[0] ?? ''
+        const answer = reply(line)
+        if (answer === null) {
+          socket.destroy()
+          return
+        }
+        setTimeout(() => { if (!socket.destroyed) socket.write(answer.bytes) }, answer.delayMs)
+      })
+    })
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address !== null ? address.port : 0
+      resolve({
+        port,
+        close: () => new Promise<void>((done) => {
+          for (const socket of sockets) socket.destroy()
+          server.close(() => done())
+        }),
+      })
+    })
+  })
+}
+
+test('detectProxyProtocol: a proxy that dials before answering CONNECT is still recognised as http', async () => {
+  // squid/tinyproxy resolve the CONNECT target first and outlast the probe
+  // timeout; the origin-form request is answered at once.
+  const proxy = await scripted((line) => line.startsWith('CONNECT')
+    ? { bytes: 'HTTP/1.1 504 Gateway Timeout\r\n\r\n', delayMs: 5_000 }
+    : { bytes: 'HTTP/1.1 400 Bad Request\r\n\r\n', delayMs: 0 })
+  try {
+    assert.equal(await detectProxyProtocol(`127.0.0.1:${proxy.port}`, { timeoutMs: 300 }), 'http')
+  } finally {
+    await proxy.close()
+  }
+})
+
+test('detectProxyProtocol: a proxy that drops origin-form requests is found through CONNECT', async () => {
+  const proxy = await scripted((line) => line.startsWith('CONNECT') ? { bytes: 'HTTP/1.1 403 Forbidden\r\n\r\n', delayMs: 0 } : null)
+  try {
+    assert.equal(await detectProxyProtocol(`127.0.0.1:${proxy.port}`, { timeoutMs: 300 }), 'http')
+  } finally {
+    await proxy.close()
+  }
+})
+
+test('detectProxyProtocol: a listener that never answers stays undecided', async () => {
+  const mute = await scripted(() => ({ bytes: '', delayMs: 10_000 }))
+  try {
+    assert.equal(await detectProxyProtocol(`127.0.0.1:${mute.port}`, { timeoutMs: 150 }), null)
+  } finally {
+    await mute.close()
+  }
+})

@@ -49,6 +49,15 @@ test('exitProxyUri maps exit ids to ProxyAgent URIs', () => {
   assert.equal(exitProxyUri('http://pre.formatted:3', 'http'), 'http://pre.formatted:3')
 })
 
+test('exitProxyUri dials the row\'s current protocol, not the scheme the id was typed with', () => {
+  assert.equal(exitProxyUri('http://127.0.0.1:30035', 'socks5'), 'socks5://127.0.0.1:30035', 'a relabelled row dials SOCKS')
+  assert.equal(exitProxyUri('socks5://h:1', 'http'), 'http://h:1')
+  assert.equal(exitProxyUri('socks4://h:1', 'socks5'), 'socks5://h:1', 'socks4 never reaches undici as an HTTP proxy')
+  assert.equal(exitProxyUri('https://h:443', 'http'), 'https://h:443', 'an https entry keeps TLS to the proxy')
+  assert.equal(exitProxyUri('https://h:443', 'socks5'), 'socks5://h:443')
+  assert.equal(exitProxyUri('[::1]:8080', 'http'), 'http://[::1]:8080')
+})
+
 /** A recording fake undici seam: dispatch tags each hop. */
 function fakeSeam() {
   const hops: string[] = []
@@ -826,4 +835,155 @@ test('dispatcher: the auto position follows the machine\'s interface table', () 
   new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], listInterfaces: () => withIpv6 })
   const connect = (options[1] as { connect: { lookup?: unknown } }).connect
   assert.equal(connect.lookup, ipv6FirstLookup, 'IPv6 present: the resolver answers AAAA first')
+})
+
+test('dispatcher: a relabelled exit gets a fresh agent on its new protocol; the old one is closed', () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'http://127.0.0.1:30035', protocol: 'http', exitIP: '' }))
+  pool.markOk('http://127.0.0.1:30035')
+  const built: string[] = []
+  const closed: string[] = []
+  const seam = {
+    Agent: class { constructor() { return { dispatch: () => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() } } },
+    ProxyAgent: class {
+      constructor(options: { uri: string }) {
+        built.push(options.uri)
+        return {
+          dispatch: () => true,
+          close: () => { closed.push(options.uri); return Promise.resolve() },
+          destroy: () => Promise.resolve(),
+        }
+      }
+    },
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => ({ dispatch: () => true }),
+  }
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], sentinelMs: 10_000 })
+  const send = (): void => {
+    routingContext.run({ model: 'm', session: 's' }, () => {
+      router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never)
+    })
+  }
+  send()
+  send()
+  assert.deepEqual(built, ['http://127.0.0.1:30035'], 'one cached agent while the label holds')
+  pool.refresh('http://127.0.0.1:30035', { protocol: 'socks5' })
+  send()
+  assert.deepEqual(built, ['http://127.0.0.1:30035', 'socks5://127.0.0.1:30035'])
+  assert.deepEqual(closed, ['http://127.0.0.1:30035'], 'the stale agent is closed, not destroyed')
+  void router.destroy()
+})
+
+test('dispatcher: the LRU cap closes the evicted agent instead of destroying it', () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 10 }))
+  pool.add(node({ id: 'b:2', exitIP: '2.2.2.2', latencyMs: 20 }))
+  pool.markOk('a:1')
+  pool.markOk('b:2')
+  const closed: string[] = []
+  const destroyed: string[] = []
+  const seam = {
+    Agent: class { constructor() { return { dispatch: () => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() } } },
+    ProxyAgent: class {
+      constructor(options: { uri: string }) {
+        return {
+          dispatch: () => true,
+          close: () => { closed.push(options.uri); return Promise.resolve() },
+          destroy: () => { destroyed.push(options.uri); return Promise.resolve() },
+        }
+      }
+    },
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => ({ dispatch: () => true }),
+  }
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], agentLruCap: 1, sentinelMs: 10_000 })
+  routingContext.run({ model: 'm', session: 's1' }, () => { router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never) })
+  pool.markLimited('a:1')
+  routingContext.run({ model: 'm', session: 's2' }, () => { router.dispatch({ origin: 'https://opencode.ai/x' } as never, {} as never) })
+  assert.deepEqual(closed, ['http://a:1'])
+  assert.deepEqual(destroyed, [], 'requests in flight on the evicted agent are not cut')
+})
+
+/** A handler that records every callback it receives, in order. */
+function recordingHandler(): { calls: string[]; errors: string[]; handler: Record<string, (...args: unknown[]) => void> } {
+  const calls: string[] = []
+  const errors: string[] = []
+  const handler = {
+    onRequestStart: () => { calls.push('onRequestStart') },
+    onResponseStart: () => { calls.push('onResponseStart') },
+    onResponseData: () => { calls.push('onResponseData') },
+    onResponseEnd: () => { calls.push('onResponseEnd') },
+    onResponseError: (_c: unknown, error: unknown) => {
+      calls.push('onResponseError')
+      errors.push(error instanceof Error ? error.message : String(error))
+    },
+  }
+  return { calls, errors, handler }
+}
+
+test('dispatcher observer: a real transport error reaches the handler exactly once, with its own cause', () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'a:1', exitIP: '1.1.1.1' }))
+  pool.markOk('a:1')
+  const recorder = recordingHandler()
+  const seam = {
+    Agent: class { constructor() { return { dispatch: () => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() } } },
+    ProxyAgent: class {
+      constructor() {
+        return {
+          dispatch(_o: unknown, handler: { onResponseError?: (c: unknown, e: Error) => void }): boolean {
+            handler.onResponseError?.({} as never, new Error('connect ECONNREFUSED'))
+            handler.onResponseError?.({} as never, new Error('late duplicate'))
+            return true
+          },
+          close: () => Promise.resolve(),
+          destroy: () => Promise.resolve(),
+        }
+      }
+    },
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => ({ dispatch: () => true }),
+  }
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'] })
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/x' } as never, recorder.handler as never)
+  })
+  assert.deepEqual(recorder.calls, ['onResponseError'])
+  assert.deepEqual(recorder.errors, ['connect ECONNREFUSED'], 'no synthesized silence error in front of the real one')
+  assert.equal(pool.passiveStats('a:1').transport, 1, 'graded once')
+  assert.equal(pool.activity('a:1').inFlight, 0)
+})
+
+test('dispatcher observer: the sentinel synthesizes one error and drops the abort error that follows', async () => {
+  const pool = new ExitPool()
+  pool.add(node({ id: 'mute:1', exitIP: '1.1.1.1' }))
+  pool.markOk('mute:1')
+  const recorder = recordingHandler()
+  const seam = {
+    Agent: class { constructor() { return { dispatch: () => true, close: () => Promise.resolve(), destroy: () => Promise.resolve() } } },
+    ProxyAgent: class {
+      constructor() {
+        return {
+          dispatch: (_o: unknown, handler: { onRequestStart?: (c: unknown, ctx: unknown) => void; onResponseError?: (c: unknown, e: Error) => void }): boolean => {
+            // undici answers an abort with its own onResponseError, synchronously
+            const controller = { abort: (reason: Error) => handler.onResponseError?.(controller, new Error(`aborted: ${reason.message}`)) }
+            handler.onRequestStart?.(controller, {})
+            return true
+          },
+          close: () => Promise.resolve(),
+          destroy: () => Promise.resolve(),
+        }
+      }
+    },
+    setGlobalDispatcher: () => undefined,
+    getGlobalDispatcher: () => ({ dispatch: () => true }),
+  }
+  const router = new PoolRoutingDispatcher({ pool, undici: seam as never, proxyHosts: ['opencode.ai'], sentinelMs: 30, headersMs: 30 })
+  routingContext.run({ model: 'm', session: 's' }, () => {
+    router.dispatch({ origin: 'https://opencode.ai/x' } as never, recorder.handler as never)
+  })
+  await new Promise((r) => setTimeout(r, 100))
+  assert.deepEqual(recorder.calls, ['onRequestStart', 'onResponseError'])
+  assert.deepEqual(recorder.errors, ['oc2dsh: exit response silence'])
+  assert.equal(pool.passiveStats('mute:1').transport, 1)
 })

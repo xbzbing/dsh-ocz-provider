@@ -101,7 +101,7 @@ test('syncManualExits: idempotent, keeps probe state, never touches other source
   const pool = new ExitPool()
   pool.add(node({ id: '10.0.0.9:1080', exitIP: '9.9.9.9' }))
   syncManualExits(pool, { manual: ['http://a:1'] })
-  pool.markDead('http://a:1')
+  pool.markDeadStrike('http://a:1')
   syncManualExits(pool, { manual: ['http://a:1'] })
   assert.deepEqual(ids(pool), ['10.0.0.9:1080', 'http://a:1'])
   assert.equal(pool.list().find((entry) => entry.id === 'http://a:1')?.health.state, 'dead', 're-applying the same config must not reset probe state')
@@ -407,4 +407,40 @@ test('syncManualExits: pinnedExitId "local" pins this machine and admits no row'
   // And clearing the pin entirely leaves neither.
   syncManualExits(pool, { manual: ['http://b:2'], pinnedExitId: '' })
   assert.equal(pool.pinnedId, '')
+})
+
+test('assembly: emptying the URL list or disabling the pool stops the subscription layer', async () => {
+  const installer = fakeInstaller()
+  // Nothing listens on port 1: the fetch fails at once, no network involved.
+  const url = 'http://127.0.0.1:1/sub'
+  const runtime = await startIpPool({ ipPool: { enabled: true, subscriptions: [url] } }, quiet, { makeInstaller: () => installer })
+  assert.ok(runtime !== null)
+  const first = runtime.subscriptions
+  assert.ok(first !== null, 'a URL builds the fetcher')
+  runtime.pool.add(node({ id: '127.0.0.1:30001', exitIP: '9.9.9.9' }))
+
+  await runtime.reconfigure({ ipPool: { enabled: true, subscriptions: [] } })
+  assert.equal(runtime.subscriptions, null, 'no URLs, no fetcher')
+  assert.equal(runtime.pool.has('127.0.0.1:30001'), false, 'the rows it fed leave with it')
+
+  await runtime.reconfigure({ ipPool: { enabled: true, subscriptions: [url] } })
+  const second = runtime.subscriptions
+  assert.ok(second !== null && second !== first, 'adding a URL back builds a fresh fetcher')
+
+  await runtime.reconfigure({ ipPool: { enabled: false, subscriptions: [url] } })
+  assert.equal(runtime.subscriptions, null, 'a disabled pool fetches nothing')
+  await runtime.reconfigure({ ipPool: { enabled: true, subscriptions: [url] } })
+  assert.ok(runtime.subscriptions !== null, 're-enabling restarts it')
+  await runtime.dispose()
+})
+
+test('syncManualExits: only well-formed entries become rows; credentials never reach an id', () => {
+  const pool = new ExitPool()
+  syncManualExits(pool, {
+    manual: ['[::1]', '[x]junk', 'a b:c:99999', 'http://user:pw@h:80', 'h:0', 'h:65536', ' socks5://127.0.0.1:7891 ', '[::1]:8080'],
+    pinnedExitId: 'http://user:pw@pin:80',
+  })
+  assert.deepEqual(ids(pool), ['[::1]:8080', 'socks5://127.0.0.1:7891'])
+  assert.equal(pool.pinnedId, '', 'a credentialed pin is refused, not vouched in')
+  assert.equal(pool.get('socks5://127.0.0.1:7891')?.protocol, 'socks5')
 })

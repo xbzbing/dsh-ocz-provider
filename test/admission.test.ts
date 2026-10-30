@@ -515,3 +515,44 @@ test('admission: an unread lane body does not pin the proxy socket', async () =>
     assert.equal(await proxy.settled(), 0, 'the unread body kept the proxy socket open')
   } finally { await proxy.stop() }
 })
+
+test('admission: the relay smoke never rides the candidate proxy', async () => {
+  // The relay listens on THIS machine; asking the exit to reach it on the
+  // exit's own side fails every smoke. Only the egress header names the exit.
+  const RELAY_CHAT = 'http://127.0.0.1:4555/x/tok/v1/chat/completions'
+  const dispatchers = new Map<string, unknown>()
+  const proxies: unknown[] = []
+  const plain: unknown[] = []
+  const undici = {
+    ProxyAgent: class {
+      constructor() { proxies.push(this) }
+      close() { return Promise.resolve() }
+      destroy() { return Promise.resolve() }
+    },
+    Agent: class {
+      constructor() { plain.push(this) }
+      close() { return Promise.resolve() }
+      destroy() { return Promise.resolve() }
+    },
+    request: async (url: string, init: { dispatcher?: unknown; headers?: Record<string, string> }) => {
+      dispatchers.set(url, init.dispatcher)
+      if (url === ECHO_URL) return { statusCode: 200, body: { text: async () => echoBody('5.5.5.5', 'US') } }
+      if (url === MODELS_URL) return { statusCode: 200, body: { text: async () => '{"data":[]}' } }
+      if (url === RELAY_CHAT) {
+        assert.equal(init.headers?.['x-oc2dsh-egress'], 'socks5://127.0.0.1:30001', 'the exit rides the header')
+        return { statusCode: 200, body: { text: async () => '' } }
+      }
+      throw new Error(`unexpected request: ${url}`)
+    },
+  }
+  const result = await admitCandidate(
+    deps(fakeTransport({}), { undici: undici as never, relayBaseUrl: () => 'http://127.0.0.1:4555/x/tok/' }),
+    { address: '127.0.0.1:30001', protocol: 'socks5', source: 'subscription' },
+    { timeoutMs: 1000 },
+  )
+  assert.ok(result.admitted, result.reason)
+  assert.ok(dispatchers.has(RELAY_CHAT), 'the base is used verbatim, path prefix included')
+  assert.ok(proxies.includes(dispatchers.get(MODELS_URL)), 'the tunnel step still rides the candidate')
+  assert.ok(!proxies.includes(dispatchers.get(RELAY_CHAT)), 'the relay hop does not')
+  assert.equal(dispatchers.get(RELAY_CHAT), plain[0], 'it rides a plain agent')
+})
