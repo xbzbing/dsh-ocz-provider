@@ -663,31 +663,61 @@ test('TOOL_NAME_ALIASES carries the gate pair and the reverse of every rename', 
 
 /**
  * The captured 2.2.5 client's top-level tool names (the wire vocabulary). The
- * rename table may only send names from this set, plus the one neutral spelling
- * used where the client has no counterpart.
+ * rename table may only send names from this set, plus neutral spellings used
+ * where the client has no counterpart and the host spelling is refused.
  */
 const CLIENT_TOOL_NAMES = [
   'edit', 'experimental_image_generate', 'glob', 'grep', 'question', 'read',
   'shell', 'skill', 'subagent', 'webfetch', 'write', 'execute',
 ] as const
 
+/** Names the client never sends, spent only on host names the lane refuses. */
+const NEUTRAL_WIRE_NAMES = ['fork_conversation', 'image_read', 'cwd'] as const
+
 test('every wire spelling is one the client itself sends', () => {
   for (const [host, wire] of Object.entries(WIRE_TOOL_RENAMES)) {
-    if (host === 'subagent_fork') {
-      // No counterpart on the client, and the host spelling is refused: the
-      // neutral name only has to be a name the lane answers 200 to.
-      assert.equal(wire, 'fork_conversation')
-      continue
-    }
+    if ((NEUTRAL_WIRE_NAMES as readonly string[]).includes(wire)) continue
     assert.ok(
       (CLIENT_TOOL_NAMES as readonly string[]).includes(wire),
       `${host} -> ${wire} is not in the client's vocabulary`,
+    )
+  }
+  // The neutral set exists BECAUSE the host spelling is refused: a name that
+  // merely has no counterpart keeps its own spelling instead of spending one.
+  for (const wire of NEUTRAL_WIRE_NAMES) {
+    assert.ok(
+      Object.values(WIRE_TOOL_RENAMES).includes(wire),
+      `${wire} is listed as neutral but nothing renames onto it`,
     )
   }
   // A wire spelling that is also a host name would chain (A->B, B->C).
   for (const wire of Object.values(WIRE_TOOL_RENAMES)) {
     assert.equal(WIRE_TOOL_RENAMES[wire], undefined, `${wire} is both a wire name and a host name`)
   }
+})
+
+/**
+ * The pair rule: `read_image` and `working_directory` are each answered 200
+ * alone and 429 together, with body bytes and tool count held constant, so the
+ * shaper must move BOTH — renaming one leaves the body refusable.
+ */
+test('both members of the refused pair leave the wire', () => {
+  const body = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools: ['read_image', 'working_directory', 'read'].map((name) => ({
+      type: 'function',
+      function: { name, description: 'd', parameters: { type: 'object' } },
+    })),
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  assert.ok(!names.includes('read_image'), 'read_image would pair with the other member')
+  assert.ok(!names.includes('working_directory'), 'working_directory would pair with the other member')
+  assert.ok(names.includes('image_read') && names.includes('cwd'), 'both moved to their neutral spelling')
+  // The model still calls the host's own name: the reverse map covers both.
+  assert.equal(TOOL_NAME_ALIASES.image_read, 'read_image')
+  assert.equal(TOOL_NAME_ALIASES.cwd, 'working_directory')
 })
 
 test('the sound-alike tools move onto the client vocabulary', () => {

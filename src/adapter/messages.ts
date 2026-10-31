@@ -419,11 +419,18 @@ export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
  *    name it has never sent is one more thing a future refusal can key on.
  *
  * Names with no honest counterpart stay as they are (`web_search` has none —
- * the client's `search` discovers tool signatures, it is not a web search —
- * and `read_image` cannot reuse `read`, because two tools under one wire name
- * are refused with 400). MCP tools already match the client's own
- * `mcp__<server>__<tool>` form (the binary carries `mcp__puppeteer__*`,
- * `mcp__github__get_*`), so they need no entry.
+ * the client's `search` discovers tool signatures, it is not a web search).
+ * MCP tools already match the client's own `mcp__<server>__<tool>` form (the
+ * binary carries `mcp__puppeteer__*`, `mcp__github__get_*`), so they need no
+ * entry.
+ *
+ * One more refusal shape, and it is a PAIR rule: some names the lane keeps are
+ * tolerated once and refused as soon as TWO of them ride the same body.
+ * `read_image` and `working_directory` each answer 200 alone and `429
+ * FreeUsageLimitError` together, holding body bytes and tool count constant, so
+ * neither a name-by-name blocklist nor a size cap describes it. Both move to
+ * neutral spellings; the full host tool set then passes, which is what rules
+ * out a third member hiding behind them.
  *
  * The model's call is renamed back ({@link TOOL_NAME_ALIASES}), exactly like
  * `shell` -> `bash`: the host never learns the wire spelling.
@@ -431,6 +438,11 @@ export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
 export const WIRE_TOOL_RENAMES: Record<string, string> = {
   // refused by name: a neutral spelling the lane answers 200 to
   subagent_fork: 'fork_conversation',
+  // refused only in pairs: neutral spellings, because the host name and its
+  // natural counterpart (`read`, a bare `cwd`) are names the lane refuses or
+  // the client already uses
+  read_image: 'image_read',
+  working_directory: 'cwd',
   // the official vocabulary, where the two tools mean the same thing
   ask_user_question: 'question',
   web_fetch: 'webfetch',

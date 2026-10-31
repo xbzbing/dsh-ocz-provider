@@ -98,7 +98,7 @@ argument itself.
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie, transport/body format headers, the client-identity flag `x-opencode-client` and every `x-oc2dsh-*` control header are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |
 | Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.2.5/cli`; the client flag is pinned to `cli` and no setting moves it (the header is plugin-managed). Read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
-| 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep the IPv4 fallback. Relay traffic gets the same choice as an `x-oc2dsh-egress: direct;family=4|6|prefer6` directive (`relayDirectFamily`), so it holds whichever stack sends (live 2026-10-30 through the relay: no directive -> this host's IPv4, 429 with a 14 h retry-after; `prefer6` -> 200). Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts, src/ip-pool.ts relay seam |
+| 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep the IPv4 fallback. Relay traffic gets the same choice as an `x-oc2dsh-egress: direct;family=4|6|prefer6` directive (`relayDirectFamily`), so it holds whichever stack sends. Exit traffic is untouched. The polarity of that refusal FLIPS: this host's IPv4 was refused and its IPv6 accepted on identical bytes (2026-10-18), and the reverse was measured 2026-10-31 (IPv6 429, IPv4 200, official body, same second) — so a hard pin on either family is a one-way ticket. Relay traffic therefore has its own 429 fallback: the relay retries one direct attempt on the other family and remembers the answer for 30 min (`relay/family-fallback.mjs`, `FAMILY-FIX` / `FAMILY-MEMO` in its log), which is why `auto` survives a flip | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts, src/ip-pool.ts relay seam, relay/family-fallback.mjs |
 | Upstream base URL | `https://opencode.ai/inference` (chats + `/openai/v1`, catalog/admission model list + `/v1`), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
 | Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Loopback only and authenticated: every request path carries `/_/<token>` (a random token per spawn, passed as `OC2DSH_RELAY_TOKEN` and folded into `baseUrl`, stripped before forwarding), the Host must be the relay's own loopback authority (421 otherwise), its CONNECT bridges only reach the upstream host, and the child gets an allowlisted env with no proxy variables. Startup failures and crashes share one restart budget with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr; the component contract (env vars, readiness handshake, timeouts, egress seam) is `docs/relay.md` | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
 | Editable settings namespace (host side) | served from the Loader entry id — renaming the row id changes where settings live and orphans stored config | cordis.patch.yml |
@@ -225,9 +225,21 @@ Headlines:
   client's own vocabulary (`ask_user_question` -> `question`, `web_fetch` ->
   `webfetch`, `workflow` -> `execute`), because a name the client never sends
   is one more thing a refusal can key on; names without one keep theirs
-  (`web_search` has none — the client's `search` discovers tool signatures —
-  and `read_image` cannot reuse `read`, since two tools under one wire name
-  draw 400). MCP tools already match the client's `mcp__<server>__<tool>` form.
+  (`web_search` has none — the client's `search` discovers tool signatures).
+  MCP tools already match the client's `mcp__<server>__<tool>` form.
+  A second refusal shape sits behind that one and it is a PAIR rule: the lane
+  tolerates ONE name from a list it keeps and answers 429 as soon as TWO ride
+  the same body. `read_image` and `working_directory` each answer 200 alone and
+  429 together, with body bytes and tool count held constant — which is why a
+  name-by-name bisect found nothing reproducible (34 tools refused, each 17-half
+  passed) and why the "35 tools pass / 37 fail" split never made sense. Size is
+  a DIFFERENT refusal: a 40 KB padding tool draws `400 server_error`, while 69
+  names with every description emptied (7.4 KB) still draw 429, so neither a
+  cap nor a count describes it. Both names therefore ship under neutral
+  spellings (`image_read`, `cwd`); the full host tool set then answers 200, and
+  that same run rules out a third member hiding behind them (68 tools keeping
+  one of the two still pass, so at most ONE member remains in the set — a
+  seventh tool added later must not be one).
   Tool TEXT is not gated (arbitrary descriptions pass), so the same module only
   neutralises the handful of strings that name this host — `$DSH_*`/`harness`,
   `DSH_HOME/skills`, the `dsh-ui` fence and the `[dsh-ui reply]` wording —
@@ -235,7 +247,9 @@ Headlines:
   Because the refusal copies the quota shape (`retry-after` pointing at the
   next 00:00Z), a 429 alone cannot tell "refused" from "spent": bisect on a
   fresh exit before editing wire code, and remember every probe spends that
-  exit's own daily budget.
+  exit's own daily budget. The one reliable control is the official client's OWN
+  captured body sent on the same exit seconds apart — if that answers 200, the
+  429 under test is a refusal, not a budget.
 - status codes, re-read 2026-10-25: `403 FreeTierError` still means the SHAPE
   was rejected (a body without `tools` still 403s that day), but `429
   FreeUsageLimitError` no longer means "gate passed, anonymous quota spent".
@@ -302,7 +316,10 @@ Headlines:
   different exit fixes it. `relay/oc2dsh-relay.mjs` appends the egress
   (本机出口 or 出口 <url>) and the reset window to the 429 message the host
   displays, because the relay is the only hop that sees both the status and the
-  exit it chose.
+  exit it chose. That annotation names the family it actually dialled, so a
+  429 reading `本机出口 IPv4` means IPv4 was spent — and the relay has already
+  retried IPv6 before you see it, so a 429 that still says `本机出口` reached
+  every family this machine has.
 
 ## Egress row hygiene (protocol mismatch)
 

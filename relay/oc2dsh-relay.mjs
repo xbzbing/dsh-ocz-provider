@@ -29,6 +29,7 @@
 import net from 'node:net'
 import dns from 'node:dns'
 import { timingSafeEqual } from 'node:crypto'
+import { alternateFamily, familyFor, noteFamilyRefusal, pruneRefusals } from './family-fallback.mjs'
 
 const UPSTREAM = (process.env.OC2DSH_RELAY_UPSTREAM || 'https://opencode.ai').replace(/\/+$/, '')
 const PORT = Number(process.env.OC2DSH_RELAY_PORT || '0') || 0
@@ -120,6 +121,14 @@ function describeEgress(egress) {
  * into it.
  */
 const protocolFixes = new Map()
+
+/**
+ * The same idea for the local egress FAMILY: a direct dial that answers a quota
+ * refusal is retried once on the other family, and the answer is remembered
+ * (relay/family-fallback.mjs) so later requests start on the family that works
+ * instead of paying a wasted 429 each time.
+ */
+const familyRefusals = new Map()
 
 /** host:port of an egress URL — the key a correction is remembered under. */
 function egressKey(url) {
@@ -570,6 +579,19 @@ const server = Bun.serve({
     const started = Date.now()
     const requested = parseEgress(request.headers.get(EGRESS_HEADER))
     let egress = withFix(requested)
+    /**
+     * Start on the family that last answered: a family out of free quota would
+     * otherwise absorb the first attempt of every single request.
+     */
+    if (egress.kind === 'direct' && egress.family !== undefined) {
+      const now = Date.now()
+      pruneRefusals(familyRefusals, now)
+      const dialed = familyFor(egress.family, familyRefusals, now)
+      if (dialed !== egress.family) {
+        log(`FAMILY-MEMO ${egress.family}->${dialed} (that family answered a quota refusal recently)`)
+        egress = { kind: 'direct', family: dialed }
+      }
+    }
     const forwarded = new Headers()
     request.headers.forEach((value, name) => {
       const key = name.toLowerCase()
@@ -635,6 +657,42 @@ const server = Bun.serve({
       }
       log(`${method} ${pathname} ${describeEgress(egress)} UPSTREAM-ERR ${String(failure?.message ?? failure).slice(0, 160)}`)
       return Response.json({ error: { type: 'relay_error', message: String(failure?.message ?? failure) } }, { status: 502 })
+    }
+    /**
+     * The one 429 that is not about the request: the free lane refuses an
+     * egress ADDRESS on a healthy socket, which the connect-level `prefer6`
+     * fallback can never see (the refusal arrives as HTTP, not as a dead
+     * connection). Retry that attempt on the other family and remember the
+     * answer, so a family that is out of quota cannot take the lane down and
+     * cannot absorb one wasted attempt per request either.
+     *
+     * The retry is UNBOUNDED like the first attempt and for the same reason: a
+     * timeout signal here would abort the body of a perfectly healthy stream
+     * the moment it started answering.
+     */
+    if (upstream.status === 429 && egress.kind === 'direct' && egress.family !== undefined) {
+      const refused = egress.family
+      const alternate = alternateFamily(refused)
+      if (alternate !== null && !request.signal.aborted) {
+        let retried
+        try {
+          retried = await attempt({ kind: 'direct', family: alternate })
+        } catch (err) {
+          log(`FAMILY-FIX ${refused}->${alternate} failed ${String(err?.message ?? err).slice(0, 120)}`)
+        }
+        if (retried !== undefined && retried.status !== 429) {
+          // The refusal is a fact about `refused` whether or not the retry
+          // rescued this request: remembering it is what stops the NEXT request
+          // from paying the same wasted attempt.
+          noteFamilyRefusal(familyRefusals, refused, Date.now())
+          log(`FAMILY-FIX ${refused}->${alternate} (${refused} answered a quota refusal, retry answered ${retried.status})`)
+          upstream = retried
+          egress = { kind: 'direct', family: alternate }
+        } else if (retried !== undefined) {
+          await retried.text()
+        }
+      }
+      if (upstream.status === 429) noteFamilyRefusal(familyRefusals, egress.family, Date.now())
     }
     const headers = new Headers(upstream.headers)
     // Bun's fetch already decoded the body, so these three would make the
