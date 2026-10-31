@@ -118,6 +118,42 @@ test('dispatcher: non-pool hosts and loopback go direct; pool hosts route to pic
 })
 
 /**
+ * A router chained above another dispatcher must not become a dead end: every
+ * request the pool does not carry belongs to the layer below, or joining in
+ * front of it would silently delete that layer's policy (a proxy plugin's
+ * rules, for one).
+ */
+test('dispatcher: a borrowed downstream carries everything the pool does not', () => {
+  const pool = new ExitPool()
+  const { seam, hops } = fakeSeam()
+  const borrowed: string[] = []
+  const below = {
+    dispatch: () => {
+      borrowed.push('below')
+      return true
+    },
+    close: async (): Promise<void> => {},
+    destroy: async (): Promise<void> => {},
+  }
+  const router = new PoolRoutingDispatcher({
+    pool,
+    undici: seam as never,
+    proxyHosts: ['opencode.ai'],
+    downstream: below as never,
+  })
+
+  router.dispatch({ origin: 'https://example.com/x' } as never, {} as never)
+  assert.deepEqual(borrowed, ['below'], 'foreign hosts keep the layer below in force')
+  assert.deepEqual(hops, [], 'and never dial from this machine instead')
+
+  router.dispatch({ origin: 'https://opencode.ai', path: '/inference/go/v1/models' } as never, {} as never)
+  assert.deepEqual(borrowed, ['below', 'below'], 'other lanes on the pool host keep it too')
+
+  router.dispatch({ origin: 'http://127.0.0.1:64821/_/t/v1/chat/completions' } as never, {} as never)
+  assert.deepEqual(hops, ['direct'], 'loopback still stays local: the relay is not a proxy target')
+})
+
+/**
  * One opencode.ai serves several lanes: host-only routing would drag all of
  * them through the exits, counting a foreign provider's `/inference/go/...`
  * traffic as pool requests (no tokens are attributed — only our adapter books

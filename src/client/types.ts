@@ -139,6 +139,8 @@ export interface PoolStatusView {
   /** Whether the pool runtime exists at all (absent on older host snapshots). */
   runtimeReady?: boolean
   deferredReason: string
+  /** Composing dispatcher this layer runs below (absent on older snapshots). */
+  composedUnder?: string
   total: number
   bySource: Record<'manual' | 'subscription' | 'goproxy', number>
   /** Usable exits across the whole pool, any source. */

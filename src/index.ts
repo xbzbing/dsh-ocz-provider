@@ -150,6 +150,7 @@ function applyAdapter(
       ready: runtime !== null,
       enabled: runtime?.installer.enabled ?? false,
       deferredReason: runtime?.installer.deferredReason ?? '',
+      composedUnder: runtime?.installer.composedUnder ?? '',
       exits: runtime === null ? 0 : runtime.pool.snapshot().total,
       singbox: runtime?.singboxState() ?? null,
       ...(ipPoolError === null ? {} : { wiringError: ipPoolError }),

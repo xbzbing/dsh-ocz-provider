@@ -203,6 +203,21 @@ test('status view separates a deferred router from a missing runtime', () => {
   const ready = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
   assert.equal(ready.runtimeReady, true)
   assert.equal(ready.deferredReason, '')
+  assert.equal(ready.composedUnder, '', 'owning the slot is not a composition')
+
+  // Coexistence: the layer joined below a composing dispatcher — masking and
+  // exits both live, so this is routing, not a deferral.
+  const composed = buildStatusView(fakeRuntime({
+    installer: {
+      enabled: true,
+      deferredReason: null,
+      composedUnder: 'MaskingDispatcher',
+      install() {}, disable() {}, dispose() {},
+    },
+  }) as never, true, ['opencode.ai'])
+  assert.equal(composed.enabled, true)
+  assert.equal(composed.composedUnder, 'MaskingDispatcher')
+  assert.equal(composed.deferredReason, '', 'a join is not a deferral')
 
   // R1: the pool exists and assembles, but another dispatcher owns the slot.
   const deferred = buildStatusView(fakeRuntime({
@@ -215,6 +230,7 @@ test('status view separates a deferred router from a missing runtime', () => {
   assert.equal(deferred.runtimeReady, true, 'the pool exists; only its routing yielded')
   assert.equal(deferred.enabled, false)
   assert.match(deferred.deferredReason, /global dispatcher is owned by/)
+  assert.equal(deferred.composedUnder, '', 'a deferral is not a composition either')
 
   // No runtime at all: the switch may be on, but nothing was assembled, and
   // there is no installer to report a deferral.

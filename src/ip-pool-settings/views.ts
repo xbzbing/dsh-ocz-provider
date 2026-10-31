@@ -167,6 +167,12 @@ export interface PoolStatusView {
   /** Non-empty when the pool runs but the routing layer deferred to another
    *  dispatcher-level plugin (R1 coexistence policy). */
   deferredReason: string
+  /**
+   * Name of the composing dispatcher this layer runs BELOW (non-empty =
+   * masking and exit routing are both live: the composer masks the request
+   * body, then this layer picks the exit). Empty = the slot is ours.
+   */
+  composedUnder: string
   total: number
   bySource: Record<ExitSource, number>
   /** Usable exits across the whole pool, any source. */
@@ -342,6 +348,9 @@ export function buildStatusView(
     runtimeReady: runtime !== null,
     deferredReason: runtime !== null && !runtime.installer.enabled
       ? (runtime.installer as unknown as { deferredReason?: string }).deferredReason ?? ''
+      : '',
+    composedUnder: runtime !== null && runtime.installer.enabled
+      ? runtime.installer.composedUnder ?? ''
       : '',
     total: snapshot.total,
     bySource: snapshot.bySource,

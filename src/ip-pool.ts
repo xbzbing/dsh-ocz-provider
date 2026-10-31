@@ -156,6 +156,15 @@ export interface IpPoolRuntime {
     readonly enabled: boolean
     /** R1 coexistence: why the routing layer deferred (null when active). */
     readonly deferredReason: string | null
+    /** The composing dispatcher this layer sits below (masking gateway), or
+     *  null when the slot is ours. Optional for the same test-seam reason. */
+    readonly composedUnder?: string | null
+    /**
+     * Whether the routing that is enabled is still the routing in force: false
+     * means another layer replaced us or chained a later one above us. Optional
+     * so a test seam can stand in without modelling the slot; absent = trusted.
+     */
+    routingInForce?(): boolean
     /** The host list actually in force (router's own default applied).
      *  Optional so a test seam can stand in without the running router. */
     readonly proxyHosts?: readonly string[]
@@ -425,9 +434,15 @@ export async function startIpPool(
    */
   const engageRouting = (): void => {
     if (config.ipPool?.enabled === false) return
-    if (installer.enabled) return
+    // An engaged layer is normally trusted — asking on every admission would be
+    // churn. It is asked only when the seam can prove it is still in force: a
+    // composer may have chained a later layer above us, or another dispatcher
+    // plugin may have replaced the slot, and an admission is the regular moment
+    // that becomes visible without a timer.
+    if (installer.enabled && installer.routingInForce?.() !== false) return
+    const wasEnabled = installer.enabled
     installer.install()
-    if (installer.enabled) logger.info('oc2dsh: exit routing engaged (live)')
+    if (!wasEnabled && installer.enabled) logger.info('oc2dsh: exit routing engaged (live)')
   }
   pool.onAdmitted(engageRouting)
 
@@ -636,15 +651,17 @@ export async function startIpPool(
       setRotateDelegate(createRotateDelegate(pool, { maxAttempts: next.ipPool?.maxRotateAttempts ?? 3 }))
       // Dispatcher install state follows enabled (never pool occupancy):
       // 本地出口兜底 decides what an empty pool means, so the layer has to be
-      // installed for the switch to have any effect. Every enable flip
-      // re-attempts install: when another dispatcher-level plugin owned the
-      // slot (R1 deferral), its unload is picked up here without a restart.
-      if (enable && !installer.enabled) {
+      // installed for the switch to have any effect. install() is idempotent
+      // while our layer is in force and re-decides after a takeover, so an
+      // enable flip is also the moment an unloaded foreign dispatcher (R1) or a
+      // replaced slot is picked up without a restart.
+      if (enable) {
+        const recovered = !installer.enabled
         installer.install()
-        if (installer.enabled) {
-          logger.info('oc2dsh: exit routing recovered — global dispatcher is free again (R1)')
+        if (recovered && installer.enabled) {
+          logger.info('oc2dsh: exit routing recovered — the dispatcher slot is usable again (R1)')
         }
-      } else if (!enable && installer.enabled) {
+      } else if (installer.enabled) {
         installer.disable()
       }
       if (wasEnabled !== enable) {

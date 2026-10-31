@@ -126,6 +126,14 @@ export interface PoolRoutingOptions {
    */
   listInterfaces?: InterfaceReader
   /**
+   * The layer this router is being chained ABOVE (a composing dispatcher's
+   * previous downstream). Traffic the pool does not carry — other hosts, and
+   * other lanes on the pool host — is handed to it instead of dialling
+   * directly, so joining in front of another dispatcher keeps that
+   * dispatcher's policy in force. Borrowed: this layer never closes it.
+   */
+  downstream?: Dispatcher
+  /**
    * Judge one transport cut (pool/transport.ts). The runtime wires it so both
    * routing seams share one policy; a caller that leaves it unset treats a cut
    * as a strike.
@@ -309,9 +317,33 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
    * family is not what 本机使用 IPv4 还是 IPv6 promises.
    */
   #localEgress: Dispatcher
+  /**
+   * The layer this router was chained ABOVE (a composer's previous downstream),
+   * borrowed rather than owned: traffic the pool does not carry is handed to
+   * it, so joining in front of another dispatcher never deletes that
+   * dispatcher's policy (dsh-http-proxy's proxy rules, for one). Null = dial
+   * directly from this machine, which is what owning the slot means.
+   */
+  #elsewhere: Dispatcher
   /** Per-exit ProxyAgents (docs/ip-pool.md 2, exit multi-instance). */
   #agents: ExitAgentCache
   #closed = false
+
+  /**
+   * Closed/destroyed as PUBLIC fields, matching undici's own Dispatcher
+   * surface. A component that COMPOSES dispatchers (dsh-privacy-gateway's
+   * MaskingDispatcher) skips a downstream layer by reading exactly these two
+   * properties; while they stayed private, a router disabled under a composer
+   * stayed the chosen hop and every later request failed with "routing
+   * dispatcher closed" instead of falling through to the layer below.
+   */
+  get closed(): boolean {
+    return this.#closed
+  }
+
+  get destroyed(): boolean {
+    return this.#closed
+  }
 
   constructor(options: PoolRoutingOptions) {
     this.#pool = options.pool
@@ -342,6 +374,9 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     this.#onTransportCut = options.onTransportCut
     this.#logger = options.logger
     this.#direct = new options.undici.Agent()
+    // Borrowed, never closed here: a layer we were chained above belongs to
+    // whoever installed it.
+    this.#elsewhere = options.downstream ?? this.#direct
     this.#localEgress = new options.undici.Agent({ connect: this.#localConnectOptions(this.#localFamily) })
   }
 
@@ -496,7 +531,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // "egressed locally" instead of dropping them into an invisible void.
       const context = routingContext.getStore()
       if (context !== undefined) context.exitId = LOCAL_EXIT_ID
-      return this.#direct.dispatch(options, handler)
+      return this.#elsewhere.dispatch(options, handler)
     }
     if (!this.#inScope(dispatchRequestPath(options))) {
       // Right host, wrong lane: /inference/go/* (the separate opencode-go
@@ -507,7 +542,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // blind spot either: were a path change to exclude OUR calls, the
       // adapter's usage would still land in 本机 through attributeUsage's
       // default.
-      return this.#direct.dispatch(options, handler)
+      return this.#elsewhere.dispatch(options, handler)
     }
     const context = routingContext.getStore() ?? {}
     const model = context.model ?? 'default'

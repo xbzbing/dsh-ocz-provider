@@ -382,6 +382,14 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                 : t('statsPoolOff')}
           </p>
         )}
+        {!poolOff && (status?.composedUnder ?? '') !== '' && (
+          <p className={shared.status}>
+            {/* Both layers live on one request: the composer masks the body
+                first, then this router picks the exit. Worth saying out loud —
+                it is the difference between "the pool yielded" and "both work". */}
+            {t('statsPoolComposed', { under: status?.composedUnder ?? '' })}
+          </p>
+        )}
         {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
           <p className={shared.status}>{error !== null && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (

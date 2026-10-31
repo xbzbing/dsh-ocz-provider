@@ -800,7 +800,7 @@ zen-adapter.ts 改动极小：`stream()` 里把 pi-ai 的 `maxRetries: 0` 保持
 
 | # | 风险 | 处置 |
 | --- | --- | --- |
-| R1 | 全局 dispatcher 与 dsh-llm-proxy（或其它装 dispatcher 的插件）共存 | **谁后装谁生效**对两者都是灾难（对方把我们的路由层整个短路）。缓解：installer 记录 previous 并在 dispose 恢复（dsh-llm-proxy 同款）；文档标注冲突可能；长期靠 DSH 官方提供 per-request dispatcher 注入点。**同装两个此类插件属不支持配置**，README 写明。 |
+| R1 | 全局 dispatcher 与其它装 dispatcher 的插件（dsh-llm-proxy、dsh-http-proxy、dsh-privacy-gateway）共存 | **谁后装谁生效**对双方都是灾难（对方把我们的路由层整个短路）。按对方的语义分两层处置（2026-10-31）：① **可组合**（暴露 `chainTo()` 且把请求交给最后挂上的下游，如 privacy-gateway 的 `MaskingDispatcher`）→ 我们**挂到它下游**，槽位留给它，脱敏先、选路后，两层同时生效；对 `downstream()` 自检，没被采纳就照旧让位。② **替换式**（dsh-http-proxy / dsh-llm-proxy 同款：直接 `setGlobalDispatcher` 并在卸载时还原）→ 让位，`deferredReason` 上报，等它卸载。installer 只在**槽仍属于自己**时还原 previous，避免关池时删掉包住我们的层；准入时用 `routingInForce()` 复核一次，被顶掉会重装而不是继续谎报 enabled。长期仍靠 DSH 官方提供 per-request dispatcher 注入点。**同装两个替换式插件属不支持配置**。 |
 | R2 | ~~免费公共代理的安全风险（中间人、注入）~~ | 免费源已移除（2026-10-29）。手填/订阅出口同理：上游是 HTTPS，出口代理只能看到 CONNECT 隧道目标域名，不能读内容。 |
 | R3 | 上游把「多 IP + 同 session id」识别为滥用 | 会话粘性（§3.3）+ 探活低频 + 诚实文案；若被封禁，退路是关掉本功能（enabled off 回直连）。 |
 | R4 | ~~GoProxy API 变动~~（来源已摘牌，风险随之下线；重审时再评估） | — |

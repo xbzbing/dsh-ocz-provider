@@ -327,3 +327,164 @@ test('本机出口协议族: the installer carries it into the router and re-app
   assert.equal(router.localIpFamily, 'auto', 'an unknown spelling resolves back to the default')
   installer.disable()
 })
+
+// -- composing dispatchers (dsh-privacy-gateway coexistence) -------------------
+
+/**
+ * A composer shaped like dsh-privacy-gateway's MaskingDispatcher: it keeps the
+ * global slot and hands each request to the NEWEST layer chained after it,
+ * skipping a closed one. `chainTo` dedupes by identity, exactly like the real
+ * one, so a layer already in the list can never be promoted again.
+ */
+class ComposerStub {
+  readonly #downstream: unknown[]
+
+  constructor(initial: unknown) {
+    this.#downstream = [initial]
+  }
+
+  chainTo(next: unknown): void {
+    if ((next as unknown) === (this as unknown) || this.#downstream.includes(next)) return
+    this.#downstream.push(next)
+  }
+
+  downstream(): unknown {
+    for (let i = this.#downstream.length - 1; i >= 0; i -= 1) {
+      const candidate = this.#downstream[i] as { closed?: boolean; destroyed?: boolean } | null
+      if (candidate?.closed !== true && candidate?.destroyed !== true) return candidate
+    }
+    return this.#downstream[0]
+  }
+
+  dispatch(): boolean {
+    return true
+  }
+}
+
+test('install() joins below a composing dispatcher, keeping masking outermost', () => {
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const setCallsBefore = undici.setCalls
+  const fetchBefore = globalThis.fetch
+
+  const installer = makeInstaller(undici)
+  installer.install()
+
+  assert.equal(installer.enabled, true, 'joining IS routing on — there is nothing to defer to')
+  assert.equal(installer.composedUnder, 'ComposerStub')
+  assert.equal(installer.deferredReason, null)
+  assert.equal(undici.peek(), composer, 'the composer keeps the slot: it has to see the plaintext body first')
+  assert.equal(undici.setCalls, setCallsBefore, 'joining never rewrites the slot')
+  assert.equal(globalThis.fetch, fetchBefore, 'the slot already carries our traffic, so no fetch swap')
+  assert.ok(
+    composer.downstream() instanceof PoolRoutingDispatcher,
+    'requests then reach the router, which picks the exit',
+  )
+})
+
+test('disable() while joined closes this layer and leaves masking in place', () => {
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+  const router = composer.downstream() as PoolRoutingDispatcher
+
+  installer.disable()
+
+  assert.equal(installer.enabled, false)
+  assert.equal(installer.composedUnder, null)
+  assert.equal(undici.peek(), composer, 'switching the pool off must not remove masking')
+  assert.equal(router.closed, true, 'a composer skips a closed downstream…')
+  assert.equal(router.destroyed, true, '…and undici-shaped code reads either field')
+  assert.equal(composer.downstream(), undici.initial, 'requests fall through to what was below us')
+})
+
+test('a composer that does not adopt this layer is deferred, not reported as enabled', () => {
+  const undici = makeUndiciStub()
+  class StubbornComposer {
+    readonly #below: unknown
+
+    constructor(below: unknown) {
+      this.#below = below
+    }
+
+    chainTo(): void {}
+
+    downstream(): unknown {
+      return this.#below
+    }
+  }
+  const composer = new StubbornComposer(undici.initial)
+  undici.setGlobalDispatcher(composer)
+
+  const installer = makeInstaller(undici)
+  installer.install()
+
+  assert.equal(installer.enabled, false, 'claiming enabled here would report routing nobody performs')
+  assert.match(String(installer.deferredReason), /StubbornComposer/)
+  assert.equal(undici.peek(), composer)
+
+  installer.install()
+  assert.equal(installer.enabled, false, 'a refusal is not retried on every admission')
+})
+
+test('tearing the pool down never deletes a composer that wrapped it', () => {
+  const undici = makeUndiciStub()
+  const installer = makeInstaller(undici)
+  installer.install()
+  const ours = undici.peek() as PoolRoutingDispatcher
+  // dsh-privacy-gateway installed after the pool: it takes the slot and chains
+  // us below (that order is the one the gateway produces on its own).
+  const composer = new ComposerStub(ours)
+  undici.setGlobalDispatcher(composer)
+
+  installer.disable()
+
+  assert.equal(undici.peek(), composer, 'restoring our predecessor would have deleted masking')
+  assert.equal(ours.closed, true)
+})
+
+test('a composer that hands the slot to this layer on dispose is still released on disable', () => {
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+  const router = composer.downstream() as PoolRoutingDispatcher
+
+  // installGateway().dispose(): setGlobalDispatcher(gateway.downstream())
+  undici.setGlobalDispatcher(router)
+  installer.install()
+  assert.equal(installer.enabled, true)
+  assert.equal(installer.composedUnder, null, 'we hold the slot now, so the join is over')
+
+  installer.disable()
+  assert.equal(router.closed, true)
+  assert.notEqual(undici.peek(), router, 'the slot must not be left pointing at a closed layer')
+  assert.ok(undici.peek() instanceof undici.Agent, 'undici gets its own default back')
+})
+
+test('a layer replaced by another plugin is re-decided on the next install', () => {
+  const undici = makeUndiciStub()
+  const installer = makeInstaller(undici)
+  installer.install()
+  const ours = undici.peek() as PoolRoutingDispatcher
+
+  class ForeignReplacement {
+    dispatch(): boolean {
+      return true
+    }
+  }
+  const replacement = new ForeignReplacement()
+  undici.setGlobalDispatcher(replacement)
+
+  installer.install()
+
+  assert.equal(installer.enabled, false, 'enabled must mean "in force", not "was enabled once"')
+  assert.match(String(installer.deferredReason), /ForeignReplacement/)
+  assert.equal(ours.closed, true, 'the stale layer is closed, not left holding sockets')
+  assert.equal(undici.peek(), replacement, 'the occupant is still untouched')
+})
+
