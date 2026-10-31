@@ -16,9 +16,12 @@ import { PoolRoutingDispatcher } from '../src/pool/dispatcher.ts'
 
 /** Minimal undici stand-in: a dispatcher slot with the real setter semantics. */
 function makeUndiciStub() {
+  /** Every dispatch that reached a plain (non-proxy) agent, in order. */
+  const directHops: string[] = []
   class Agent {
     destroyed = false
     dispatch(_options: unknown, _handler: unknown): boolean {
+      directHops.push('direct')
       return true
     }
     async destroy(): Promise<void> {
@@ -36,6 +39,7 @@ function makeUndiciStub() {
   const stub = {
     Agent,
     initial,
+    directHops,
     /** The module fetch the installer swaps in (differs from the built-in). */
     fetch: function moduleFetch(_input: unknown, _init?: unknown): Promise<unknown> {
       return Promise.resolve({ ok: true })
@@ -330,34 +334,84 @@ test('本机出口协议族: the installer carries it into the router and re-app
 
 // -- composing dispatchers (dsh-privacy-gateway coexistence) -------------------
 
+/** Closed/destroyed as a composer publishes them. */
+function isClosedLayer(dispatcher: unknown): boolean {
+  const shape = dispatcher as { closed?: boolean; destroyed?: boolean } | null
+  return shape?.closed === true || shape?.destroyed === true
+}
+
+type LayerRole = 'route' | 'proxy'
+const RANK: Record<LayerRole, number> = { route: 0, proxy: 1 }
+
 /**
- * A composer shaped like dsh-privacy-gateway's MaskingDispatcher: it keeps the
- * global slot and hands each request to the NEWEST layer chained after it,
- * skipping a closed one. `chainTo` dedupes by identity, exactly like the real
- * one, so a layer already in the list can never be promoted again.
+ * dsh-privacy-gateway's MaskingDispatcher, reproduced from the installed
+ * package (ADR-0012): layers carry a role, `route` sits above `proxy`, the
+ * newest layer of a role goes first, a closed layer is skipped, re-chaining an
+ * existing layer PROMOTES it, and when nothing is open `downstream()` falls
+ * back to the last layer anyway — the trap that turns "we closed our layer"
+ * into a host-wide outage.
  */
 class ComposerStub {
-  readonly #downstream: unknown[]
+  #layers: Array<{ d: unknown; role: LayerRole; seq: number }>
+  #seq = 0
 
   constructor(initial: unknown) {
-    this.#downstream = [initial]
+    this.#layers = [{ d: initial, role: 'proxy', seq: 0 }]
   }
 
-  chainTo(next: unknown): void {
-    if ((next as unknown) === (this as unknown) || this.#downstream.includes(next)) return
-    this.#downstream.push(next)
+  chainTo(next: unknown, options: { role?: LayerRole } = {}): void {
+    if ((next as unknown) === (this as unknown)) return
+    const had = this.#layers.find((layer) => layer.d === next)
+    if (had) {
+      had.seq = ++this.#seq
+      if (options.role !== undefined) had.role = options.role
+      return
+    }
+    this.#layers.push({ d: next, role: options.role ?? 'route', seq: ++this.#seq })
+  }
+
+  adopt(next: unknown): void {
+    if (this.#layers.some((layer) => layer.d === next)) return
+    this.chainTo(next, { role: 'proxy' })
+  }
+
+  release(next: unknown): boolean {
+    const index = this.#layers.findIndex((layer) => layer.d === next)
+    if (index < 0 || this.#layers.length === 1) return false
+    this.#layers.splice(index, 1)
+    return true
+  }
+
+  #ordered(): Array<{ d: unknown; role: LayerRole; seq: number }> {
+    return [...this.#layers].sort((a, b) => RANK[a.role] - RANK[b.role] || b.seq - a.seq)
+  }
+
+  #next(after?: unknown): unknown {
+    const order = this.#ordered()
+    let i = after === undefined ? 0 : order.findIndex((layer) => layer.d === after) + 1
+    for (; i < order.length; i += 1) {
+      const layer = order[i]!
+      if (layer.d !== after && !isClosedLayer(layer.d)) return layer.d
+    }
+    return undefined
   }
 
   downstream(): unknown {
-    for (let i = this.#downstream.length - 1; i >= 0; i -= 1) {
-      const candidate = this.#downstream[i] as { closed?: boolean; destroyed?: boolean } | null
-      if (candidate?.closed !== true && candidate?.destroyed !== true) return candidate
-    }
-    return this.#downstream[0]
+    return this.#next() ?? this.#ordered().at(-1)!.d
   }
 
-  dispatch(): boolean {
-    return true
+  below(d: unknown): unknown {
+    return this.#next(d)
+  }
+
+  downstreams(): Array<{ dispatcher: unknown; role: LayerRole; closed: boolean }> {
+    return this.#ordered().map((layer) => ({ dispatcher: layer.d, role: layer.role, closed: isClosedLayer(layer.d) }))
+  }
+
+  dispatch(options: unknown, handler: unknown): boolean {
+    const next = this.downstream() as { dispatch?: (o: unknown, h: unknown) => boolean } | undefined
+    if (typeof next?.dispatch !== 'function') return false
+    return next.dispatch(options, handler)
   }
 }
 
@@ -463,7 +517,9 @@ test('a composer that hands the slot to this layer on dispose is still released 
   installer.disable()
   assert.equal(router.closed, true)
   assert.notEqual(undici.peek(), router, 'the slot must not be left pointing at a closed layer')
-  assert.ok(undici.peek() instanceof undici.Agent, 'undici gets its own default back')
+  // The layer we were chained above — not a fresh Agent: it may carry a proxy
+  // policy (dsh-http-proxy), and replacing it with a bare Agent would drop it.
+  assert.equal(undici.peek(), undici.initial, 'the borrowed layer gets the slot back')
 })
 
 test('a layer replaced by another plugin is re-decided on the next install', () => {
@@ -488,3 +544,147 @@ test('a layer replaced by another plugin is re-decided on the next install', () 
   assert.equal(undici.peek(), replacement, 'the occupant is still untouched')
 })
 
+
+test('a joined layer really carries requests: the composer hands them to the router', () => {
+  // The other tests pin the wiring; this one sends requests through the
+  // composer, because "joined" is only worth anything if `dispatch` actually
+  // arrives — and if what the pool refuses leaves by the borrowed layer
+  // instead of this machine.
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+
+  const hop = (origin: string, path: string, handler: unknown): boolean =>
+    (composer as unknown as { dispatch(o: unknown, h: unknown): boolean })
+      .dispatch({ origin, path, method: 'GET' }, handler)
+
+  hop('https://example.com/x', '/x', {})
+  assert.deepEqual(undici.directHops, ['direct'], 'a host outside the pool rides the borrowed layer')
+
+  const errors: string[] = []
+  hop('https://opencode.ai', '/inference/v1/chat/completions', {
+    onResponseError: (_controller: unknown, error: Error) => {
+      errors.push(error.message)
+    },
+  })
+  assert.equal(errors.length, 1, 'the router answered, so the composer really dispatched into it')
+  assert.match(errors[0]!, /no usable pool exit/, 'and it failed closed rather than egressing here')
+  assert.deepEqual(undici.directHops, ['direct'], 'nothing new left through a plain agent')
+  assert.equal(installer.enabled, true)
+})
+
+// -- the scenarios that used to break the composition --------------------------
+
+test('a composer installed AFTER the pool must not make it borrow its own corpse', () => {
+  // The gateway may load second: its constructor wraps whatever dispatcher is
+  // global, which is our router. On the next reconcile our layer is torn down —
+  // and the composer's `downstream()` then answers our closed router, because a
+  // composer with nothing open falls back to its last layer.
+  const undici = makeUndiciStub()
+  const installer = makeInstaller(undici)
+  installer.install()
+  const composer = new ComposerStub(undici.peek())
+  undici.setGlobalDispatcher(composer)
+
+  installer.install()
+
+  assert.equal(installer.enabled, true)
+  assert.equal(installer.composedUnder, 'ComposerStub')
+  assert.equal(undici.peek(), composer, 'the composer keeps the slot')
+
+  const before = undici.directHops.length
+  const dispatched = (composer as unknown as { dispatch(o: unknown, h: unknown): boolean })
+    .dispatch({ origin: 'https://example.com/x', path: '/x', method: 'GET' }, {})
+  assert.equal(dispatched, true, 'a non-pool request must not land on a closed layer')
+  assert.equal(undici.directHops.length, before + 1, 'it goes to a live layer below, never to the corpse')
+})
+
+test('a dispatcher adopted under this layer after the join receives the traffic', () => {
+  // ADR-0012 lets a later plugin be adopted as a `proxy` layer. A hand-off
+  // captured at join time would starve it while the status still claimed the
+  // policy survived.
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+
+  const adopted: string[] = []
+  const late = {
+    dispatch: () => {
+      adopted.push('late')
+      return true
+    },
+    close: async (): Promise<void> => {},
+    destroy: async (): Promise<void> => {},
+  }
+  composer.adopt(late)
+
+  const before = undici.directHops.length
+  ;(composer as unknown as { dispatch(o: unknown, h: unknown): boolean })
+    .dispatch({ origin: 'https://example.com/x', path: '/x', method: 'GET' }, {})
+  assert.deepEqual(adopted, ['late'], 'the layer adopted after us carries what we do not')
+  assert.equal(undici.directHops.length, before, 'and the machine does not dial instead')
+})
+
+test('disable() while the composer holds only this layer leaves something open', () => {
+  // The outage case: our layer is the only one, `release()` refuses to empty
+  // the chain, and the composer's all-closed fallback would hand every request
+  // to our closed layer — masking included.
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.peek())
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+  const router = composer.downstream() as PoolRoutingDispatcher
+  assert.ok(router instanceof PoolRoutingDispatcher)
+
+  const before = undici.directHops.length
+  installer.disable()
+
+  assert.equal(router.closed, true)
+  assert.notEqual(composer.downstream(), router, 'the composer must not fall back to a closed layer')
+  const dispatched = (composer as unknown as { dispatch(o: unknown, h: unknown): boolean })
+    .dispatch({ origin: 'https://example.com/x', path: '/x', method: 'GET' }, {})
+  assert.equal(dispatched, true, 'requests still complete after the pool is switched off')
+  assert.equal(undici.directHops.length, before + 1, 'through the replacement layer, not our corpse')
+})
+
+test('leaving a composer releases this layer instead of leaving a closed one behind', () => {
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+  assert.equal(composer.downstreams().length, 2)
+
+  installer.disable()
+  assert.equal(composer.downstreams().length, 1, 'no growth per enable/disable cycle')
+  assert.equal(composer.downstream(), undici.initial)
+})
+
+test('routingInForce() reports an outranked layer, and install() takes the hop back', () => {
+  // A second `route` layer chained later sorts first (newest within its role),
+  // so requests stop reaching this router while `enabled` still says otherwise.
+  const undici = makeUndiciStub()
+  const composer = new ComposerStub(undici.initial)
+  undici.setGlobalDispatcher(composer)
+  const installer = makeInstaller(undici)
+  installer.install()
+  assert.equal(installer.routingInForce(), true)
+
+  const rival = {
+    dispatch: () => true,
+    close: async (): Promise<void> => {},
+    destroy: async (): Promise<void> => {},
+  }
+  composer.chainTo(rival, { role: 'route' })
+  assert.equal(composer.downstream(), rival, 'the rival now takes the hop')
+  assert.equal(installer.routingInForce(), false, 'and the installer says so instead of claiming routing')
+
+  installer.install()
+  assert.equal(installer.routingInForce(), true, 'the next install re-promotes this layer')
+  assert.equal(installer.composedUnder, 'ComposerStub')
+})

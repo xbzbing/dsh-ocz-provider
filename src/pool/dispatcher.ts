@@ -126,13 +126,17 @@ export interface PoolRoutingOptions {
    */
   listInterfaces?: InterfaceReader
   /**
-   * The layer this router is being chained ABOVE (a composing dispatcher's
-   * previous downstream). Traffic the pool does not carry — other hosts, and
-   * other lanes on the pool host — is handed to it instead of dialling
-   * directly, so joining in front of another dispatcher keeps that
-   * dispatcher's policy in force. Borrowed: this layer never closes it.
+   * The layer this router is being chained ABOVE: traffic the pool does not
+   * carry — other hosts, and other lanes on the pool host — is handed to it
+   * instead of dialling directly, so joining in front of another dispatcher
+   * keeps that dispatcher's policy in force.
+   *
+   * Pass a FUNCTION when a composer owns the chain: the target must be
+   * re-resolved per request (`below()`), because a layer adopted under us later
+   * would otherwise never receive anything. Borrowed either way: this layer
+   * never closes it.
    */
-  downstream?: Dispatcher
+  downstream?: Dispatcher | (() => Dispatcher | undefined)
   /**
    * Judge one transport cut (pool/transport.ts). The runtime wires it so both
    * routing seams share one policy; a caller that leaves it unset treats a cut
@@ -149,6 +153,12 @@ export interface PoolRoutingOptions {
  * the message is the only place the reason is stated, so it names the switch.
  */
 export const NO_EXIT_MESSAGE = 'oc2dsh: no usable pool exit and the local-egress fallback is off (本地出口兜底已关闭)'
+
+/** Closed/destroyed as a composing dispatcher publishes them (public fields). */
+function isClosedDispatcher(dispatcher: unknown): boolean {
+  const shape = dispatcher as { closed?: boolean; destroyed?: boolean } | null
+  return shape?.closed === true || shape?.destroyed === true
+}
 
 const DEFAULT_PROXY_HOSTS = ['opencode.ai']
 const PROXY_PROTOCOL_PREFIX = /^[a-z0-9+.-]+:\/\//i
@@ -284,6 +294,9 @@ export interface RoutingDispatcherSurface {
   dispatch(options: Dispatcher.DispatchOptions, handler: Dispatcher.DispatchHandler): boolean
   close(): Promise<void>
   destroy(): Promise<void>
+  /** Liveness as a composing dispatcher reads it: a closed layer is skipped. */
+  readonly closed: boolean
+  readonly destroyed: boolean
 }
 
 export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
@@ -318,13 +331,15 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
    */
   #localEgress: Dispatcher
   /**
-   * The layer this router was chained ABOVE (a composer's previous downstream),
-   * borrowed rather than owned: traffic the pool does not carry is handed to
-   * it, so joining in front of another dispatcher never deletes that
-   * dispatcher's policy (dsh-http-proxy's proxy rules, for one). Null = dial
-   * directly from this machine, which is what owning the slot means.
+   * Where traffic the pool does not carry goes: a borrowed layer below this one,
+   * or null to dial from this machine (which is what owning the slot means).
+   *
+   * A FUNCTION when the layer is composed under us: a composer can adopt a new
+   * layer below at any time (dsh-privacy-gateway does when another dispatcher
+   * plugin replaces the slot), so this is resolved PER REQUEST — a snapshot
+   * taken at join time starves every layer adopted afterwards.
    */
-  #elsewhere: Dispatcher
+  #handoff: Dispatcher | (() => Dispatcher | undefined) | null
   /** Per-exit ProxyAgents (docs/ip-pool.md 2, exit multi-instance). */
   #agents: ExitAgentCache
   #closed = false
@@ -374,9 +389,9 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
     this.#onTransportCut = options.onTransportCut
     this.#logger = options.logger
     this.#direct = new options.undici.Agent()
-    // Borrowed, never closed here: a layer we were chained above belongs to
-    // whoever installed it.
-    this.#elsewhere = options.downstream ?? this.#direct
+    // Borrowed, never closed here: a layer below us belongs to whoever
+    // installed it.
+    this.#handoff = options.downstream ?? null
     this.#localEgress = new options.undici.Agent({ connect: this.#localConnectOptions(this.#localFamily) })
   }
 
@@ -444,6 +459,33 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
   /** The path scope in force (diagnostics / status bridge). */
   get proxyPathPrefixes(): readonly string[] {
     return [...this.#proxyPathPrefixes]
+  }
+
+  /**
+   * Where a request the pool does not carry goes: the borrowed layer resolved
+   * now, or this machine when there is none (or it closed under us). Resolved
+   * per request on purpose — see {@link PoolRoutingOptions.downstream}.
+   */
+  #elsewhere(): Dispatcher {
+    const handoff = this.#handoff
+    if (handoff === null) return this.#direct
+    if (typeof handoff !== 'function') return handoff
+    try {
+      const next = handoff()
+      if (next !== undefined && (next as unknown) !== (this as unknown) && !isClosedDispatcher(next)) return next
+    } catch {
+      // a composer that cannot answer is treated as "nothing below": dial here
+    }
+    return this.#direct
+  }
+
+  /**
+   * Point the hand-off at a layer that only exists once this router does: the
+   * installer wires it after chaining, because the resolver needs our identity
+   * to ask the composer what sits BELOW us.
+   */
+  setDownstream(handoff: Dispatcher | (() => Dispatcher | undefined) | null): void {
+    this.#handoff = handoff
   }
 
   /**
@@ -531,7 +573,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // "egressed locally" instead of dropping them into an invisible void.
       const context = routingContext.getStore()
       if (context !== undefined) context.exitId = LOCAL_EXIT_ID
-      return this.#elsewhere.dispatch(options, handler)
+      return this.#elsewhere().dispatch(options, handler)
     }
     if (!this.#inScope(dispatchRequestPath(options))) {
       // Right host, wrong lane: /inference/go/* (the separate opencode-go
@@ -542,7 +584,7 @@ export class PoolRoutingDispatcher implements RoutingDispatcherSurface {
       // blind spot either: were a path change to exclude OUR calls, the
       // adapter's usage would still land in 本机 through attributeUsage's
       // default.
-      return this.#elsewhere.dispatch(options, handler)
+      return this.#elsewhere().dispatch(options, handler)
     }
     const context = routingContext.getStore() ?? {}
     const model = context.model ?? 'default'

@@ -135,11 +135,14 @@ test('dispatcher: a borrowed downstream carries everything the pool does not', (
     close: async (): Promise<void> => {},
     destroy: async (): Promise<void> => {},
   }
+  // A RESOLVER, not a snapshot: a composer can adopt a layer under us later, and
+  // the router has to ask again on every request or starve it.
+  let current: typeof below | undefined = below
   const router = new PoolRoutingDispatcher({
     pool,
     undici: seam as never,
     proxyHosts: ['opencode.ai'],
-    downstream: below as never,
+    downstream: (() => current) as unknown as () => never,
   })
 
   router.dispatch({ origin: 'https://example.com/x' } as never, {} as never)
@@ -151,6 +154,12 @@ test('dispatcher: a borrowed downstream carries everything the pool does not', (
 
   router.dispatch({ origin: 'http://127.0.0.1:64821/_/t/v1/chat/completions' } as never, {} as never)
   assert.deepEqual(hops, ['direct'], 'loopback still stays local: the relay is not a proxy target')
+
+  // The layer below closes, or the composer stops offering one: fall back to
+  // this machine rather than dispatching into a dead layer.
+  current = undefined
+  router.dispatch({ origin: 'https://example.com/y' } as never, {} as never)
+  assert.deepEqual(hops, ['direct', 'direct'], 'a resolver answering undefined means "dial here"')
 })
 
 /**

@@ -381,9 +381,12 @@ buffer — i.e. invisible. `~/.dsh/oc2dsh/adapter-status.json` answers it now:
   refused to adopt us.
 - `pool.ready` true with `pool.enabled` true and `pool.composedUnder` set → the
   layer JOINED below a composing dispatcher (dsh-privacy-gateway's
-  MaskingDispatcher) instead of taking the slot. Healthy, not a deferral:
-  masking runs on the plaintext body first, then this router picks the exit.
-  The modal says so in its own sentence.
+  MaskingDispatcher, which ranks layers by role: `route` above `proxy`). Healthy,
+  not a deferral: masking runs on the plaintext body first, then this router
+  picks the exit. The modal says so in its own sentence.
+- A composer is strictly optional: with none installed the pool takes the slot
+  itself or defers, exactly as before — nothing in this plugin depends on
+  masking being present.
 - `pool.singbox` null means no binary configured, `{ running: false }` a
   configured child that died — the subscription nodes can serve while routing
   is off, and vice versa, so one flag never answers the other.

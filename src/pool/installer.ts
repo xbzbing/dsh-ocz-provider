@@ -73,7 +73,6 @@ type SlotOccupant =
   | { kind: 'composable'; dispatcher: Dispatcher; name: string }
   | { kind: 'foreign'; name: string }
 
-
 export class RoutingInstaller {
   #deps: InstallerDeps
   #previous: Dispatcher | null = null
@@ -207,7 +206,7 @@ export class RoutingInstaller {
   }
 
   /** The routing layer itself, carrying the settings in force right now. */
-  #buildRouter(downstream?: Dispatcher): PoolRoutingDispatcher {
+  #buildRouter(): PoolRoutingDispatcher {
     return new PoolRoutingDispatcher({
       pool: this.#deps.pool,
       undici: this.#deps.undici,
@@ -218,19 +217,21 @@ export class RoutingInstaller {
       listInterfaces: this.#deps.listInterfaces,
       onTransportCut: this.#deps.onTransportCut,
       logger: this.#deps.logger,
-      ...(downstream === undefined ? {} : { downstream }),
     })
   }
 
   /**
    * Attach this router BELOW a composing dispatcher, leaving the slot to it.
    *
-   * The composer hands each request to the newest layer chained after it, so
-   * appending ours keeps it outermost — exactly the order masking needs. The
-   * result is verified through the composer's own `downstream()` when it
-   * exposes one: a composer that did not adopt us (or adopted us and still
-   * routes elsewhere) is treated like any other foreign owner, so the status
-   * can never claim routing the process is not doing.
+   * The composer ranks layers by role and sends each request to the first open
+   * one, so a `route` layer sits above the `proxy` layer that dials — the order
+   * masking needs (docs/adr/0012 in dsh-privacy-gateway). Adoption is verified
+   * through `downstream()`: a join nobody verified would report routing the
+   * process is not doing.
+   *
+   * Masking is OPTIONAL here: everything below only happens when a composer is
+   * actually present. Without one the pool takes the slot itself (or defers),
+   * exactly as it always did.
    */
   #joinDownstream(occupant: { dispatcher: Dispatcher; name: string }): void {
     if (this.#refusedBy === occupant.dispatcher) {
@@ -238,25 +239,22 @@ export class RoutingInstaller {
       return
     }
     const probe = occupant.dispatcher as unknown as {
-      chainTo?(d: unknown): void
+      chainTo?: (d: unknown, options?: { role?: string }) => void
       downstream?: () => unknown
+      below?: (d: unknown) => unknown
     }
-    // What sits below us is read BEFORE chaining: afterwards the composer's
-    // "current downstream" is us. That layer is borrowed, not replaced — a
-    // proxy policy installed before us keeps carrying everything the pool does
-    // not take.
-    const below = typeof probe.downstream === 'function' ? probe.downstream() : undefined
-    const borrowed = below !== null && typeof below === 'object' && typeof (below as { dispatch?: unknown }).dispatch === 'function'
-      ? below as Dispatcher
-      : undefined
-    const router = this.#buildRouter(borrowed)
+    if (typeof probe.chainTo !== 'function' || typeof probe.downstream !== 'function') {
+      this.#deferForeign(occupant.name, 'does not offer a verifiable chain, so this layer cannot join it')
+      return
+    }
+    // The snapshot is only a fallback for a composer without `below()`: it is
+    // resolved again per request below.
+    const snapshot = this.#liveLayer(probe.downstream())
+    const router = this.#buildRouter()
     let adopted = true
     try {
-      if (typeof probe.chainTo !== 'function') adopted = false
-      else {
-        probe.chainTo(router)
-        if (typeof probe.downstream === 'function') adopted = probe.downstream() === router
-      }
+      probe.chainTo(router, { role: 'route' })
+      adopted = probe.downstream() === router
     } catch {
       adopted = false
     }
@@ -266,17 +264,88 @@ export class RoutingInstaller {
       void router.destroy().catch(() => {})
       return
     }
+    // Hand non-carried traffic to whatever sits BELOW us, re-resolved per
+    // request: a composer adopts a layer that appears under us later (another
+    // dispatcher plugin replacing the slot), and a join-time pointer would
+    // starve it while still claiming the policy survived.
+    const composer = occupant.dispatcher
+    router.setDownstream(() => this.#below(composer, router) ?? snapshot)
     const old = this.#current
     this.#current = router
     this.#enabled = true
     this.#composedUnder = occupant.name
-    this.#composer = occupant.dispatcher
+    this.#composer = composer
     this.#refusedBy = null
     this.#deferredReason = null
-    // Nothing of ours took the slot, so there is nothing of ours to restore.
-    this.#previous = null
+    // We did not take the slot, so there is nothing of ours to put back — but
+    // the composer may hand it to us later (its dispose installs downstream()),
+    // and then this borrowed layer is what the slot must fall back to. A fresh
+    // Agent there would delete a proxy policy that was in force all along.
+    this.#previous = snapshot ?? null
     if (old !== null) void old.destroy().catch(() => {})
     this.#deps.logger?.info(`oc2dsh: exit routing joined below "${occupant.name}" (body masked first, then the exit is picked)`)
+  }
+
+  /** The live layer just below `router` in `composer`'s order, re-read per request. */
+  #below(composer: Dispatcher, router: PoolRoutingDispatcher): Dispatcher | undefined {
+    const probe = composer as unknown as { below?: (d: unknown) => unknown }
+    if (typeof probe.below !== 'function') return undefined
+    try {
+      return this.#liveLayer(probe.below(router))
+    } catch {
+      return undefined
+    }
+  }
+
+  /** `candidate` when it is an open dispatcher, otherwise undefined. */
+  #liveLayer(candidate: unknown): Dispatcher | undefined {
+    if (candidate === null || typeof candidate !== 'object') return undefined
+    if (typeof (candidate as { dispatch?: unknown }).dispatch !== 'function') return undefined
+    const shape = candidate as { closed?: boolean; destroyed?: boolean }
+    if (shape.closed === true || shape.destroyed === true) return undefined
+    return candidate as Dispatcher
+  }
+
+  /**
+   * Leave a composer's chain on our way out.
+   *
+   * `release()` is the clean exit. When it refuses (we are the last layer) or
+   * the composer has none, a closed layer may be all that is left — and a
+   * composer with nothing open falls back to its LAST layer, which is exactly
+   * the layer we are about to close: every request in the process would then
+   * fail, masking included. So a live layer goes in first, then we are dropped
+   * if the composer allows it.
+   */
+  #retireJoined(dying: PoolRoutingDispatcher): void {
+    const composer = this.#composer
+    if (composer === null) return
+    const probe = composer as unknown as {
+      release?: (d: unknown) => boolean
+      chainTo?: (d: unknown, options?: { role?: string }) => void
+      downstreams?: () => Array<{ dispatcher: unknown; closed: boolean }>
+    }
+    try {
+      if (probe.release?.(dying) === true) return
+    } catch {
+      // fall through: the layer is still in the chain
+    }
+    let liveBelow: boolean | undefined
+    try {
+      const layers = probe.downstreams?.()
+      if (Array.isArray(layers)) liveBelow = layers.some((layer) => layer.dispatcher !== dying && !layer.closed)
+    } catch {
+      liveBelow = undefined
+    }
+    // Unknown means we cannot prove a live layer remains, and guessing "yes"
+    // is the outage above; guessing "no" only costs one extra proxy-role Agent.
+    if (liveBelow === true) return
+    try {
+      probe.chainTo?.(new this.#deps.undici.Agent(), { role: 'proxy' })
+      probe.release?.(dying)
+    } catch {
+      // a composer that refuses both still skips a closed layer whenever
+      // anything else is open; nothing further we can do from here
+    }
   }
 
   #deferForeign(name: string, why?: string): void {
@@ -295,7 +364,7 @@ export class RoutingInstaller {
    */
   #stillRouted(): boolean {
     const router = this.#current
-    if (router === null) return false
+    if (router === null || router.closed) return false
     let current: unknown
     try {
       current = this.#deps.undici.getGlobalDispatcher()
@@ -326,6 +395,9 @@ export class RoutingInstaller {
     this.#current = null
     this.#enabled = false
     this.#composedUnder = null
+    // Before closing: a composer left with only our corpse hands every request
+    // to it (see #retireJoined).
+    if (dying !== null) this.#retireJoined(dying)
     this.#composer = null
     this.#previous = null
     if (this.#savedGlobalFetch !== null) {
@@ -413,12 +485,18 @@ export class RoutingInstaller {
     // composer skips a closed downstream and falls through to what is below.
     const owns = dying !== null && this.#ownsSlot(dying)
     const restoreFetch = this.#savedGlobalFetch !== null
+    // A saved dispatcher that has since been closed must not be put back: it
+    // would be a dead slot (the borrowed layer can be torn down before the
+    // composer hands us the slot).
+    const usable = previous !== null
+      && (previous as { closed?: boolean; destroyed?: boolean }).closed !== true
+      && (previous as { destroyed?: boolean }).destroyed !== true
     this.#teardownLayer()
     let restored = false
     if (owns) {
-      if (previous !== null) {
+      if (usable) {
         try {
-          this.#deps.undici.setGlobalDispatcher(previous)
+          this.#deps.undici.setGlobalDispatcher(previous as Dispatcher)
           restored = true
         } catch {
           // the saved dispatcher may already be gone (host teardown) — our

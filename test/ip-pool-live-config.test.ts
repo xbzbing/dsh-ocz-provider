@@ -230,6 +230,43 @@ test('assembly: an empty pool still installs the dispatcher (本地出口兜底 
   await runtime.dispose()
 })
 
+test('assembly: an admission repairs an engaged layer that is no longer in force', async () => {
+  // The seam that CAN tell (the real installer) is asked on every admission:
+  // another dispatcher plugin may have replaced our layer, or a composing one
+  // may have chained a later layer above it. A seam that cannot tell (no
+  // routingInForce) must keep the old no-churn behaviour, which the test above
+  // pins.
+  const calls: string[] = []
+  let inForce = true
+  const installer = {
+    install(): void {
+      calls.push('install')
+    },
+    disable(): void {
+      calls.push('disable')
+    },
+    dispose(): void {
+      calls.push('dispose')
+    },
+    get enabled(): boolean {
+      return true
+    },
+    deferredReason: null as string | null,
+    routingInForce: (): boolean => inForce,
+  }
+  const runtime = await startIpPool({ ipPool: { enabled: true } }, quiet, { makeInstaller: () => installer })
+  assert.ok(runtime !== null)
+  assert.deepEqual(calls, ['install'])
+
+  runtime.pool.add(node({ id: '127.0.0.1:30007' }))
+  assert.deepEqual(calls, ['install'], 'still in force: nothing to repair')
+
+  inForce = false
+  runtime.pool.add(node({ id: '127.0.0.1:30008' }))
+  assert.deepEqual(calls, ['install', 'install'], 'a takeover is repaired on the next admission')
+  await runtime.dispose()
+})
+
 test('assembly: 本地出口兜底 reaches the installer at assembly and on every commit', async () => {
   const installer = fakeInstaller()
   let deps: { localFallback?: boolean } | undefined
