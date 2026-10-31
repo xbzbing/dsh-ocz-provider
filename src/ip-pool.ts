@@ -177,6 +177,12 @@ export interface IpPoolRuntime {
   }
   /** Shared probe scheduler (admission + UI-triggered probes). */
   prober: Prober
+  /**
+   * sing-box child state for the encrypted (subscription) nodes, or null when
+   * no binary is configured — the two differ: a configured-but-dead child is a
+   * fault, an unconfigured one is a choice.
+   */
+  singboxState(): { running: boolean } | null
   /** Subscription layer (null when no URLs configured). */
   subscriptions: SubscriptionFetcher | null
   /** Hot-apply one committed settings value onto the live runtime (docs §5.1).
@@ -614,6 +620,7 @@ export async function startIpPool(
     pool,
     installer,
     prober,
+    singboxState: () => (supervisor === undefined ? null : { running: supervisor.running }),
     get subscriptions() { return subscriptions },
     async reconfigure(next: Opencode2dshConfig) {
       const wasEnabled = config.ipPool?.enabled !== false

@@ -370,7 +370,18 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             </Button>
           )}
         </div>
-        {poolOff && <p className={shared.status}>{t('statsPoolOff')}</p>}
+        {poolOff && (
+          <p className={shared.status}>
+            {/* Three different faults used to share one sentence: the switch is
+                off, the routing layer yielded to another dispatcher plugin (R1),
+                or the pool never assembled at all. */}
+            {status?.deferredReason !== undefined && status.deferredReason !== ''
+              ? t('statsPoolDeferred', { reason: status.deferredReason })
+              : status?.runtimeReady === false
+                ? t('statsPoolNotReady')
+                : t('statsPoolOff')}
+          </p>
+        )}
         {!poolOff && rows.length === 0 && (status?.local?.requests ?? 0) === 0 ? (
           <p className={shared.status}>{error !== null && status === null ? t('statsError') : t('statsEmpty')}</p>
         ) : (

@@ -136,6 +136,8 @@ export interface PoolStatusView {
   zenUserAgent?: string
   /** The pool runtime is running (not the draft switch on the card). */
   enabled: boolean
+  /** Whether the pool runtime exists at all (absent on older host snapshots). */
+  runtimeReady?: boolean
   deferredReason: string
   total: number
   bySource: Record<'manual' | 'subscription' | 'goproxy', number>

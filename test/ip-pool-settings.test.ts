@@ -199,6 +199,31 @@ function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Rec
   }
 }
 
+test('status view separates a deferred router from a missing runtime', () => {
+  const ready = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
+  assert.equal(ready.runtimeReady, true)
+  assert.equal(ready.deferredReason, '')
+
+  // R1: the pool exists and assembles, but another dispatcher owns the slot.
+  const deferred = buildStatusView(fakeRuntime({
+    installer: {
+      enabled: false,
+      deferredReason: 'deferred: global dispatcher is owned by "ProxyAgent" — install dsh-llm-proxy or the IP pool in one profile only, not both (R1)',
+      install() {}, disable() {}, dispose() {},
+    },
+  }) as never, true, ['opencode.ai'])
+  assert.equal(deferred.runtimeReady, true, 'the pool exists; only its routing yielded')
+  assert.equal(deferred.enabled, false)
+  assert.match(deferred.deferredReason, /global dispatcher is owned by/)
+
+  // No runtime at all: the switch may be on, but nothing was assembled, and
+  // there is no installer to report a deferral.
+  const missing = buildStatusView(null, true, ['opencode.ai'])
+  assert.equal(missing.runtimeReady, false)
+  assert.equal(missing.enabled, false)
+  assert.equal(missing.deferredReason, '')
+})
+
 test('status view projects counts, exits, bans and prober progress', () => {
   const view = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
   assert.equal(view.enabled, true)

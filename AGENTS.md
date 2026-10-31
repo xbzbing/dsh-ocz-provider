@@ -350,3 +350,24 @@ restart for exactly this reason; the profile copy still held the previous
 build (`grep localFallback …/lib/client.js` returned 0 while the checkout's
 `lib/client.js` carried it). Check the profile copy's `lib/` timestamp — or
 grep it for a string only the new build has — before blaming the host.
+
+## Diagnosing a pool that looks off
+
+The card's 启用 IP 池 switch is the SETTING (`ipPool.enabled`); the stats
+modal's 未启用 is the LIVE state (`installer.enabled`). They diverge whenever
+the routing layer never took the global dispatcher, and until the status file
+carried `pool`, the only trace was a `logger.warn` in the host's in-process
+buffer — i.e. invisible. `~/.dsh/oc2dsh/adapter-status.json` answers it now:
+
+- `pool.ready` false → the pool never assembled: `applyIpPoolSettings()` threw
+  and `pool.wiringError` carries the message (index.ts catches it so the
+  provider route survives, which is exactly why it used to vanish).
+- `pool.ready` true with `pool.enabled` false → the routing layer yielded
+  (R1): `pool.deferredReason` names the foreign dispatcher.
+- `pool.singbox` null means no binary configured, `{ running: false }` a
+  configured child that died — the subscription nodes can serve while routing
+  is off, and vice versa, so one flag never answers the other.
+
+The stats modal renders those three separately, so the local-only exit table
+(exit rows are filtered when the pool is off) no longer reads as "the pool is
+switched off".

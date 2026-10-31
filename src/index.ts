@@ -8,7 +8,7 @@ import type { RequestHeaders } from './request-headers.ts'
 import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { Config, ordinaryConfig, resolveConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
 import type { ModelContextWindows } from './model-context.ts'
-import { applyIpPoolSettings } from './ip-pool-settings/apply.ts'
+import { applyIpPoolSettings, type IpPoolController } from './ip-pool-settings/apply.ts'
 import { setUsageRecorder } from './pool/usage.ts'
 import { usageStore } from './pool/usage-store.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
@@ -135,6 +135,26 @@ function applyAdapter(
   const statusPath = join(dataDir, 'adapter-status.json')
   /** The last relay snapshot, written into the status file (diagnostics). */
   let relayStatus: RelayStatus | null = null
+  /**
+   * The pool controller and whatever the wiring threw. Both land in the status
+   * file: a pool that is switched on but never assembled otherwise looks
+   * identical to one that is switched off, and the reason only ever existed in
+   * the host's in-process log.
+   */
+  let ipPool: IpPoolController | null = null
+  let ipPoolError: string | null = null
+  /** Pool state for the status file, read at write time (never captured). */
+  const poolDiagnostics = (): Record<string, unknown> => {
+    const runtime = ipPool?.runtime ?? null
+    return {
+      ready: runtime !== null,
+      enabled: runtime?.installer.enabled ?? false,
+      deferredReason: runtime?.installer.deferredReason ?? '',
+      exits: runtime === null ? 0 : runtime.pool.snapshot().total,
+      singbox: runtime?.singboxState() ?? null,
+      ...(ipPoolError === null ? {} : { wiringError: ipPoolError }),
+    }
+  }
   const writeStatus = (status: CatalogSnapshot, lastError: string): void => {
     void writeFile(
       statusPath,
@@ -143,6 +163,7 @@ function applyAdapter(
           ...status,
           zenUserAgent: opencodeUserAgent(),
           ...(relayStatus !== null ? { relay: relayStatus } : {}),
+          pool: poolDiagnostics(),
           lastError,
           writtenAt: new Date().toISOString(),
         },
@@ -237,13 +258,14 @@ function applyAdapter(
   // try/catch, because the provider route above must survive anything this
   // layer throws.
   try {
-    applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
+    ipPool = applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
       listLiveModels: () => catalog.list(),
       usage: usageStore,
       // Read per probe, not captured: the relay can restart onto another port.
       relayBaseUrl: () => relay.baseUrl,
     })
   } catch (err) {
+    ipPoolError = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
     logger.error(`oc2dsh: ip-pool settings wiring failed; the provider route stays direct: ${err instanceof Error ? err.message : String(err)}`)
   }
 

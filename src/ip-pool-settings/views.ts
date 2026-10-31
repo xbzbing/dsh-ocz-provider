@@ -156,6 +156,14 @@ export interface SubscriptionView {
 
 export interface PoolStatusView {
   enabled: boolean
+  /**
+   * Whether the pool runtime exists at all. False means the pool was never
+   * assembled (its wiring threw, or the entry is still starting) — a different
+   * fault from a live runtime whose routing deferred, and the only signal that
+   * separates them: `deferredReason` stays empty in both when the installer is
+   * never reached.
+   */
+  runtimeReady: boolean
   /** Non-empty when the pool runs but the routing layer deferred to another
    *  dispatcher-level plugin (R1 coexistence policy). */
   deferredReason: string
@@ -331,6 +339,7 @@ export function buildStatusView(
       : pinnedRow.cooling ? 'cooling' : null
   return {
     enabled: runtime !== null && runtime.installer.enabled,
+    runtimeReady: runtime !== null,
     deferredReason: runtime !== null && !runtime.installer.enabled
       ? (runtime.installer as unknown as { deferredReason?: string }).deferredReason ?? ''
       : '',
