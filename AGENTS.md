@@ -179,8 +179,14 @@ Headlines:
   request); pi-ai's compat is pinned (`supportsStore: false`,
   `supportsDeveloperRole: false`) because behind the loopback relay its
   opencode.ai detection no longer fires and it added `store` and the
-  `developer` role; the leading system messages ride the system role (they
-  used to be sent as a user turn); the `<env>` block is appended as the
+  `developer` role; pi-ai 1.x additionally reads only a NORMALIZED transcript
+  (`normalizeContext`, `@earendil-works/pi-ai/utils/transcript`), and a raw
+  `Context` silently loses `systemPrompt` and the tools folded with it — the
+  adapter therefore normalizes at that boundary and `test/zen-adapter.test.ts`
+  pins it, because the gate only reads the appended `<env>` block and would
+  happily accept a body whose real prompt had vanished; the leading system
+  messages ride the system role (they used to be sent as a user turn); the
+  `<env>` block is appended as the
   client's two instructions (`Today's date: …`, then `Here is some useful
   information about the environment you are running in:` + the block), with
   the temp line `realpath(os.tmpdir())/opencode`. The gate does NOT read the

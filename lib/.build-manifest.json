@@ -1,8 +1,8 @@
 {
   "version": 2,
   "inputs": {
-    "package.json": "770b5ea4e074323134c94b30d40826167f61e2fa",
-    "pnpm-lock.yaml": "6761f563ce0cbb6492ca94435b53d453dbb21fdb",
+    "package.json": "0aeff6b6808930d8dfede3df615604cbff79a677",
+    "pnpm-lock.yaml": "ff778ba72be4cfd2219a884c6e3432aada8fd09c",
     "src/adapter/attempt.ts": "12235be68062cac39f9cda0bb27cf2159d50b6b9",
     "src/adapter/catalog.ts": "dfa531be183bd680a827a42d926db1b580dc876c",
     "src/adapter/env-block.ts": "85a3814ed4ec2788d8811fd007c5bc016ea1478e",
@@ -15,7 +15,7 @@
     "src/adapter/reasoning-effort.ts": "0e19b31a42736d6a28e56092b044877ed3c575dc",
     "src/adapter/retry-delay.ts": "0daf3765ad870dcc9894b244af89b4a3b57bee53",
     "src/adapter/routing.ts": "c7b94c7806ee9a83f475500b7941e429ca6aa4ad",
-    "src/adapter/zen-adapter.ts": "20865b4751e5a8f6954bb4b6240270d983eeefc3",
+    "src/adapter/zen-adapter.ts": "911458f9a741bed215d85df62347f07c257fd533",
     "src/client/ExitStatsEntry.tsx": "7bb96376a6c3da02e625088e10ec06b2a35c1a2f",
     "src/client/ExitTable.tsx": "cd5947fc82196be1587351d265142e4d080393f1",
     "src/client/IpPoolCard.tsx": "ff03be811e888c630f3118a934c4079de2eab3bf",
@@ -99,7 +99,7 @@
     "lib/client.js.map": "c43c085182c1ff0fc14f2a702f8dd6a7711ac9f5",
     "lib/dispatcher.js": "3bbcd1ec8e4069443d179c6e3c6c00848d5b0652",
     "lib/index.d.ts": "cc44f54d17c0c2e614f1b61f3f6716099db27e34",
-    "lib/index.js": "a528d2abf3b5ce24ff8199f88e94318dcbc81b13",
+    "lib/index.js": "53dd0dc51ec8faddcd9158da3a1270bbb46f509f",
     "lib/installer.js": "d16191e31c8e4f34e8cd6cf7b6021080227da91c",
     "lib/ip-pool.js": "3e3b5089911b9140435f8266c7c25282fb705a35",
     "lib/protocol.js": "6e472bd4b5f43b6411555fb4746ef5ce9e6d8635",

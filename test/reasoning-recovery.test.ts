@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import * as openaiCompletions from '@earendil-works/pi-ai/api/openai-completions'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 import type { Context, Model } from '@earendil-works/pi-ai'
 import { ZenAdapter } from '../src/adapter/zen-adapter.ts'
 import type { HarnessChunk, PiDoneMessage, PiEvent } from '../src/adapter/events.ts'
@@ -234,7 +235,7 @@ test('real pi-ai HTTP streaming sends the Off fallback and returns one usable re
       reasoningCapability: () => ({ reasoning: true, effortValues: [] }),
     }, { providerOverride: {
       streamSimple(model: Model<'openai-completions'>, context: Context, wireOptions: never) {
-        return openaiCompletions.streamSimple({ ...model, baseUrl }, context, wireOptions)
+        return openaiCompletions.streamSimple({ ...model, baseUrl }, normalizeContext(context), wireOptions)
       },
     } })
     const chunks = await collect(adapter, { ...options, signal: AbortSignal.timeout(5000) })

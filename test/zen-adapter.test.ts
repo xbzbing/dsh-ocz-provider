@@ -341,6 +341,48 @@ test('the chat body leaves in the client\'s key order', async () => {
   ])
 })
 
+/**
+ * pi-ai's provider entry points read a NORMALIZED transcript: handed a raw
+ * Context they drop `systemPrompt` — and the tools folded with it — so the
+ * harness' own prompt never reaches the wire while the body still passes the
+ * gate (which only reads the appended `<env>` block). The adapter normalizes at
+ * this boundary; this asserts the prompt survived.
+ */
+test('the harness system prompt reaches pi-ai as a normalized transcript', async () => {
+  type Seen = { messages: Array<{ role: string; content: unknown }> }
+  const seen: Seen[] = []
+  const provider = {
+    streamSimple(_model: unknown, context: unknown, _options: unknown): AsyncIterable<{ type: string }> {
+      seen.push(context as Seen)
+      return (async function* () {
+        yield { type: 'start' }
+        yield { type: 'done', message: { stopReason: 'stop', content: [], usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 } } }
+      })()
+    },
+  }
+  const adapter = new ZenAdapter(
+    {
+      list: () => ['big-pickle'],
+      decision: () => ({ allowed: true, source: 'test', known: true }),
+      reasoningCapability: () => undefined,
+    },
+    { providerOverride: provider },
+  )
+  for await (const chunk of adapter.stream({
+    provider: 'oc2dsh',
+    model: 'big-pickle',
+    messages: [
+      { role: 'system', content: [{ type: 'text', text: 'You are a coding agent.' }] },
+      { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+    ],
+  } as never)) void chunk
+  assert.ok(seen.length > 0, 'the adapter must hand pi-ai a request')
+  const messages = seen[0]!.messages
+  assert.equal(messages[0]?.role, 'system', 'the prompt rides the leading system message')
+  assert.match(JSON.stringify(messages[0]?.content), /You are a coding agent\./)
+  assert.deepEqual(messages.slice(1).map((message) => message.role), ['user'])
+})
+
 test('stream keeps the free-lane gate rewrite alongside the effort injection', async () => {
   // a body missing the gate tools gets them AND the effort in one rewrite
   const offOptions = (await runStream(true, 'off'))[0]!

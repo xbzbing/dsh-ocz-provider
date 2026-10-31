@@ -1,6 +1,7 @@
 import { createProvider, type Api, type Context, type Model } from '@earendil-works/pi-ai'
 import * as openaiCompletions from '@earendil-works/pi-ai/api/openai-completions'
 import * as openaiResponses from '@earendil-works/pi-ai/api/openai-responses'
+import { normalizeContext } from '@earendil-works/pi-ai/utils/transcript'
 
 import { ModelCatalog, ZEN_BASE_URL } from './catalog.ts'
 import { attemptAbort, attemptEntry, describeFailure, giveUpStory, nextStep, originSwitchEntry, peekAttempt, watchEvents, withFailureSuffix, type WatchdogWindows } from './attempt.ts'
@@ -638,7 +639,10 @@ export class ZenAdapter {
     else if (directive !== null) headers[EGRESS_HEADER] = directive
     return {
       meta,
-      stream: provider.streamSimple(target, context as unknown as Context, {
+      // pi-ai's provider entry points take a NORMALIZED transcript: handed a raw
+      // Context they drop `systemPrompt` (and the tools bundled with it), which
+      // would strip the harness' prompt from the wire.
+      stream: provider.streamSimple(target, normalizeContext(context as unknown as Context), {
         apiKey: ANONYMOUS_KEY,
         sessionId: ids.session,
         headers,

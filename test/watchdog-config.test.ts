@@ -93,7 +93,9 @@ for (const scenario of [
     const controller = new AbortController()
     t.after(() => {
       controller.abort()
-      body?.close()
+      // Cancelling the attempt closes the response body on the SDK's side, so
+      // teardown must not insist on closing it a second time.
+      try { body?.close() } catch { /* already closed with the aborted attempt */ }
       for (const dispose of disposers) dispose()
     })
     apply(ctx, {
