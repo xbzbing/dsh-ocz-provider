@@ -11,7 +11,7 @@ import { chatApiPath, laneOrigins } from './lane.ts'
 import { gateToolArgumentBridge } from './gate-tools.ts'
 import { hostProjectAsync } from './project.ts'
 import { nextRetryDelayMs, retryDelayKey } from './retry-delay.ts'
-import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, GATE_TOOL_ALIASES, inClientKeyOrder, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
+import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, TOOL_NAME_ALIASES, inClientKeyOrder, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
 export { WATCHDOG_FIRST_MESSAGE, WATCHDOG_IDLE_MESSAGE } from './attempt.ts'
@@ -509,7 +509,7 @@ export class ZenAdapter {
       bodyIdleMs: model.api === 'openai-responses' ? Math.max(this.#bodyIdleMs, this.#responsesBodyIdleMs) : this.#bodyIdleMs,
     }
     const chunksOf = (events: AsyncIterable<PiEvent>): AsyncGenerator<HarnessChunk> =>
-      attributeUsage(contextStore, toStreamChunks(events, GATE_TOOL_ALIASES, argumentBridge))
+      attributeUsage(contextStore, toStreamChunks(events, TOOL_NAME_ALIASES, argumentBridge))
     const origins = this.#origins
     const story: string[] = []
     let originIndex = 0

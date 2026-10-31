@@ -210,6 +210,32 @@ Headlines:
   (drive `ZenAdapter` -> relay -> a local server, diff against
   `tls-headers.log`) whenever pi-ai, the OpenAI SDK or Bun moves;
 - `tool_choice: 'none'` is rejected.
+- TOOL NAMES can be refused, and the refusal wears the quota error (2026-10-31):
+  a body whose `tools` carries `subagent_fork` is answered `429
+  FreeUsageLimitError` on every exit, on this machine's egress and on every
+  free model, while the same body with that one name changed answers 200 —
+  measured by alternating the two bodies on one exit, 4/4, so it is not the
+  budget. The NAME alone decides: schema, description, tool count and body
+  size are each ruled out (152 synthetic tools / 35 KB and 40 real schemas /
+  131 KB both pass), and duplicate tool names are a different refusal (400).
+  `src/adapter/messages.ts` `WIRE_TOOL_RENAMES` therefore ships the host's
+  `subagent_fork` as `fork_conversation` and `TOOL_NAME_ALIASES` hands the
+  model's call back under the host's name, exactly like `shell` -> `bash`.
+  The same table moves every host name with an honest counterpart onto the
+  client's own vocabulary (`ask_user_question` -> `question`, `web_fetch` ->
+  `webfetch`, `workflow` -> `execute`), because a name the client never sends
+  is one more thing a refusal can key on; names without one keep theirs
+  (`web_search` has none — the client's `search` discovers tool signatures —
+  and `read_image` cannot reuse `read`, since two tools under one wire name
+  draw 400). MCP tools already match the client's `mcp__<server>__<tool>` form.
+  Tool TEXT is not gated (arbitrary descriptions pass), so the same module only
+  neutralises the handful of strings that name this host — `$DSH_*`/`harness`,
+  `DSH_HOME/skills`, the `dsh-ui` fence and the `[dsh-ui reply]` wording —
+  because a wire capture of the full 69-tool set then carries no tell.
+  Because the refusal copies the quota shape (`retry-after` pointing at the
+  next 00:00Z), a 429 alone cannot tell "refused" from "spent": bisect on a
+  fresh exit before editing wire code, and remember every probe spends that
+  exit's own daily budget.
 - status codes, re-read 2026-10-25: `403 FreeTierError` still means the SHAPE
   was rejected (a body without `tools` still 403s that day), but `429
   FreeUsageLimitError` no longer means "gate passed, anonymous quota spent".

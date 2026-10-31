@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { toStreamChunks, type HarnessChunk, type PiEvent } from '../src/adapter/events.ts'
+import { TOOL_NAME_ALIASES } from '../src/adapter/messages.ts'
 import { FREE_LANE_RETRY_POLICY } from '../src/adapter/zen-adapter.ts'
 
 const CONTEXT_WINDOW = 262144
@@ -220,4 +221,45 @@ test('the provider\'s own overflow wording is still CONTEXT_WINDOW_EXCEEDED', as
 
 test('a stream that ends without done/error is a bug and throws', async () => {
   await assert.rejects(collect([{ type: 'start', partial: { content: [] } }]), /without done\/error/)
+})
+
+test('a renamed wire tool arrives at the host under its own name', async () => {
+  // The wire carries `fork_conversation` because the lane refuses the host's
+  // own spelling (adapter/messages.ts WIRE_TOOL_RENAMES); the chunk stream must
+  // hand the call back as `subagent_fork`, or the host sees a tool it never
+  // offered and the call dies.
+  const partial = { content: [{ type: 'toolCall', id: 't1', name: 'fork_conversation' }] }
+  const chunks: HarnessChunk[] = []
+  for await (const chunk of toStreamChunks(
+    (async function* () {
+      yield { type: 'toolcall_start', contentIndex: 0, partial } as unknown as PiEvent
+      yield {
+        type: 'toolcall_delta',
+        contentIndex: 0,
+        delta: '{"prompt":"hi"}',
+        partial,
+      } as unknown as PiEvent
+      yield {
+        type: 'toolcall_end',
+        contentIndex: 0,
+        toolCall: { id: 't1', name: 'fork_conversation', arguments: { prompt: 'hi' } },
+        partial,
+      } as unknown as PiEvent
+      yield done({
+        content: [{ type: 'toolCall', id: 't1', name: 'fork_conversation', arguments: { prompt: 'hi' } }],
+        stopReason: 'toolUse',
+      })
+    })(),
+    TOOL_NAME_ALIASES,
+  )) {
+    chunks.push(chunk)
+  }
+  const delta = chunks.find((chunk) => chunk.type === 'tool-call-delta')
+  assert.deepEqual(delta, { type: 'tool-call-delta', index: 0, id: 't1', name: 'subagent_fork', argumentsDelta: '{"prompt":"hi"}' })
+  const end = chunks.find((chunk) => chunk.type === 'block-end')
+  assert.deepEqual(end, {
+    type: 'block-end',
+    index: 0,
+    block: { type: 'tool-call', id: 't1', name: 'subagent_fork', arguments: '{"prompt":"hi"}' },
+  })
 })

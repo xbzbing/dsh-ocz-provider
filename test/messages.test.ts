@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureFreeLaneShape, toPiContext, type HarnessGenerateOptions, type HarnessMessage, type PiMessage } from '../src/adapter/messages.ts'
+import { ensureFreeLaneShape, TOOL_NAME_ALIASES, toPiContext, WIRE_TOOL_RENAMES, type HarnessGenerateOptions, type HarnessMessage, type PiMessage } from '../src/adapter/messages.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool, GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
 import { withEnvBlock } from '../src/adapter/env-block.ts'
 
@@ -592,3 +592,166 @@ test('Responses free-lane bodies carry flat gate tools and supported tool choice
   assert.equal(ensureResponsesFreeLaneShape({ messages: [] }), undefined)
 })
 
+
+/**
+ * `subagent_fork` is refused by NAME on the free lane: the same body with that
+ * tool renamed answers 200 while the original draws 429 FreeUsageLimitError,
+ * alternating 4/4 on one exit (measured 2026-10-31). The shapers therefore move
+ * the spelling on the wire; events.test.ts pins the reverse mapping.
+ */
+test('ensureFreeLaneShape renames a refused tool name on the wire', () => {
+  const gate = FREE_LANE_GATE_TOOL_NAMES.map((name) => freeLaneGateTool(name))
+  const body = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }, { role: 'user', content: 'ping' }],
+    tools: [
+      ...gate,
+      { type: 'function', function: { name: 'subagent_fork', description: 'fork it', parameters: { type: 'object' } } },
+    ],
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  assert.deepEqual(
+    names,
+    [...FREE_LANE_GATE_TOOL_NAMES, 'fork_conversation'],
+    'the refused spelling never reaches the wire',
+  )
+  // The rest of the entry rides along untouched: only the name moves.
+  const renamed = (next.tools as Array<{ function: { name: string; description: string } }>).at(-1)
+  assert.equal(renamed?.function.description, 'fork it')
+  // A body with nothing else to fix is still reported as changed.
+  assert.notEqual(next, undefined)
+})
+
+test('ensureFreeLaneShape moves a tool_choice pin onto the wire spelling', () => {
+  const body = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools: [{ type: 'function', function: { name: 'subagent_fork', description: 'd', parameters: {} } }],
+    tool_choice: { type: 'function', function: { name: 'subagent_fork' } },
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  assert.deepEqual(next.tool_choice, { type: 'function', function: { name: 'fork_conversation' } })
+})
+
+test('ensureResponsesFreeLaneShape renames a refused tool name in the flat shape', () => {
+  const body = {
+    input: [
+      { role: 'system', content: [{ type: 'input_text', text: withEnvBlock('be brief') }] },
+      { role: 'user', content: 'ping' },
+    ],
+    tools: [{ type: 'function', name: 'subagent_fork', description: 'fork it', parameters: { type: 'object' } }],
+  }
+  const next = ensureResponsesFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ name: string }>).map((tool) => tool.name)
+  assert.deepEqual(names, ['fork_conversation', 'shell', 'read'])
+})
+
+test('TOOL_NAME_ALIASES carries the gate pair and the reverse of every rename', () => {
+  assert.equal(TOOL_NAME_ALIASES.shell, 'bash')
+  assert.equal(TOOL_NAME_ALIASES.fork_conversation, 'subagent_fork')
+  // Every refused name is mapped from its wire spelling, so no call can arrive
+  // at the host under a name it never offered.
+  for (const [host, wire] of Object.entries(WIRE_TOOL_RENAMES)) {
+    assert.equal(TOOL_NAME_ALIASES[wire], host)
+  }
+  // The wire spelling is not itself a refused name.
+  for (const wire of Object.values(WIRE_TOOL_RENAMES)) {
+    assert.equal(WIRE_TOOL_RENAMES[wire], undefined)
+  }
+})
+
+/**
+ * The captured 2.2.5 client's top-level tool names (the wire vocabulary). The
+ * rename table may only send names from this set, plus the one neutral spelling
+ * used where the client has no counterpart.
+ */
+const CLIENT_TOOL_NAMES = [
+  'edit', 'experimental_image_generate', 'glob', 'grep', 'question', 'read',
+  'shell', 'skill', 'subagent', 'webfetch', 'write', 'execute',
+] as const
+
+test('every wire spelling is one the client itself sends', () => {
+  for (const [host, wire] of Object.entries(WIRE_TOOL_RENAMES)) {
+    if (host === 'subagent_fork') {
+      // No counterpart on the client, and the host spelling is refused: the
+      // neutral name only has to be a name the lane answers 200 to.
+      assert.equal(wire, 'fork_conversation')
+      continue
+    }
+    assert.ok(
+      (CLIENT_TOOL_NAMES as readonly string[]).includes(wire),
+      `${host} -> ${wire} is not in the client's vocabulary`,
+    )
+  }
+  // A wire spelling that is also a host name would chain (A->B, B->C).
+  for (const wire of Object.values(WIRE_TOOL_RENAMES)) {
+    assert.equal(WIRE_TOOL_RENAMES[wire], undefined, `${wire} is both a wire name and a host name`)
+  }
+})
+
+test('the sound-alike tools move onto the client vocabulary', () => {
+  const body = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools: ['ask_user_question', 'web_fetch', 'workflow', 'grep'].map((name) => ({
+      type: 'function',
+      function: { name, description: 'd', parameters: { type: 'object' } },
+    })),
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  assert.deepEqual(names, ['question', 'webfetch', 'execute', 'grep', ...FREE_LANE_GATE_TOOL_NAMES])
+})
+
+test('a wire spelling the host also offers is left alone, never duplicated', () => {
+  // Two tools under one wire name draw 400 from the lane, so the rename yields
+  // instead of producing an unroutable body.
+  const body = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools: ['question', 'ask_user_question'].map((name) => ({
+      type: 'function',
+      function: { name, description: 'd', parameters: { type: 'object' } },
+    })),
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  assert.deepEqual(names, ['question', 'ask_user_question', ...FREE_LANE_GATE_TOOL_NAMES])
+  assert.equal(new Set(names).size, names.length, 'no duplicate wire names')
+})
+
+test('this host\'s wording is rewritten out of the tool descriptions on the wire', () => {
+  const tools = [
+    ['create_skill', 'Create a new local DSH skill in DSH_HOME/skills. Use only when asked.'],
+    ['render_ui', 'Render a card; the same vocabulary as the ```dsh-ui fence, see the system prompt.'],
+    ['validate_dsh_ui', 'Validate the JSON body of a ```dsh-ui fence BEFORE emitting it.'],
+    ['grep', 'Search file contents with a regular expression.'],
+  ].map(([name, description]) => ({ type: 'function', function: { name, description, parameters: { type: 'object' } } }))
+  const next = ensureFreeLaneShape({
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools,
+  }) as Record<string, unknown>
+  const sent = (next.tools as Array<{ function: { name: string; description: string } }>)
+  const text = sent.map((tool) => tool.function.description).join('\n')
+  assert.equal(text.includes('DSH_HOME'), false, 'no DSH_HOME')
+  assert.equal(text.includes('DSH skill'), false, 'no DSH skill')
+  assert.equal(text.includes('dsh-ui'), false, 'no dsh-ui fence')
+  // An untouched description rides through byte-identical.
+  assert.equal(sent.find((tool) => tool.function.name === 'grep')?.function.description, 'Search file contents with a regular expression.')
+})
+
+test('a body with nothing to reshape is passed through untouched', () => {
+  const tools = [{ type: 'function', function: { name: 'read', description: 'Read a file.', parameters: { type: 'object' } } }]
+  // `read` is a gate name, so the genuine definition replaces it; the gate pair
+  // still has to arrive, but nothing else may be rewritten.
+  const next = ensureFreeLaneShape({
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools,
+  }) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  // The host's `read` is replaced where it stands; the injected `shell` follows.
+  assert.deepEqual([...names].sort(), [...FREE_LANE_GATE_TOOL_NAMES].sort())
+})
