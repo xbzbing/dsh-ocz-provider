@@ -97,7 +97,7 @@ argument itself.
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/settings-writes.ts |
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie, transport/body format headers, the client-identity flag `x-opencode-client` and every `x-oc2dsh-*` control header are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |
-| Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.2.0/cli`; the client flag is pinned to `cli` and no setting moves it (the header is plugin-managed). Read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
+| Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.2.5/cli`; the client flag is pinned to `cli` and no setting moves it (the header is plugin-managed). Read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep the IPv4 fallback. Relay traffic gets the same choice as an `x-oc2dsh-egress: direct;family=4|6|prefer6` directive (`relayDirectFamily`), so it holds whichever stack sends (live 2026-10-30 through the relay: no directive -> this host's IPv4, 429 with a 14 h retry-after; `prefer6` -> 200). Exit traffic is untouched. The free lane refuses this host's IPv4 and accepts its IPv6 on identical bytes (live 2026-10-18) | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts, src/ip-pool.ts relay seam |
 | Upstream base URL | `https://opencode.ai/inference` (chats + `/openai/v1`, catalog/admission model list + `/v1`), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
 | Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Loopback only and authenticated: every request path carries `/_/<token>` (a random token per spawn, passed as `OC2DSH_RELAY_TOKEN` and folded into `baseUrl`, stripped before forwarding), the Host must be the relay's own loopback authority (421 otherwise), its CONNECT bridges only reach the upstream host, and the child gets an allowlisted env with no proxy variables. Startup failures and crashes share one restart budget with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr; the component contract (env vars, readiness handshake, timeouts, egress seam) is `docs/relay.md` | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
@@ -159,14 +159,27 @@ Headlines:
   (`Workspace root folder`, `Is directory a git repo`), so header and prompt
   name one place. `prj_*` is refused; `global` and any 40-hex also pass;
 - the UA version segment tracks the INSTALLED client and the shipped value is
-  `2.2.0` (the desktop CLI landed 2.2.0 on 2026-10-27). The gate does not pin
-  the version string (2.0.29 / the 1.19.0 app branch / the built-in all pass,
-  probed 2026-10-23/24), and the 2.2.0 CLI binary keeps the recipe stable
-  (strings 2026-10-28: same header set with no `x-opencode-request`, the same
-  `shell`+`read` pair — `read` byte-identical, `shell` assembled from the same
-  fragments — and the `<env>` block), so only the UA version moves and the
-  2.1.4 capture stays the shipped recipe. The 2.2.0 UA answered a live 200
-  on 2026-10-29 (see the wire-parity bullet below);
+  `2.2.5` (the desktop app bundles its CLI at
+  `/Applications/OpenCode.app/Contents/Resources/opencode-cli` since 2.2.x;
+  2.2.5 landed 2026-10-31). The gate does not pin the version string (2.0.29 /
+  the 1.19.0 app branch / the built-in all pass, probed 2026-10-23/24), and
+  the 2.2.0 CLI binary keeps the recipe stable (strings 2026-10-28: same
+  header set with no `x-opencode-request`, the same `shell`+`read` pair —
+  `read` byte-identical, `shell` assembled from the same fragments — and the
+  `<env>` block), so only the UA version moves and the 2.1.4 capture stays
+  the shipped recipe. The 2.2.0 UA answered a live 200 on 2026-10-29 (see the
+  wire-parity bullet below). 2.2.0 -> 2.2.5 (tags `v2.2.0..v2.2.5` plus both
+  binaries' strings, 2026-10-31) moves nothing else on the wire: the header
+  literal in `model-request.ts` is identical, `identifier.ts`,
+  `session-id.ts`, `project.ts`, `affinity.ts` and `system-prompt.ts` have no
+  diff, the `<env>`/`Today's date` templates and the `shell`/`read` texts
+  match, the chat body key order is unchanged (custom/freeform tools exist
+  now, but neither gate tool declares `freeform`), `traceparent` gained a
+  `padStart(32)` that is a no-op on a 32-hex trace id, and both binaries
+  embed the same Bun v1.4.4 (38afee6c8), so the connection stack holds. Live
+  the same day through the relay on prefer6, one variable (the UA) alternated
+  2.2.5 / 2.2.0 / 2.2.5 / 2.2.0 on `mimo-v2.6-flash-free`: all four 200, and
+  the bumped built-in answered 200 twice more after the rebuild;
 - WIRE PARITY with the 2.2.0 client (TLS capture 2026-10-29,
   `docs/local/capture-214/tls/`): the adapter -> relay path now emits the
   client's 16 headers with the same names, casing and order, the same
@@ -371,3 +384,4 @@ buffer — i.e. invisible. `~/.dsh/oc2dsh/adapter-status.json` answers it now:
 The stats modal renders those three separately, so the local-only exit table
 (exit rows are filtered when the pool is off) no longer reads as "the pool is
 switched off".
+

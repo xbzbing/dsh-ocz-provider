@@ -350,7 +350,7 @@ export function setRequestHeadersReader(reader: () => RequestHeaders | undefined
  * `opencode/1.18.31 (<platform> <arch>; node<ver>)`.
  */
 export const ZEN_UA_CHANNEL = 'latest'
-export const ZEN_UA_VERSION = '2.2.0'
+export const ZEN_UA_VERSION = '2.2.5'
 /** The only `x-opencode-client` value the wire ever carries. */
 export const DEFAULT_ZEN_CLIENT = 'cli'
 
@@ -455,7 +455,7 @@ export function traceHeaders(trace: string): { b3: string; traceparent: string }
  * (design.md 2.4; gateway.go newUpstreamRequest) — the official 2.x
  * client's own set, captured by driving the installed `opencode-cli 2.1.4`
  * against a loopback server (16 headers logged, nothing left 127.0.0.1) and
- * byte-stable through the 2.2.0 CLI binary. The client sends exactly:
+ * byte-stable through the 2.2.5 CLI binary. The client sends exactly:
  *
  *   authorization: Bearer public      content-type: application/json
  *   user-agent: opencode/latest/<version>/cli      accept: `*` + `/` star
@@ -466,7 +466,7 @@ export function traceHeaders(trace: string): { b3: string; traceparent: string }
  *   x-session-affinity / x-session-id   (all four = the same ses_* id)
  *
  * and NO `x-opencode-request` — the header is absent from every 2.x
- * extraction (static, through 2.2.0) and absent from this capture. This set
+ * extraction (static, through 2.2.5) and absent from this capture. This set
  * therefore carries the four session spellings and drops
  * `x-opencode-request`, the
  * reverse of the 1.x generation's rule: under a 1.x header set the affinity

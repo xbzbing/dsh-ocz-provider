@@ -86,7 +86,7 @@ pnpm build && git add lib
 | --- | --- | --- |
 | `refreshSeconds` | `300` | 实时目录刷新间隔；定价元数据每 24 小时刷新。 |
 | `firstEventMs` / `bodyIdleMs` / `responsesBodyIdleMs` | `30000` / `120000` / `300000` | 插件 0.3.7 起支持：流存活超时，单位毫秒，取 `1` 到 `600000` 的整数。分别控制首事件等待、流中静默，以及 Responses 模型（`muse-spark-*`）的静默下限。冷启动慢时可调大 `firstEventMs`。不设置则使用默认值；修改后重启 DSH。 |
-| `userAgent` | 内置值 `opencode/latest/2.2.0/cli`（末段为客户端标识，插件恒发 `cli`） | 旧 profile UA 配置，供正式对话、目录刷新和准入探测使用；留空使用内置值。页面的 `requestHeaders` 中若有 `User-Agent`，优先使用页面值。修改此旧字段需重启或重新加载插件。 |
+| `userAgent` | 内置值 `opencode/latest/2.2.5/cli`（末段为客户端标识，插件恒发 `cli`） | 旧 profile UA 配置，供正式对话、目录刷新和准入探测使用；留空使用内置值。页面的 `requestHeaders` 中若有 `User-Agent`，优先使用页面值。修改此旧字段需重启或重新加载插件。 |
 | `requestHeaders` | `{}` | 在插件配置页的「Zen 请求头」区域编辑，每行一个 `Header-Name: value`。保存后对下一次正式对话、模型目录和准入探测生效，不依赖 IP 池开关。名称不区分大小写；鉴权、Cookie、HTTP 传输及正文格式头由插件管理。 |
 | `modelContextWindows` | `{}` | 逐模型覆盖上下文长度（`模型 ID` → token 数），在插件配置页的「模型上下文」区域编辑，每行 `模型 ID = 1048576`。用于 models.dev 只声明 200K、而接口实际支持 1M 的模型；保存后对下一次请求生效，无需重启。范围 1024–16777216；留空使用 models.dev 声明值（内置仍覆盖 `mimo-v2.6-flash-free` = 1048576）。 |
 
