@@ -10,8 +10,11 @@ this before changing anything.
 registers a native dsh-llm adapter and streams from OpenCode Zen's anonymous
 free lane (`Authorization: Bearer public`, no API key), impersonating the
 official client's wire fingerprint. The repository root IS the installable
-package (`dsh plugin add file:<repo>` or `github:xbzbing/dsh-ocz-provider`); `lib/`
-is committed because neither install path runs a lifecycle script.
+package. `lib/` is gitignored and produced by `pnpm build`: no install path runs
+a lifecycle script (pnpm runs none for a `file:` directory dep and blocks
+git-hosted builds behind `allowBuilds`), so a build is an explicit step taken
+before `dsh plugin add file:<repo>` — and a `github:` install ships no artifact
+at all, which is why it is not supported.
 
 Upstream this fork ported fixes from: `jasonxu114514/opencode2api` (the
 ported Go agent lives in git history; this tree is TypeScript only).
@@ -36,7 +39,7 @@ src/client/     browser half: IP pool settings card, exit-stats modal (+ its
                 流量 tab), Zen request-headers editor, locales
 src/config.ts   the whole settings schema (Config, exported for dsh-settings)
 test/           node:test suite (runs the real TS sources, no build step)
-lib/            committed build output (never edit; rebuild instead)
+lib/            build output (gitignored; `pnpm build` before installing)
 scripts/        build.mjs (canonical build), lib-manifest.mjs (freshness stamp),
                 smoke-dsh-compat.mjs (loads the real installed host)
 docs/           design.md (architecture + porting record), ip-pool.md (exit
@@ -47,15 +50,18 @@ docs/           design.md (architecture + porting record), ip-pool.md (exit
 
 ```sh
 pnpm install          # toolchain (root package.json carries everything)
-pnpm verify           # the gate: pnpm typecheck && pnpm test
+pnpm verify           # the gate: pnpm build && pnpm typecheck && pnpm test
 pnpm build            # clean build: node half -> browser half -> manifest
 pnpm build && pnpm pack   # tarball
 node scripts/smoke-dsh-compat.mjs /path/to/@deepseek-ai/dsh   # real-host smoke
 ```
 
-- `pnpm test` fails when `lib/` no longer matches `src/` (test/lib-fresh.test.ts
-  re-runs `scripts/lib-manifest.mjs --check`). After changing `src/`, run
-  `pnpm build` and commit `lib/` with the source change.
+- `lib/` is not in git. `pnpm verify` builds first, so the gate always runs
+  against current sources; `pnpm test` alone skips the artifact tests
+  (test/client-build.test.ts, test/lib-fresh.test.ts) when there is no build,
+  while an existing but stale `lib/` still fails `lib-fresh` (it re-runs
+  `scripts/lib-manifest.mjs --check`, which compares `src/`, both bundle configs,
+  `package.json` and `pnpm-lock.yaml` against the stamp written at build time).
 - Both halves build through `tsdown.config.ts` / `tsdown.client.config.ts` with
   fixed `chunkFileNames: '[name].js'` — chunk names are stable across rebuilds;
   do not reintroduce content hashing (it littered `lib/` with
@@ -385,8 +391,13 @@ comments carry only the contract the request must satisfy.
 ## Install / upgrade on this machine
 
 ```sh
+cd /Users/ankh/workspace/private/dsh-plugins/dsh-ocz-provider && pnpm build
 dsh plugin --profile web add file:/Users/ankh/workspace/private/dsh-plugins/dsh-ocz-provider
 ```
+
+The build is not optional: `lib/` is gitignored, and the add copies whatever is
+on disk — a checkout that was never built installs a package whose `main` does
+not exist, which surfaces at load as `ERR_MODULE_NOT_FOUND`.
 
 (Profile `web` carries this checkout as `"dsh-opencode2free-provider":
 "file:…/dsh-plugins/dsh-ocz-provider"` in `~/.dsh/profiles/web/package.json`.)

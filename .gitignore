@@ -3,13 +3,12 @@ node_modules/
 
 # Build output
 #
-# lib/ is deliberately TRACKED, not ignored: `dsh plugin add file:<repo>` and
-# `dsh plugin add github:<owner>/<repo>` both install the root package without
-# running any lifecycle script (pnpm runs none for `file:` directory deps and
-# blocks git-hosted builds behind allowBuilds), so the shipped artifacts have
-# to already exist in the checkout. Rebuild with `pnpm build` after every
-# source change and commit the result — test/lib-fresh.test.ts fails when
-# lib/ no longer matches src/.
+# lib/ stays out of the checkout: no install path runs a lifecycle script
+# (pnpm runs none for a `file:` directory dep and blocks git-hosted builds
+# behind allowBuilds), so a build is an explicit step — `pnpm build`, then
+# `dsh plugin add file:<repo>`. `pnpm verify` builds before it tests.
+/lib/
+
 legacy/agent/.gotmp/
 
 # Logs / local state

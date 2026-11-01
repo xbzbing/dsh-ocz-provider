@@ -3,7 +3,7 @@
  * Canonical build for the shipped plugin artifacts (`lib/`): clean -> node
  * half -> browser half -> manifest. The root package exposes NO lifecycle hook
  * (`prepare`/`prepack`/`postinstall`) on purpose — their presence alone makes
- * git-hosted installs demand an `allowBuilds` entry — so `lib/` is committed
+ * git-hosted installs demand an `allowBuilds` entry — so `lib/` is a build step
  * and refreshed only here. The clean matters: both halves run tsdown with
  * `clean: false` so they can share one `lib/`.
  */
@@ -34,4 +34,4 @@ rmSync(join(repoRoot, 'lib'), { recursive: true, force: true })
 run('pnpm', ['run', 'build:node'], repoRoot)
 run('pnpm', ['run', 'build:client'], repoRoot)
 writeBuildManifest(repoRoot)
-console.log('build: lib/ is up to date (committed to git — stage it with your source changes)')
+console.log('build: lib/ is up to date (gitignored — install it with `dsh plugin add file:<repo>`)')

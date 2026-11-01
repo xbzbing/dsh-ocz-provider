@@ -33,19 +33,14 @@ OpenCode 官方 CLI 无需登录即可使用的那批免费模型，它们会以
 
 ## 安装
 
-仓库根目录本身就是可安装的包，因此两条 Git 路径都能直接装：不用发版、不用先构建、也不用往 profile 的 `pnpm-workspace.yaml` 加 `allowBuilds`（根包不含任何生命周期脚本，而 pnpm 拦 git 源安装拦的正是这类脚本）。
-
-**从 GitHub 安装**：
-
-```sh
-dsh plugin --profile web add github:xbzbing/dsh-ocz-provider
-```
-
-**从本地检出安装**：
+仓库根目录本身就是可安装的包。构建产物 `lib/` **不在仓库里**（`.gitignore` 忽略），而两条安装路径都不跑生命周期脚本，所以在检出里构建是安装的必要前置步骤：
 
 ```sh
 git clone https://github.com/xbzbing/dsh-ocz-provider.git
-dsh plugin --profile web add file:/path/to/dsh-ocz-provider
+cd dsh-ocz-provider
+pnpm install            # 或 npm install
+pnpm build              # 必须：生成 lib/（node 半 + 浏览器半），npm run build 等价
+dsh plugin --profile web add file:$PWD
 ```
 
 **从 tarball 安装**（可选）：
@@ -55,19 +50,22 @@ pnpm build && pnpm pack
 dsh plugin --profile web add ./dsh-opencode2free-provider-<version>.tgz
 ```
 
-注意不要用 `dsh plugin add @opencode2dsh/dsh-plugin` 装上游发到 npm 的包：它不含本 fork 的这些修复。本 fork 的包名 `dsh-opencode2free-provider` 没有发布到 npm，两条 Git 安装路径才是本 fork 的。
+不再支持 `dsh plugin add github:xbzbing/dsh-ocz-provider`：GitHub 上的包不含 `lib/`，pnpm 也不会为 git 源跑构建，装上会缺产物。要装就装本地检出，或装已经打包好的 tarball（包内 `files` 含 `lib`）。
+
+注意不要用 `dsh plugin add @opencode2dsh/dsh-plugin` 装上游发到 npm 的包：它不含本 fork 的这些修复。本 fork 的包名 `dsh-opencode2free-provider` 没有发布到 npm。
 
 **验证**：重启 `dsh web`，打开模型选择器，在 **OpenCode-Zen-Free** 分组里选模型即可。
 
 ### 从源码开发
 
-`lib/` 是**故意提交进仓库的**——两条 Git 安装路径都不跑构建，产物必须已经在检出里。改了 `src/` 下任何文件后执行：
+`lib/` **不再提交进仓库**。改了 `src/` 下任何文件后先构建，再安装：
 
 ```sh
-pnpm build && git add lib
+pnpm build
+dsh plugin --profile web add file:$PWD
 ```
 
-`pnpm test` 会在 `lib/` 与 `src/` 不一致时报错，所以忘重建的产物合不进去。
+`pnpm verify` 会先构建再 typecheck + 跑全部测试，所以门禁永远针对当前源码；单独跑 `pnpm test` 时如果还没有 `lib/`，产物相关的测试会跳过并提示先构建——而一个存在但过期的 `lib/`（改了源码没重建）仍然会让 `lib-fresh` 直接失败。
 
 需要 DSH（DeepSeek Harness）0.1.7 及以上、带 web profile（IP 池设置页依赖 0.1.7 的插件页契约）；Node.js ≥ 20（DSH 能跑就满足）；出站 HTTPS 需可达 `opencode.ai` 与 `models.dev`。
 
@@ -177,12 +175,11 @@ https://opencode.ai/inference/v1   ← Authorization: Bearer public
 git clone https://github.com/xbzbing/dsh-ocz-provider.git
 cd dsh-ocz-provider
 pnpm install                         # 构建工具链
-pnpm typecheck && pnpm test          # 全量门禁
-pnpm build                           # 干净构建两个半 + 写新鲜度清单
-git add lib                          # 产物是提交进仓库的，不是忽略的
+pnpm verify                          # 构建 + typecheck + 全量测试
+pnpm build                           # 只构建（干净重建两个半 + 写新鲜度清单）
 ```
 
-`pnpm build` 是唯一受支持的构建入口：它先清空 `lib/`，再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`pnpm test` 会拿它与 `src/` 比对。两半共用 `tsdown.config.ts` / `tsdown.client.config.ts` 一对配置，chunk 文件名固定，反复重建不会留下 `admission-<hash>.js` 这类垃圾文件。
+`pnpm build` 是唯一受支持的构建入口：它先清空 `lib/`，再依次构建 node 半、浏览器半，最后写 `lib/.build-manifest.json`——`lib-fresh` 会拿它与 `src/`、`pnpm-lock.yaml` 比对，产物过期或手改过就报错。两半共用 `tsdown.config.ts` / `tsdown.client.config.ts` 一对配置，chunk 文件名固定，反复重建不会留下 `admission-<hash>.js` 这类垃圾文件。
 
 架构说明与移植记录见 `docs/`；面向 agent 的项目说明（构建命令、项目相关设置、上游闸门）见 `AGENTS.md`。
 

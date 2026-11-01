@@ -2,7 +2,7 @@
 // Usage: node scripts/smoke-dsh-compat.mjs <installed @deepseek-ai/dsh directory>
 // Uses the installed host's real module loader, Cordis fibers and SlotCore.
 import assert from 'node:assert/strict'
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import os from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -27,6 +27,11 @@ const { LlmRuntime } = await hostImport('@deepseek-ai/dsh-llm')
 const pluginRoot = new URL('../', import.meta.url)
 const pluginRequire = createRequire(new URL('package.json', pluginRoot))
 const pkg = JSON.parse(readFileSync(new URL('package.json', pluginRoot), 'utf8'))
+// lib/ is gitignored: the smoke test drives a real bundle, so it needs the build.
+if (!existsSync(new URL('lib/index.js', pluginRoot))) {
+  console.error('lib/ is not built — run `pnpm build` first')
+  process.exit(2)
+}
 const bundle = readFileSync(new URL('lib/client.js', pluginRoot), 'utf8')
 const loaderPath = hostRequire.resolve('@deepseek-ai/dsh-client-modules/client')
 let modulesExports

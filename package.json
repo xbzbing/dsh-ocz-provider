@@ -52,7 +52,7 @@
     "build:client": "tsdown -c tsdown.client.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/*.test.ts\"",
-    "verify": "pnpm typecheck && pnpm test"
+    "verify": "pnpm build && pnpm typecheck && pnpm test"
   },
   "keywords": [
     "dsh",

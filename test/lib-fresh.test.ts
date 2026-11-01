@@ -1,21 +1,33 @@
 /**
- * `lib/` ships in git (neither install path runs a lifecycle script), so a
- * source edit committed without a rebuild would install stale code for every
- * later user — this test makes that impossible to merge. The comparison lives
- * in scripts/lib-manifest.mjs, shared with the build, so stamp and check
- * cannot drift apart.
+ * `lib/` is gitignored and built on demand, so the artifact a `dsh plugin add`
+ * copies is whatever the last build produced. This test pins that build to the
+ * sources it came from: scripts/lib-manifest.mjs stamps the inputs at build
+ * time and `--check` re-derives them, so a hand-edited or half-built `lib/`
+ * fails before it can be installed. The comparison is shared with the build, so
+ * stamp and check cannot drift apart.
+ *
+ * With no `lib/` at all (a fresh clone, before `pnpm build`) there is nothing
+ * to compare: the repo-level test SKIPS. `pnpm verify` builds first, so the
+ * gate always runs it.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const CHECKER = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'lib-manifest.mjs')
 
-test('committed lib/ matches src/ (rebuild and commit after source changes)', () => {
+/** Set when there is no build to check; node:test turns it into a skip. */
+const NO_BUILD = {
+  skip: existsSync(new URL('../lib/index.js', import.meta.url))
+    ? false
+    : 'lib/ is not built — run `pnpm build` first',
+}
+
+test('lib/ matches src/ and the lockfile it was built from', NO_BUILD, () => {
   const result = spawnSync(process.execPath, [CHECKER, '--check'], { encoding: 'utf8' })
   assert.equal(
     result.status,

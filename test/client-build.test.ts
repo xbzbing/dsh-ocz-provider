@@ -1,13 +1,23 @@
 /**
- * Client-bundle build check: verifies lib/client.js exists (run
- * `pnpm build:client` first) and carries the loader handoff, the plugin id,
- * the Plugins page (`plugins.item`) registration gated on the Host serving
- * the entry, the apply/inject exports the shell expects, and that the bridge
- * URL is baked in.
+ * Client-bundle build check: verifies lib/client.js carries the loader handoff,
+ * the plugin id, the Plugins page (`plugins.item`) registration gated on the
+ * Host serving the entry, the apply/inject exports the shell expects, and that
+ * the bridge URL is baked in.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
+
+/**
+ * Set when there is no bundle to inspect; node:test turns it into a skip. `lib/`
+ * is gitignored, so a fresh checkout has none — `pnpm verify` builds first, and
+ * a bare `pnpm test` then says so instead of failing on a missing file.
+ */
+const NO_BUNDLE = {
+  skip: existsSync(new URL('../lib/client.js', import.meta.url))
+    ? false
+    : 'lib/ is not built — run `pnpm build` first',
+}
 
 /** The built client bundle, with a clear failure when it is missing. */
 const bundle = (): string => {
@@ -23,7 +33,7 @@ const code = (source: string): string =>
     .filter((line) => !line.trimStart().startsWith('*') && !line.trimStart().startsWith('//') && !line.trimStart().startsWith('/*'))
     .join('\n')
 
-test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
+test('the exit tables ship icon actions and the 轮换 vocabulary', NO_BUNDLE, () => {
   // The row's action buttons are ICONs (a padlock and a circular arrow): the
   // old 删除 action is named 轮换 — nothing is deleted, the row is rotated (a
   // reserve takes its slot, or it sinks to the pool tail). The icons are
@@ -42,7 +52,7 @@ test('the exit tables ship icon actions and the 轮换 vocabulary', () => {
   assert.ok(source.includes('actionGroup>button:not(:last-child){border-top-right-radius:0'), 'and the outer ones keep their radius')
 })
 
-test('client bundle is built and well-formed', () => {
+test('client bundle is built and well-formed', NO_BUNDLE, () => {
   const source = bundle()
   assert.ok(source.includes('window.__ModuleLoader__.load'), 'loader handoff present')
   assert.ok(source.includes('"dsh-opencode2free-provider"'), 'scoped bundle id stamped')
@@ -52,7 +62,7 @@ test('client bundle is built and well-formed', () => {
   assert.ok(/exports\.inject\s*=/.test(source), 'inject exported')
 })
 
-test('client mounts on the Plugins page while the Host serves the entry', () => {
+test('client mounts on the Plugins page while the Host serves the entry', NO_BUNDLE, () => {
   const source = bundle()
   // DSH 0.2: the configuration rides the `plugins.bundle.config` KEYED slot,
   // so clicking the bundle card lands straight on the form. The pre-0.2
@@ -75,7 +85,7 @@ test('client mounts on the Plugins page while the Host serves the entry', () => 
   assert.ok(!/key:\s*SETTINGS_NAMESPACE/.test(stripped), 'no keyed-era registration shape remains')
 })
 
-test('client reads and writes settings through the page-supplied ConfigPageForm', () => {
+test('client reads and writes settings through the page-supplied ConfigPageForm', NO_BUNDLE, () => {
   const source = bundle()
   // DSH 0.1.7 removed `settingsScope` and the injected `scope/useSnapshot`
   // pair. The Plugins page now hands the page a ConfigPageForm
@@ -100,7 +110,7 @@ test('client reads and writes settings through the page-supplied ConfigPageForm'
   assert.ok(!stripped.includes('.bind({ namespace'), 'no settingsScope.bind({ namespace }) call shape remains')
 })
 
-test('the probe-content field ships in the bundle', () => {
+test('the probe-content field ships in the bundle', NO_BUNDLE, () => {
   const source = bundle()
   // The probe's user turn is a configurable pool (default 'hello'): a plain
   // string list next to the probe-model picker. This pins that the section is
@@ -110,7 +120,7 @@ test('the probe-content field ships in the bundle', () => {
   assert.ok(source.includes('probeContentsHint'), 'and its hint (留空 = 默认 hello)')
 })
 
-test('the 本地出口兜底 switch ships in the bundle', () => {
+test('the 本地出口兜底 switch ships in the bundle', NO_BUNDLE, () => {
   const source = bundle()
   // 本地出口兜底 ships OFF by default: with no usable exit in the pool, the
   // request does not fall through to this machine's egress.
@@ -119,7 +129,7 @@ test('the 本地出口兜底 switch ships in the bundle', () => {
   assert.ok(source.includes('localFallbackHint'), 'and the hint that spells out both positions')
 })
 
-test('the 清空 control ships in the bundle', () => {
+test('the 清空 control ships in the bundle', NO_BUNDLE, () => {
   const source = bundle()
   // Totals age out after 90 days (USAGE_RETENTION_DAYS), so the 流量 tab ships
   // a 清空 button. The armed state is a separate control, so a stray click on
@@ -130,7 +140,7 @@ test('the 清空 control ships in the bundle', () => {
   assert.ok(source.includes('统计已清空'), 'plus the success note')
 })
 
-test('the 订阅 refresh action ships in the stats modal', () => {
+test('the 订阅 refresh action ships in the stats modal', NO_BUNDLE, () => {
   // The stats modal can re-pull the subscriptions without opening the settings
   // card: same /probe scope the 立即刷新 button sends. The button is rendered
   // only while subscriptions are configured, so what ships is the test id, the
@@ -141,7 +151,7 @@ test('the 订阅 refresh action ships in the stats modal', () => {
   assert.ok(/"scope":\s*"subscription"/.test(source) || /scope:\s*"subscription"/.test(source), 'it posts the subscription probe scope')
 })
 
-test('the summary chip row keeps one pill height', () => {
+test('the summary chip row keeps one pill height', NO_BUNDLE, () => {
   // The chip row must show ONE pill height: align-items:center stops the
   // 清空 button's 32px stretching every chip, and the pinned line box keeps a
   // Chinese label (a fallback face ~3px taller than the Latin one) from
@@ -151,7 +161,7 @@ test('the summary chip row keeps one pill height', () => {
   assert.ok(/statsChip\{[^}]*line-height:18px/.test(source), 'and every chip has the same pinned line box')
 })
 
-test('client externals stay inside the host platform table', () => {
+test('client externals stay inside the host platform table', NO_BUNDLE, () => {
   const source = bundle()
   const required = [...source.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]!)
   const allowed = new Set([
@@ -167,7 +177,7 @@ test('client externals stay inside the host platform table', () => {
   }
 })
 
-test('client manifest is declared in package.json', () => {
+test('client manifest is declared in package.json', NO_BUNDLE, () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.ok(pkg.dsh?.client, 'dsh.client manifest missing')
   assert.equal(pkg.dsh.client.platform, 'web')
@@ -193,7 +203,7 @@ test('client manifest is declared in package.json', () => {
   assert.deepEqual(pkg.exports?.['./client'], './lib/client.js')
 })
 
-test('the switch rows lead with their control', () => {
+test('the switch rows lead with their control', NO_BUNDLE, () => {
   // The master switch leads the row: the control is the row's first child, and
   // the row must not push it away with space-between. A type check sees
   // neither the order nor the layout, hence this bundle-level guard.
@@ -211,7 +221,7 @@ test('the switch rows lead with their control', () => {
   assert.ok(!rule.includes('justify-content:space-between'), 'the row does not push its control to the trailing edge')
 })
 
-test('the 本机出口协议族 dropdown ships in the bundle', () => {
+test('the 本机出口协议族 dropdown ships in the bundle', NO_BUNDLE, () => {
   const source = bundle()
   // The dropdown picks which family the 本机 egress dials with; the default
   // prefers IPv6 when this machine has it.
@@ -221,7 +231,7 @@ test('the 本机出口协议族 dropdown ships in the bundle', () => {
   assert.ok(source.includes('localIpFamilyAuto'), 'plus the option labels')
 })
 
-test('the model context-window editor ships and writes its own root node', () => {
+test('the model context-window editor ships and writes its own root node', NO_BUNDLE, () => {
   const source = bundle()
   // The Zen endpoint serves 1M while models.dev may declare only 200K: the
   // settings page gives a per-model override.

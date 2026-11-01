@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Freshness manifest for the committed `lib/`: every build stamps the exact
+ * Freshness manifest for the built `lib/`: every build stamps the exact
  * input state it produced, and `--check` re-derives it and fails when the two
  * no longer agree — the guard against editing `src/` and forgetting to rebuild,
  * which would install stale code for everyone. Inputs are the source tree, both
@@ -80,7 +80,7 @@ export function writeBuildManifest(root) {
 export function checkBuildManifest(root) {
   const path = manifestPath(root)
   if (!existsSync(path)) {
-    return { code: 1, message: `lib/.build-manifest.json is missing — run \`pnpm build\` at the repo root and commit lib/` }
+    return { code: 1, message: `lib/.build-manifest.json is missing — run \`pnpm build\` at the repo root, then install the checkout` }
   }
   let recorded
   try {
@@ -93,11 +93,11 @@ export function checkBuildManifest(root) {
   }
   const stale = differences(recorded.inputs, computeInputs(root))
   if (stale.length > 0) {
-    return { code: 1, message: `lib/ is stale (source changed without a rebuild):\n  ${stale.join('\n  ')}\nRun \`pnpm build\` at the repo root and commit lib/.` }
+    return { code: 1, message: `lib/ is stale (source changed without a rebuild):\n  ${stale.join('\n  ')}\nRun \`pnpm build\` at the repo root, then install the checkout.` }
   }
   const altered = differences(recorded.outputs, computeOutputs(root))
   if (altered.length > 0) {
-    return { code: 1, message: `lib/ does not match its recorded build (edited by hand or half-built):\n  ${altered.join('\n  ')}\nRun \`pnpm build\` at the repo root and commit lib/.` }
+    return { code: 1, message: `lib/ does not match its recorded build (edited by hand or half-built):\n  ${altered.join('\n  ')}\nRun \`pnpm build\` at the repo root, then install the checkout.` }
   }
   return { code: 0, message: 'ok' }
 }
