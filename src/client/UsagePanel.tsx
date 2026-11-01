@@ -7,10 +7,14 @@
  * (总览 = the ledger, 本次重启 = this host process), because the switch that
  * chooses it lives on the settings card and the footer is pinned to 总览.
  *
- * Layout: a chip row (totals + tok/s), a bar list of the recent days, then the
- * top sessions and the project roll-up. Bars are plain elements scaled to the
- * heaviest day in the window — no chart dependency, and the table stays
+ * Layout: a chip row (totals + tok/s), a bar list of the last 30 calendar days,
+ * then the top sessions and the project roll-up. Bars are plain elements scaled
+ * to the heaviest day in the window — no chart dependency, and the table stays
  * readable at the modal's width.
+ *
+ * The chart owns its own axis: every day of the window gets a column, and a day
+ * the ledger never wrote (host off) is a zero bucket, so a 30-day trend keeps
+ * its real spacing instead of collapsing the gaps.
  */
 import { useId, useState, type ReactNode } from 'react'
 import { Button, SegmentedTabs } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -20,11 +24,7 @@ import type { IpPoolCardLocale, UsageView } from './types.ts'
 import shared from './shared.module.css'
 import styles from './usage-panel.module.css'
 import { compact, grandTotal } from './usage-format.ts'
-
-/** `2026-10-14` → `10-14` (the year is noise in a 14-day window). */
-function shortDay(day: string): string {
-  return day.length >= 10 ? day.slice(5) : day
-}
+import { chartDays, shortDay } from './usage-window.ts'
 
 /** Clock label for a stamp; 0 reads the never placeholder. */
 function timeLabel(epoch: number, never: string): string {
@@ -42,7 +42,11 @@ export interface UsagePanelProps {
    * the host refused.
    */
   onClear: () => Promise<boolean>
-  /** Days charted in the daily column chart (default 14). */
+  /**
+   * Days charted in the daily column chart. The chart is a fixed window, not
+   * "the days the ledger happens to hold": 30 columns at the modal's width is
+   * what the daily trend was asked for.
+   */
   windowDays?: number
 }
 
@@ -51,7 +55,7 @@ export interface UsagePanelProps {
  * @param props - the ledger view, the bound locale, the chart window.
  * @returns the panel body (no tab chrome of its own).
  */
-export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelProps): ReactNode {
+export function UsagePanel({ usage, t, onClear, windowDays = 30 }: UsagePanelProps): ReactNode {
   const [confirming, setConfirming] = useState(false)
   const [clearing, setClearing] = useState(false)
   /** Which breakdown is on screen; sessions first, the view an operator scans first. */
@@ -62,7 +66,11 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
     { value: 'projects', label: t('usageProjectsTitle'), id: `${tabBase}-tab-projects`, panelId: `${tabBase}-panel-projects` },
   ]
   const activeBreakdown = breakdownTabs[breakdown === 'projects' ? 1 : 0]
-  const days = usage.days.slice(-windowDays)
+  const days = chartDays(usage.days, windowDays, new Date())
+  /** A 30-day axis is too narrow for the per-column token figure; the hover title carries it. */
+  const dense = days.length > 14
+  /** Date ticks: ~10 across the window, because one label per column wraps at this width. */
+  const labelStep = Math.max(1, Math.round(days.length / 10))
   const heaviest = days.reduce((max, row) => Math.max(max, row.tokens), 0)
   const scoped = usage.scoped
   // Recent (3-min window) speed: a live process-level gauge the host
@@ -129,32 +137,63 @@ export function UsagePanel({ usage, t, onClear, windowDays = 14 }: UsagePanelPro
       </div>
 
       <div className={styles.usageSection}>
-        <span className={styles.usageSectionTitle}>{t('usageDailyTitle')}</span>
+        <span className={styles.usageSectionTitle}>
+          {t('usageDailyTitle')}
+          {days.length > 0 && (
+            <span className={styles.usageSectionWindow}>{t('usageDailyWindow', { days: String(days.length) })}</span>
+          )}
+        </span>
+        {/* Two empty states: nothing in the window at all, versus a ledger that
+            has older days but none inside the last 30 — the second must not read
+            as "no data ever recorded". */}
         {days.length === 0
-          ? <p className={shared.status}>{t('usageDailyEmpty')}</p>
+          ? (
+            <p className={shared.status}>
+              {usage.days.length > 0
+                ? t('usageDailyEmptyWindow', { days: String(windowDays) })
+                : t('usageDailyEmpty')}
+            </p>
+          )
           : (
-            <ul className={styles.dayChart}>
-              {days.map((row) => (
-                <li
-                  key={row.day}
-                  className={styles.dayColumn}
-                  title={`${shortDay(row.day)} · ${compact(row.tokens)} tok · ${t('usageRequestsShort', { count: row.requests.toLocaleString() })}`}
-                >
-                  {/* Bar height is the day's share of the heaviest day in the
-                      window; the column carries the real token figure under
-                      the date, so the bar only has to rank. The request count
-                      lives in the hover title — a third number under every
-                      column is what turns a chart back into a table. */}
-                  <span className={styles.dayTrack}>
-                    <span
-                      className={styles.dayBar}
-                      style={{ height: `${heaviest === 0 ? 0 : Math.round((row.tokens / heaviest) * 100)}%` }}
-                    />
-                  </span>
-                  <span className={styles.dayLabel}>{shortDay(row.day)}</span>
-                  <span className={styles.dayValue}>{compact(row.tokens)} tok</span>
-                </li>
-              ))}
+            <ul className={`${styles.dayChart} ${dense ? styles.dayChartDense : ''}`}>
+              {days.map((row, index) => {
+                const labelled = index % labelStep === 0 || index === days.length - 1
+                const requests = t('usageRequestsShort', { count: row.requests.toLocaleString() })
+                const detail = `${shortDay(row.day)} · ${row.tokens.toLocaleString()} tok · ${requests}`
+                const share = heaviest === 0 ? 0 : Math.round((row.tokens / heaviest) * 100)
+                return (
+                  <li
+                    key={row.day}
+                    className={styles.dayColumn}
+                    // The readout is a hover popover, so the same sentence has to
+                    // exist for assistive tech (and as the no-CSS fallback).
+                    aria-label={detail}
+                  >
+                    <span className={styles.dayTrack}>
+                      <span className={styles.dayBar} style={{ height: `${share}%` }} />
+                      {/* Sits on the hovered bar's OWN top, so a 2px day answers
+                          right above the baseline instead of 88px up. The
+                          first/last columns pull it inward, or it would overflow
+                          the scrolling pane. */}
+                      <span
+                        className={`${styles.dayTip} ${index < 3 ? styles.dayTipStart : ''} ${index >= days.length - 3 ? styles.dayTipEnd : ''}`}
+                        style={{ bottom: `calc(${share}% + 8px)` }}
+                        aria-hidden="true"
+                      >
+                        <span className={styles.dayTipDate}>{shortDay(row.day)}</span>
+                        <span>{t('usageTipTokens', { count: row.tokens.toLocaleString() })}</span>
+                        <span>{t('usageTipRequests', { count: row.requests.toLocaleString() })}</span>
+                      </span>
+                    </span>
+                    {/* Every column carries a label box of the SAME height, filled
+                        or not: an empty one used to collapse, and with the chart
+                        bottom-aligned that floated those columns 14px up — the
+                        bars' bottoms have to sit on one line (live 2026-11-01). */}
+                    <span className={styles.dayLabel}>{labelled ? shortDay(row.day) : '\u00A0'}</span>
+                    {!dense && <span className={styles.dayValue}>{compact(row.tokens)} tok</span>}
+                  </li>
+                )
+              })}
             </ul>
           )}
       </div>

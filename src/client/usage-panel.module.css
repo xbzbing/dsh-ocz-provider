@@ -19,9 +19,20 @@
 }
 
 .usageSectionTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: 12px;
   font-weight: 600;
   color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+/* The window the chart covers (30 days), stated so the axis is not a guess. */
+.usageSectionWindow {
+  font-weight: 400;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
 /* The per-day chart: one column per day on a shared baseline, the bar scaled
@@ -46,9 +57,32 @@
   gap: 4px;
 }
 
-/* 88px IS the chart's y-axis: a full bar tops out there. Baseline tick only,
-   no empty-track fill behind the bar. */
+/* 30 columns inside the modal: the 52px floor would overflow, so the columns
+   share the width the 14-day chart used and the bar narrows with them; the
+   numbers move into the hover readout. */
+.dayChartDense {
+  gap: 6px;
+}
+
+.dayChartDense .dayColumn {
+  min-width: 0;
+}
+
+/* max-width keeps the bar inside its column when the dialog is narrow. */
+.dayChartDense .dayTrack {
+  width: 22px;
+  max-width: 100%;
+}
+
+.dayChartDense .dayLabel {
+  font-size: 10px;
+  line-height: 13px;
+}
+
+/* 88px IS the chart's y-axis: a full bar tops out there. The baseline is the
+   border-bottom, and every column pins it to the same place — see .dayLabel. */
 .dayTrack {
+  position: relative;
   display: flex;
   align-items: flex-end;
   width: 24px;
@@ -65,15 +99,81 @@
   background: var(--dsw-alias-state-business-primary, #4f8cff);
 }
 
+/* A fixed line box for EVERY column, labelled or not: an unlabelled column used
+   to render a zero-height label, and with the chart bottom-aligned that lifted
+   its bar off the shared baseline. The axis ticks at a stride, the bars do not
+   move. */
 .dayLabel {
+  min-height: 14px;
+  line-height: 14px;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.dayColumn:hover .dayBar {
+  filter: brightness(0.92);
+}
+
+.dayColumn:hover .dayLabel {
+  color: var(--dsw-alias-label-primary, #1f2329);
+}
+
+/* The hover readout: a 22px column cannot print two numbers, so they ride a
+   popover above the hovered bar. Anchored to the track (never the column, whose
+   label box varies) with its `bottom` set inline to the bar's own height, and
+   pulled inward on the first/last columns so it cannot overflow the pane. */
+.dayTip {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-tooltip, rgb(31 35 41 / 94%));
+  color: #fff;
+  font-size: 11px;
+  line-height: 15px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 80ms ease;
+  pointer-events: none;
+}
+
+.dayTipDate {
+  font-weight: 600;
+}
+
+.dayTipStart {
+  left: 0;
+  transform: none;
+}
+
+.dayTipEnd {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.dayColumn:hover .dayTip,
+.dayColumn:focus-within .dayTip {
+  opacity: 1;
+}
+
+/* Later columns would paint over an earlier column's popover without this. */
+.dayColumn:hover {
+  z-index: 2;
 }
 
 .dayValue {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   color: var(--dsw-alias-label-tertiary, #6b7280);
 }
 
