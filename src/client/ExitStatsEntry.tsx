@@ -370,6 +370,26 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
             </Button>
           )}
         </div>
+        {/* The settings card states the conversion numbers beside its own 立即刷新;
+            this modal sends the SAME /probe scope, so it has to show the same
+            numbers — otherwise a click looks like it did nothing. Counts come
+            from /status, which the refresh re-reads when the round ends. */}
+        {hasSubscriptions && status?.subscription != null && (
+          <p className={shared.status} data-testid="stats-subscription-status">
+            {busy === 'refresh-subscriptions'
+              ? t('statsSubscriptionRefreshing')
+              : (
+                <>
+                  {t('subscriptionStatus', {
+                    label: t('sectionSubscription'),
+                    pending: String(status.subscription.pendingConversion ?? 0),
+                    admitted: String(status.subscription.convertedAdmitted ?? 0),
+                  })}
+                  {(status.subscription.lastError ?? '') !== '' ? ` · ${status.subscription.lastError ?? ''}` : ''}
+                </>
+              )}
+          </p>
+        )}
         {poolOff && (
           <p className={shared.status}>
             {/* Three different faults used to share one sentence: the switch is

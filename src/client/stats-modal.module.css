@@ -28,9 +28,12 @@
   overflow: hidden;
 }
 
-/* The 订阅 refresh button rides the chip row at the trailing edge. */
+/* The 订阅 refresh button rides the chip row at the trailing edge. The right
+   margin holds it off the pane's scrollbar: an overlay scrollbar is painted on
+   top of the content, so without the gap the button sits under it. */
 .statsSummaryAction {
   margin-left: auto;
+  margin-right: 14px;
 }
 
 /* Placement for the platform SegmentedTabs bar (its chrome is module-scoped
