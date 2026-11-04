@@ -227,6 +227,9 @@ Headlines:
   `src/adapter/messages.ts` `WIRE_TOOL_RENAMES` therefore ships the host's
   `subagent_fork` as `fork_conversation` and `TOOL_NAME_ALIASES` hands the
   model's call back under the host's name, exactly like `shell` -> `bash`.
+  The same table takes 0.2.2's second delegation tool, `subagent_oar`, to
+  `oar_agent` on the same reasoning — same family, a spelling no client build
+  sends — though that one is preventive: it is not yet measured as refused.
   The same table moves every host name with an honest counterpart onto the
   client's own vocabulary (`ask_user_question` -> `question`, `web_fetch` ->
   `webfetch`, `workflow` -> `execute`), because a name the client never sends

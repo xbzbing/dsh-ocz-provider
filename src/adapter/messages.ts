@@ -438,6 +438,10 @@ export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
 export const WIRE_TOOL_RENAMES: Record<string, string> = {
   // refused by name: a neutral spelling the lane answers 200 to
   subagent_fork: 'fork_conversation',
+  // the same delegation family: a name the lane never sees in a client build is
+  // one more thing a refusal can key on, so 0.2.2's second delegation tool ships
+  // under a neutral spelling as well (preventive — not yet measured refused)
+  subagent_oar: 'oar_agent',
   // refused only in pairs: neutral spellings, because the host name and its
   // natural counterpart (`read`, a bare `cwd`) are names the lane refuses or
   // the client already uses

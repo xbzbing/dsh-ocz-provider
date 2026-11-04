@@ -623,6 +623,24 @@ test('ensureFreeLaneShape renames a refused tool name on the wire', () => {
   assert.notEqual(next, undefined)
 })
 
+test('the second delegation tool rides the same neutral spelling', () => {
+  // 0.2.2-rc.1 offers subagent_oar beside subagent_fork; both are host-only
+  // spellings from a family the lane has refused by name, so neither reaches the
+  // wire as-is and each answers back under its own name.
+  const body = {
+    model: 'm',
+    messages: [{ role: 'system', content: withEnvBlock('be brief') }],
+    tools: [
+      { type: 'function', function: { name: 'subagent_fork', description: 'd', parameters: { type: 'object' } } },
+      { type: 'function', function: { name: 'subagent_oar', description: 'd', parameters: { type: 'object' } } },
+    ],
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  assert.deepEqual(names, ['fork_conversation', 'oar_agent', 'shell', 'read'])
+  assert.equal(TOOL_NAME_ALIASES.oar_agent, 'subagent_oar')
+})
+
 test('ensureFreeLaneShape moves a tool_choice pin onto the wire spelling', () => {
   const body = {
     model: 'm',
@@ -672,7 +690,7 @@ const CLIENT_TOOL_NAMES = [
 ] as const
 
 /** Names the client never sends, spent only on host names the lane refuses. */
-const NEUTRAL_WIRE_NAMES = ['fork_conversation', 'image_read', 'cwd'] as const
+const NEUTRAL_WIRE_NAMES = ['fork_conversation', 'oar_agent', 'image_read', 'cwd'] as const
 
 test('every wire spelling is one the client itself sends', () => {
   for (const [host, wire] of Object.entries(WIRE_TOOL_RENAMES)) {
