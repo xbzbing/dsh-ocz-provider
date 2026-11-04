@@ -158,8 +158,12 @@ export function UsagePanel({ usage, t, onClear, windowDays = 30 }: UsagePanelPro
             <ul className={`${styles.dayChart} ${dense ? styles.dayChartDense : ''}`}>
               {days.map((row, index) => {
                 const labelled = index % labelStep === 0 || index === days.length - 1
-                const requests = t('usageRequestsShort', { count: row.requests.toLocaleString() })
-                const detail = `${shortDay(row.day)} · ${row.tokens.toLocaleString()} tok · ${requests}`
+                // The readout answers in the same units as the chips: a 9-digit
+                // token count is unreadable at 11px and says nothing a 417.9M
+                // does not. Requests stay exact — they are small.
+                const tokens = t('usageTipTokens', { count: compact(row.tokens) })
+                const requests = t('usageTipRequests', { count: row.requests.toLocaleString() })
+                const detail = `${shortDay(row.day)} · ${tokens} · ${requests}`
                 const share = heaviest === 0 ? 0 : Math.round((row.tokens / heaviest) * 100)
                 return (
                   <li
@@ -181,8 +185,8 @@ export function UsagePanel({ usage, t, onClear, windowDays = 30 }: UsagePanelPro
                         aria-hidden="true"
                       >
                         <span className={styles.dayTipDate}>{shortDay(row.day)}</span>
-                        <span>{t('usageTipTokens', { count: row.tokens.toLocaleString() })}</span>
-                        <span>{t('usageTipRequests', { count: row.requests.toLocaleString() })}</span>
+                        <span>{tokens}</span>
+                        <span>{requests}</span>
                       </span>
                     </span>
                     {/* Every column carries a label box of the SAME height, filled
