@@ -59,6 +59,8 @@ interface SeamOptions {
   latencyMs?: (port: number) => number
   /** Make the speed pass fail for every candidate (blocked echo endpoint). */
   screenFails?: boolean
+  /** Make the speed pass fail for exactly these ports (a partial outage). */
+  failPorts?: readonly number[]
 }
 
 /**
@@ -85,6 +87,7 @@ function seam(options: SeamOptions = {}) {
       }
       const port = portOf(init.dispatcher.uri.replace(/^[a-z0-9+.-]+:\/\//, ''))
       if (options.screenFails === true) return { statusCode: 502, body: { text: async () => 'nope' } }
+      if (options.failPorts?.includes(port) === true) return { statusCode: 502, body: { text: async () => 'nope' } }
       await delay(options.latencyMs?.(port) ?? 1)
       return {
         statusCode: 200,
@@ -100,6 +103,31 @@ interface HarnessOptions extends SeamOptions {
 }
 
 /** An onboarder over a fake conversion that honours `keep` like the real one. */
+function controllableHarness(options: HarnessOptions) {
+  const pool = new ExitPool({ poolSize: options.poolSize ?? 20 })
+  const prober = new Prober({ pool, maxConcurrentProbes: 8 })
+  const nodes = candidates(options.count)
+  const selections: number[][] = []
+  const logger = { info: () => {}, warn: () => {} }
+  const live: SeamOptions = { ...options }
+  const transport = seam({
+    get latencyMs() { return live.latencyMs },
+    get screenFails() { return live.screenFails },
+    get failPorts() { return live.failPorts },
+  } as SeamOptions)
+  const onboarder = new Onboarder({
+    pool,
+    prober,
+    admission: { pool, undici: transport as never, blockedCountries: ['CN'], smokeModel: 'big-pickle', logger },
+    select: async (slots) => {
+      selections.push([...slots])
+      return slots.map((slot) => nodes[slot]!)
+    },
+    logger,
+  })
+  return { pool, prober, nodes, onboarder, selections, transport, live }
+}
+
 function harness(options: HarnessOptions) {
   const pool = new ExitPool({ poolSize: options.poolSize ?? 20 })
   const prober = new Prober({ pool, maxConcurrentProbes: 8 })
@@ -449,4 +477,61 @@ test('a candidate egressing from an exit IP another row holds is not selected', 
   const ips = pool.list().map((row) => row.exitIP)
   assert.equal(new Set(ips).size, 2, 'one row per exit IP')
   assert.equal(selections.at(-1)?.length, 2, 'the duplicate never got a listener')
+})
+
+test('a partial speed pass never evicts a row that is already online', async () => {
+  // 2026-11-08: rounds that measured less than the round before closed the
+  // unmeasured rows' listeners with the selection, and the next refresh pruned
+  // them — the pool ratcheted 10 -> 2 -> 1 over consecutive refreshes and ended
+  // on the local egress. A failed echo request is a measurement failure, not a
+  // verdict on the exit.
+  const { pool, nodes, onboarder, selections, live } = controllableHarness({ count: 4, poolSize: 4 })
+  await onboarder.run(nodes)
+  assert.equal(pool.list().length, 4, 'all four are online after a clean round')
+  assert.equal(selections.length, 0, 'a selection that is every candidate needs no rebuild')
+
+  // The next round measures ONE candidate; the other three fail the echo pass.
+  live.failPorts = [BASE_PORT + 2, BASE_PORT + 3, BASE_PORT + 4]
+  const result = await onboarder.run(nodes)
+
+  assert.equal(result.screened, 1, 'only one candidate answered')
+  assert.equal(pool.list().length, 4, 'the pool keeps every row it had')
+  assert.equal(result.online, 4, 'the unmeasured rows still count as online')
+  assert.deepEqual(selections, [], 'nothing was trimmed: no listener closed, nothing to prune next round')
+  const survivors = pool.list().map((entry) => entry.id).sort()
+  assert.deepEqual(survivors, nodes.map((exit) => exit.address).sort())
+  // The row that WAS measured takes this round's facts; the others keep theirs.
+  assert.ok(pool.list().every((entry) => entry.health.state === 'ok'), 'a measurement failure does not demote a live row')
+})
+
+test('an unmeasured row that was never online is not admitted on a partial round', async () => {
+  // The other side of the same rule: keeping ONLINE rows must not turn into
+  // admitting rows nothing ever measured. A fresh candidate that fails the
+  // speed pass waits as reserve instead of claiming a slot.
+  const { pool, nodes, onboarder, live } = controllableHarness({ count: 4, poolSize: 4 })
+  await onboarder.run(nodes.slice(0, 2))
+  assert.equal(pool.list().length, 2)
+  live.failPorts = [BASE_PORT + 3, BASE_PORT + 4]
+  const result = await onboarder.run(nodes)
+  assert.equal(result.screened, 2, 'the two already-online rows still answer')
+  assert.deepEqual(
+    pool.list().map((entry) => entry.id).sort(),
+    [`127.0.0.1:${BASE_PORT + 1}`, `127.0.0.1:${BASE_PORT + 2}`],
+    'an unmeasured candidate that was never online is not admitted',
+  )
+  assert.equal(result.admitted, 0, 'nothing fresh was admitted on a partial round')
+})
+
+test('a reassigned port keeps its row instead of emptying the table', async () => {
+  // The row is reset in place: its listener is still up, so the pool keeps the
+  // exit and drops only what belonged to the node that left.
+  const { pool, nodes, onboarder } = harness({ count: 3, poolSize: 3 })
+  const keyed = (keys: string[]): ConvertedExit[] => nodes.map((exit, index) => ({ ...exit, key: keys[index]! }))
+  await onboarder.run(keyed(['node-a', 'node-b', 'node-c']))
+  assert.equal(pool.list().length, 3)
+  const reassigned = `127.0.0.1:${BASE_PORT + 1}`
+
+  await onboarder.run(keyed(['node-z', 'node-b', 'node-c']))
+  assert.equal(pool.list().length, 3, 'the table holds: only the facts of that one node changed')
+  assert.ok(pool.has(reassigned), 'the row survives the node change')
 })

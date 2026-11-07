@@ -756,3 +756,55 @@ test('prober: a candidate admitted mid-task never has a lock released that it di
   assert.equal(admitted, true)
   assert.equal(pool.takeProbeLock('new:1'), false, 'the lock taken inside the task is still held')
 })
+
+test('reset(): the same port now serving another node starts over WITHOUT leaving the table', () => {
+  // The listener still exists — only the node behind it changed. Dropping the
+  // row would shrink the pool for a per-node change, and a refresh that
+  // renumbers ports would empty the table one row at a time (2026-11-08).
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 120, quality: 'S' }))
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  p.markOk('a:1')
+  p.pick('s-1', 'm')
+  assert.equal(p.exitOfSession('s-1'), 'a:1', 'the session is sticky on the row')
+  p.markLimited('a:1')
+  p.recordTransportSignal('a:1')
+  assert.ok(p.list().find((entry) => entry.id === 'a:1')!.health.cooldownUntil > 0)
+
+  assert.equal(p.reset('a:1'), true)
+  assert.equal(p.has('a:1'), true, 'the row stays: its listener is still up')
+  assert.equal(p.list().length, 2, 'the pool keeps its size')
+
+  const row = p.get('a:1')!
+  assert.equal(row.exitIP, '', 'the old exit IP is not carried over')
+  assert.equal(row.exitLocation, '')
+  assert.equal(row.latencyMs, 0)
+  assert.equal(row.quality, 'C', 'an unmeasured row claims no grade')
+  assert.equal(row.addedAt, now(), 'it re-enters as a new row')
+  assert.equal(row.source, 'subscription', 'identity belongs to whoever added it')
+  assert.equal(row.protocol, 'http')
+
+  assert.equal(p.list().find((entry) => entry.id === 'a:1')!.health.state, 'unknown', 'no health claim survives')
+  assert.equal(p.list().find((entry) => entry.id === 'a:1')!.health.cooldownUntil, 0, "the old node's cooldown is gone")
+  assert.equal(p.exitOfSession('s-1'), null, 'session stickiness belonged to the old node')
+  assert.equal(p.demoted('a:1'), false, 'a reset row is not a refused row')
+  assert.deepEqual(p.list().map((entry) => entry.id), ['a:1', 'b:2'], 'it keeps its position in the pool order')
+})
+
+test('reset() keeps the pin and refuses an unknown row', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1' }))
+  p.pin('a:1')
+  assert.equal(p.reset('a:1'), true)
+  assert.equal(p.pinnedId, 'a:1', 'the pin is user config, not a fact of the node that left')
+  assert.equal(p.reset('nope:1'), false)
+})
+
+test('reset() clears the per-model bans that belonged to the old node', () => {
+  const p = pool()
+  p.add(node({ id: 'a:1' }))
+  p.markModelBanned('a:1', 'm')
+  assert.equal(p.list().find((entry) => entry.id === 'a:1')!.bans.length, 1, 'the old node is banned for that model')
+  p.reset('a:1')
+  assert.equal(p.list().find((entry) => entry.id === 'a:1')!.bans.length, 0, 'the new node behind the same port inherits nothing')
+})

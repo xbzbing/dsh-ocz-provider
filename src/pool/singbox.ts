@@ -18,7 +18,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createConnection } from 'node:net'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -183,6 +183,13 @@ export function generateConfig(nodes: ParsedNode[], basePort = 30_000, keep?: re
 
 const STOP_GRACE_MS = 5_000
 
+/**
+ * How many identity -> port assignments `ports.json` may remember. A real
+ * subscription fronts tens of nodes; the cap only stops a pathological airport
+ * (or years of churn) from growing the file without bound.
+ */
+const PORT_MEMORY_LIMIT = 2_000
+
 function canConnect(port: number, timeoutMs = 1_000): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = createConnection({ host: '127.0.0.1', port })
@@ -212,6 +219,8 @@ export class SingBoxSupervisor {
   #running = false
   #configPath: string
   #dataDir: string
+  /** Persisted `node key -> local port`, so a port survives a host restart. */
+  #portsPath: string
   /** Port per node of the last reload(), index-aligned (`0` = no inbound). */
   #ports: number[] = []
   #nodes: ParsedNode[] = []
@@ -226,6 +235,50 @@ export class SingBoxSupervisor {
     this.#options = options
     this.#dataDir = options.dataDir
     this.#configPath = join(options.dataDir, 'singbox-config.json')
+    this.#portsPath = join(options.dataDir, 'ports.json')
+    this.#loadPorts()
+  }
+
+  /**
+   * Restore the identity -> port assignments a previous process wrote.
+   *
+   * The map has to outlive the supervisor: `~/.dsh/oc2dsh/singbox/ports.json`
+   * is what keeps an exit on ITS port across a host restart, a plugin reload or
+   * a fresh subscription fetch whose node order changed. Without it every
+   * reload renumbers the listeners from 30001 in list order, every pool row
+   * points at a port that now serves another node, and the onboarding resets
+   * the whole table (docs/ip-pool.md §4.7).
+   *
+   * An unreadable or partial file is not an error: the first run has none, and
+   * a corrupt one must cost renumbering, never a failed conversion.
+   */
+  #loadPorts(): void {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(readFileSync(this.#portsPath, 'utf8'))
+    } catch {
+      return
+    }
+    if (parsed === null || typeof parsed !== 'object') return
+    for (const [key, port] of Object.entries(parsed as Record<string, unknown>)) {
+      if (key === '' || typeof port !== 'number' || !Number.isInteger(port) || port <= 0) continue
+      this.#portByKey.set(key, port)
+    }
+  }
+
+  /** Persist the assignments atomically; a failure costs stability, not service. */
+  async #persistPorts(): Promise<void> {
+    try {
+      await mkdir(this.#dataDir, { recursive: true })
+      const tmp = `${this.#portsPath}.tmp`
+      await writeFile(tmp, JSON.stringify(Object.fromEntries(this.#portByKey), null, 2), 'utf8')
+      await rm(this.#portsPath, { force: true })
+      await rename(tmp, this.#portsPath)
+    } catch (err) {
+      this.#options.logger?.warn(
+        `oc2dsh: could not persist sing-box port assignments (${err instanceof Error ? err.message : String(err)}); a restart may renumber the exits`,
+      )
+    }
   }
 
   /** Live re-apply of the binary path (settings page, docs §5.1). The next
@@ -298,7 +351,16 @@ export class SingBoxSupervisor {
       used.add(free)
       next.set(key, free)
     })
-    this.#portByKey = next
+    // Keep assignments for identities this round does not carry, as long as
+    // nobody took their port: a node that drops out of one fetch and returns in
+    // the next must land back on its own port, or its pool row resets for a
+    // subscription hiccup. Bounded, because the map would otherwise grow with
+    // every node this install has ever seen.
+    for (const [key, port] of this.#portByKey) {
+      if (next.has(key) || used.has(port)) continue
+      next.set(key, port)
+    }
+    this.#portByKey = next.size > PORT_MEMORY_LIMIT ? new Map([...next].slice(-PORT_MEMORY_LIMIT)) : next
     return ports
   }
 
@@ -342,6 +404,10 @@ export class SingBoxSupervisor {
     }
     const binary = await this.#resolveBinary()
     const assigned = this.#assignPorts(nodes)
+    // Written before the child starts: the next process (a restart, a reload
+    // after a crash, a plugin re-apply) must see the same identity -> port map
+    // or the pool's rows would point at ports that now serve other nodes.
+    await this.#persistPorts()
     const invalid = assigned.filter((port) => port === 0).length
     if (invalid > 0 && keep === undefined) {
       this.#options.logger?.warn(`oc2dsh: sing-box conversion skipped ${invalid} node(s) with an unsupported type or an invalid config (bad port, missing credentials)`)

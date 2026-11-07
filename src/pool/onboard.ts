@@ -69,6 +69,21 @@ interface Candidate {
   screenRejection: string
 }
 
+/**
+ * Did the screen reach a VERDICT on this exit, or did it merely fail to
+ * measure it?
+ *
+ * `coarseScreen` reports both through one `rejected` string. A geo block, a
+ * measured latency over the ceiling and a proxy we could not even build are
+ * verdicts about the exit; an echo status !== 200, a timeout and a socket
+ * error are the probe or the ip-echo endpoint failing, and a single one of
+ * those must not retire a row that is already online: the pool would ratchet
+ * down over consecutive flaky rounds.
+ */
+function isVerdict(rejection: string): boolean {
+  return rejection.startsWith('geo-blocked') || rejection.startsWith('latency ') || rejection.startsWith('agent-build')
+}
+
 export interface OnboardResult {
   /** Candidates handed in (already converted, one per node). */
   candidates: number
@@ -218,10 +233,25 @@ export class Onboarder {
     //    becomes the reserve. A candidate egressing from an exit IP another row
     //    already holds is one quota bucket (§3.1): it waits at the reserve tail.
     const wanted = pool.poolSize
-    const online = ranked.filter((candidate) => pool.has(candidate.address))
-    for (const candidate of online) this.#refreshFacts(candidate)
+    const online = new Map<string, Candidate>()
+    for (const candidate of ranked) {
+      if (pool.has(candidate.address)) online.set(candidate.address, candidate)
+    }
+    // A row whose candidate this round could NOT measure keeps its listener:
+    // one failed echo request is a measurement failure, not a verdict on the
+    // exit (the same reason a total failure parks instead of draining above).
+    // It rides the selection so the rebuild cannot close a listener the pool
+    // still owns — a closed port is pruned with its row on the next round.
+    // A screen VERDICT (geo block, too slow, unbuildable) still retires an
+    // online row; only a failed measurement keeps it.
+    for (const candidate of this.#candidates.values()) {
+      if (candidate.facts !== null || isVerdict(candidate.screenRejection)) continue
+      if (pool.has(candidate.address) && !online.has(candidate.address)) online.set(candidate.address, candidate)
+    }
+    const onlineRows = [...online.values()]
+    for (const candidate of onlineRows) this.#refreshFacts(candidate)
     const fresh = ranked.filter((candidate) => !pool.has(candidate.address))
-    const room = Math.max(0, wanted - online.length)
+    const room = Math.max(0, wanted - onlineRows.length)
     const selected: Candidate[] = []
     const duplicates: Candidate[] = []
     const reserve: Candidate[] = []
@@ -236,8 +266,8 @@ export class Onboarder {
       } else reserve.push(candidate)
     }
     this.#reserve = [...reserve, ...duplicates]
-    this.#selected = new Set([...online, ...selected].map((candidate) => candidate.slot))
-    result.online = online.length
+    this.#selected = new Set([...onlineRows, ...selected].map((candidate) => candidate.slot))
+    result.online = onlineRows.length
     result.reserve = this.#reserve.length
 
     // 3. Shrink to the selection: this is the step that bounds local listeners
@@ -274,24 +304,27 @@ export class Onboarder {
 
   /**
    * A port that now serves a DIFFERENT node is a new exit: the row's health,
-   * stickiness and counters belong to the node that left, so it leaves with it.
+   * stickiness and counters belong to the node that left. The row is reset in
+   * place rather than removed — its listener still exists, so dropping it would
+   * shrink the table for a change that only cost one node's facts, and a
+   * refresh that renumbers ports would empty the pool row by row (docs §4.7).
    * Identities come from the conversion (ConvertedExit.key); exits without one
    * are not judged.
    */
   #dropReassigned(exits: ConvertedExit[], previousKeys: ReadonlyMap<string, string>): void {
     const { pool, logger } = this.#deps
-    const dropped: string[] = []
+    const restarted: string[] = []
     for (const exit of exits) {
       if (exit.key === undefined) continue
       const before = previousKeys.get(exit.address)
       if (before !== undefined && before !== exit.key && pool.has(exit.address)) {
-        pool.remove(exit.address)
-        dropped.push(exit.address)
+        pool.reset(exit.address)
+        restarted.push(exit.address)
       }
       this.#keys.set(exit.address, exit.key)
     }
-    if (dropped.length > 0) {
-      logger?.info(`oc2dsh: ${dropped.length} listener(s) now serve a different node; their rows start over (${dropped.join(', ')})`)
+    if (restarted.length > 0) {
+      logger?.info(`oc2dsh: ${restarted.length} listener(s) now serve a different node; their rows start over in place (${restarted.join(', ')})`)
     }
   }
 

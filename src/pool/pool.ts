@@ -118,6 +118,21 @@ export function gradeOf(latencyMs: number): ExitNode['quality'] {
  */
 export const UNVERIFIED_QUALITY: ExitNode['quality'] = 'C'
 
+/** A row nothing has proven yet: usable, ranked last, claiming no verdict. */
+function freshHealth(): ExitHealth {
+  return {
+    state: 'unknown',
+    lastProbedAt: 0,
+    consecutiveLimited: 0,
+    cooldownUntil: 0,
+    inflight: false,
+    deadStrikes: 0,
+    deadAt: 0,
+    note: '',
+    noteAt: 0,
+  }
+}
+
 /** Quality rank for worst-first eviction (lower grade = keep longer). */
 const GRADE_RANK: Record<ExitNode['quality'], number> = { S: 0, A: 1, B: 2, C: 3 }
 
@@ -326,19 +341,7 @@ export class ExitPool {
     if (node.exitIP !== '' && this.#hasExitIP(node.exitIP, node.id)) return false
     const isNew = !this.#nodes.has(node.id)
     this.#nodes.set(node.id, node)
-    if (!this.#health.has(node.id)) {
-      this.#health.set(node.id, {
-        state: 'unknown',
-        lastProbedAt: 0,
-        consecutiveLimited: 0,
-        cooldownUntil: 0,
-        inflight: false,
-        deadStrikes: 0,
-        deadAt: 0,
-        note: '',
-        noteAt: 0,
-      })
-    }
+    if (!this.#health.has(node.id)) this.#health.set(node.id, freshHealth())
     if (isNew) this.#notifyAdmitted()
     return true
   }
@@ -365,6 +368,38 @@ export class ExitPool {
 
   get(id: string): ExitNode | undefined {
     return this.#nodes.get(id)
+  }
+
+  /**
+   * The same local port now serves a DIFFERENT node: keep the row (its
+   * listener still exists) but start it over. Every fact, health claim,
+   * cooldown, ban and session stickiness belonged to the node that left, so
+   * none of it may follow the address — and nothing is `ok` until a probe or
+   * real traffic proves the new node.
+   *
+   * Removing the row instead turns a per-node change into a table-wide
+   * outage: the pool would lose an exit whose listener is still up, and a
+   * refresh that renumbers ports would empty the table one row at a time
+   * (docs/ip-pool.md §4.7).
+   */
+  reset(id: string): boolean {
+    const node = this.#nodes.get(id)
+    if (node === undefined) return false
+    node.exitIP = ''
+    node.exitLocation = ''
+    node.latencyMs = 0
+    node.quality = UNVERIFIED_QUALITY
+    node.addedAt = this.#now()
+    this.#health.set(id, freshHealth())
+    this.#passive.delete(id)
+    this.#activity.delete(id)
+    for (const key of this.#bans.keys()) {
+      if (key.startsWith(`${id}\u0000`)) this.#bans.delete(key)
+    }
+    for (const [session, exitId] of this.#sessionExit) {
+      if (exitId === id) this.#sessionExit.delete(session)
+    }
+    return true
   }
 
   /** Drop a node entirely. */

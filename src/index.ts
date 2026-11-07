@@ -9,6 +9,7 @@ import { ZenAdapter, PROVIDER_ID } from './adapter/zen-adapter.ts'
 import { Config, ordinaryConfig, resolveConfig, type Opencode2dshConfig, type ResolvedPluginConfig } from './config.ts'
 import type { ModelContextWindows } from './model-context.ts'
 import { applyIpPoolSettings, type IpPoolController } from './ip-pool-settings/apply.ts'
+import { mirrorLogToFile } from './log-file.ts'
 import { setUsageRecorder } from './pool/usage.ts'
 import { usageStore } from './pool/usage-store.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
@@ -119,7 +120,11 @@ function applyAdapter(
   config: ResolvedPluginConfig,
   readIpPool: () => Partial<IpPoolSettings> | undefined,
 ): void {
-  const logger = ctx.logger
+  // Mirror every pool/adapter line into `<stateDir>/logs/oc2dsh.log`: the host
+  // keeps plugin logs in memory (stderr only from a terminal), so an exit-table
+  // change leaves no artefact once the process restarts.
+  const fileLog = mirrorLogToFile(ctx.logger)
+  const logger = fileLog
   // Strip the volatile reference before the plain config resolution: it is an
   // ordinary-fields consumer, and `{ ...defaults, ...config }` would otherwise
   // hand `startIpPool` the reference object where it expects values.
@@ -280,6 +285,7 @@ function applyAdapter(
 
   if (typeof ctx.effect === 'function') {
     ctx.effect.call(ctx, () => () => {
+      fileLog.flush()
       catalog.stop()
     })
   }
