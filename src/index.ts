@@ -246,11 +246,16 @@ function applyAdapter(
   if (typeof ctx.effect === 'function') {
     ctx.effect.call(ctx, () => () => {
       relayStatus = relay.status()
-      void relay.stop()
+      // Hand the child to the process-level lease instead of killing it: a
+      // plugin reload disposes this fiber, the next generation applies seconds
+      // later, and adopting the same Bun process is what keeps the free lane's
+      // connections alive. Uninstalled for good, nothing claims it and the
+      // lease ends it after its grace window (src/relay/lease.ts).
+      relay.handOff()
     })
   } else {
     process.once('exit', () => {
-      void relay.stop()
+      relay.killSync()
     })
   }
 

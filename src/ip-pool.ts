@@ -358,7 +358,7 @@ export async function startIpPool(
     if (subscriptions === null) {
       subscriptions = new SubscriptionFetcher(
         { ...admissionDeps, prober, supervisor: ensureSupervisor() },
-        { logger },
+        { logger, onboardCachePath: join(dataDir(), 'singbox', 'onboarding.json') },
       )
     }
     subscriptions.setUrls(urls)

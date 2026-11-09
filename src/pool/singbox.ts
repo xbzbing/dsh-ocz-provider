@@ -20,8 +20,9 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { createConnection } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
+import { childRecordPath, clearChildRecord, sweepChildRecordOnce, writeChildRecord } from '../child-record.ts'
 import { buildOutbound, nodeKey } from './singbox-outbound.ts'
 import type { ParsedNode } from './subscription.ts'
 
@@ -378,6 +379,15 @@ export class SingBoxSupervisor {
 
   async #reload(input: ParsedNode[], keep: readonly number[] | undefined, epoch: number): Promise<ConvertedExit[]> {
     if (epoch !== this.#stopEpoch) throw new Error('sing-box was stopped; reload abandoned')
+    // A host killed with SIGKILL leaves the previous child holding our ports,
+    // and the next `run` then dies on EADDRINUSE. The record names that child;
+    // the sweep ends it before anything binds.
+    await sweepChildRecordOnce(childRecordPath(this.#dataDir, 'child'), {
+      marker: this.#configPath,
+      ...(this.#options.binPath === undefined ? {} : { binary: basename(this.#options.binPath) }),
+      signal: 'SIGINT',
+      ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
+    })
     // One pass splits dialable nodes from placeholder servers (private /
     // loopback / link-local literals a public subscription should never hand
     // out); only the dialable half reaches the config.
@@ -440,6 +450,16 @@ export class SingBoxSupervisor {
     this.#running = true
     this.#nodes = nodes
     this.#ports = ports
+    if (child.pid !== undefined) {
+      // The record outlives this process on purpose: it is the only evidence
+      // a later launch has that a child of ours may still hold the ports.
+      void writeChildRecord(childRecordPath(this.#dataDir, 'child'), {
+        pid: child.pid,
+        startedAt: new Date().toISOString(),
+        marker: this.#configPath,
+        binary: basename(binary),
+      })
+    }
     child.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8').trim()
       if (text.length > 0) this.#options.logger?.info(`[sing-box] ${text}`)
@@ -448,6 +468,7 @@ export class SingBoxSupervisor {
       // Our own stop() clears #child first, so only an unexpected exit lands here.
       if (this.#child !== child) return
       this.#running = false
+      void clearChildRecord(childRecordPath(this.#dataDir, 'child'), child.pid)
       this.#options.logger?.warn(`oc2dsh: sing-box exited unexpectedly (${signal !== null ? `signal ${signal}` : `code ${code}`}); converted exits are unreachable until the next refresh`)
     })
     child.once('error', (err) => {
@@ -495,7 +516,10 @@ export class SingBoxSupervisor {
     const child = this.#child
     this.#child = null
     this.#running = false
-    if (child === null || exited(child)) return
+    if (child === null || exited(child)) {
+      if (child !== null) await clearChildRecord(childRecordPath(this.#dataDir, 'child'), child.pid)
+      return
+    }
     // Listen before signalling: an exit that lands between kill() and a later
     // `once('exit')` would never be seen.
     const gone = new Promise<void>((resolve) => {
@@ -507,15 +531,22 @@ export class SingBoxSupervisor {
     } else {
       child.kill('SIGINT')
     }
-    if (await settles(gone, STOP_GRACE_MS)) return
+    if (await settles(gone, STOP_GRACE_MS)) {
+      await clearChildRecord(childRecordPath(this.#dataDir, 'child'), child.pid)
+      return
+    }
     if (process.platform === 'win32' && child.pid) {
       await taskkill(['/T', '/F', '/PID', String(child.pid)])
     } else {
       child.kill('SIGKILL')
     }
-    if (!(await settles(gone, STOP_GRACE_MS))) {
-      this.#options.logger?.warn(`oc2dsh: sing-box (pid ${child.pid ?? '?'}) did not exit after SIGKILL; giving up on it`)
+    if (await settles(gone, STOP_GRACE_MS)) {
+      await clearChildRecord(childRecordPath(this.#dataDir, 'child'), child.pid)
+      return
     }
+    // It survived SIGKILL: keep the record so the next launch can sweep it
+    // instead of binding ports this process still holds.
+    this.#options.logger?.warn(`oc2dsh: sing-box (pid ${child.pid ?? '?'}) did not exit after SIGKILL; giving up on it`)
   }
 }
 

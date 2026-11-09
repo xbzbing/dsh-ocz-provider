@@ -30,6 +30,7 @@ import { ExitPool, type ExitNode } from './pool.ts'
 import { Prober, type ProbeTask } from './prober.ts'
 import { admitBySpeed, type AdmissionDeps } from './admission.ts'
 import { Onboarder } from './onboard.ts'
+import { ONBOARD_CACHE_TTL_MS, loadOnboardCache, saveOnboardCache, type ScreeningVerdict } from './onboard-cache.ts'
 import { parseSubscription, type ParsedNode, DEFAULT_SUBSCRIPTION_USER_AGENT } from './subscription.ts'
 import { SingBoxSupervisor, isDialableServer, type ConvertedExit } from './singbox.ts'
 
@@ -79,6 +80,11 @@ export interface SubscriptionOptions {
    * DEFAULT_SUBSCRIPTION_USER_AGENT.
    */
   userAgent?: string
+  /**
+   * Screening verdicts from the last round: a rebuild that changes nothing
+   * about the nodes reuses them instead of spending ~25 s on the speed pass.
+   */
+  onboardCachePath?: string
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
@@ -98,6 +104,7 @@ export class SubscriptionFetcher {
   #intervalMs: number
   #timeoutMs: number
   #userAgent: string
+  #onboardCachePath: string | null
   /** Live conversion core; see setSupervisor(). */
   #supervisor: SubscriptionDeps['supervisor']
   /** Last onboarding round's controller — holds the speed facts and the
@@ -120,6 +127,7 @@ export class SubscriptionFetcher {
     this.#intervalMs = options.intervalMs ?? 30 * 60_000
     this.#timeoutMs = options.timeoutMs ?? 30_000
     this.#userAgent = normalizeUserAgent(options.userAgent)
+    this.#onboardCachePath = options.onboardCachePath ?? null
     this.#logger = options.logger
   }
 
@@ -381,7 +389,20 @@ export class SubscriptionFetcher {
             logger: this.#logger,
           })
           this.#onboarder = onboarder
-          const outcome = await onboarder.run(exits, inherited, inheritedKeys)
+          // Verdicts measured inside the TTL answer for their own node, so a
+          // reload that changed nothing about the subscription probes nothing.
+          const restored = this.#onboardCachePath === null
+            ? null
+            : await loadOnboardCache(this.#onboardCachePath, ONBOARD_CACHE_TTL_MS)
+          const outcome = await onboarder.run(exits, inherited, inheritedKeys, restored ?? new Map())
+          // A round that measured nothing proves nothing: writing it would
+          // freeze an outage into the cache for the whole TTL.
+          if (this.#onboardCachePath !== null && outcome.screened > 0) {
+            void saveOnboardCache(this.#onboardCachePath, onboarder.verdicts as ReadonlyMap<string, ScreeningVerdict>)
+          }
+          if (onboarder.reused > 0) {
+            this.#logger?.info(`oc2dsh: onboarding reused ${onboarder.reused}/${exits.length} screening verdict(s) from the last round`)
+          }
           this.#state.convertedAdmitted = outcome.admitted
           // The conversion ran: nothing is parked any more — every screened
           // candidate is either in the pool or held as reserve (unmeasured

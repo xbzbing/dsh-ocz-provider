@@ -40,6 +40,7 @@ import { coarseScreen, type AdmissionDeps, type EchoFacts } from './admission.ts
 import { gradeOf, UNVERIFIED_QUALITY, type ExitPool } from './pool.ts'
 import type { Prober, ProbeTask } from './prober.ts'
 import type { ConvertedExit } from './singbox.ts'
+import { screeningKey, type ScreeningVerdict } from './onboard-cache.ts'
 import type { ParsedNode } from './subscription.ts'
 
 export interface OnboardDeps {
@@ -108,6 +109,10 @@ function message(err: unknown): string {
 
 export class Onboarder {
   readonly #deps: OnboardDeps
+  /** This round's screening verdicts per node identity, for the on-disk cache. */
+  #verdicts = new Map<string, ScreeningVerdict>()
+  /** How many candidates answered from the cache (diagnostics: proves reuse). */
+  #reused = 0
   /** Candidate per address from the last run (drives replace()). */
   #candidates = new Map<string, Candidate>()
   /** Slots currently selected (online), the live `keep` set for a rebuild. */
@@ -119,6 +124,16 @@ export class Onboarder {
 
   constructor(deps: OnboardDeps) {
     this.#deps = deps
+  }
+
+  /** Verdicts of the last round (reused ones keep their original measurement time). */
+  get verdicts(): ReadonlyMap<string, ScreeningVerdict> {
+    return this.#verdicts
+  }
+
+  /** Candidates this round answered from the cache instead of dialling. */
+  get reused(): number {
+    return this.#reused
   }
 
   /** Reserves still waiting (diagnostics). */
@@ -149,6 +164,7 @@ export class Onboarder {
     exits: ConvertedExit[],
     inherited: Iterable<string> = [],
     inheritedKeys: ReadonlyMap<string, string> = new Map(),
+    restored: ReadonlyMap<string, ScreeningVerdict> = new Map(),
   ): Promise<OnboardResult> {
     const { pool, prober, admission, logger } = this.#deps
     // The addresses the PREVIOUS conversion produced, and the ones this one
@@ -183,19 +199,42 @@ export class Onboarder {
       blockedCountries: admission.blockedCountries,
       logger: admission.logger,
     }
+    this.#verdicts = new Map()
+    this.#reused = 0
+    const candidateOf = (exit: ConvertedExit, verdict: ScreeningVerdict): Candidate => ({
+      slot: exit.slot,
+      address: exit.address,
+      protocol: exit.protocol,
+      node: exit.node,
+      facts: 'facts' in verdict ? verdict.facts : null,
+      screenRejection: 'rejected' in verdict ? verdict.rejected : '',
+    })
     const tasks: ProbeTask[] = exits.map((exit): ProbeTask => ({
       exitId: exit.address,
       kind: 'onboard-screen',
       run: async () => {
+        // NOT `exit.key`: the provider re-rolls the uTLS fingerprint on every
+        // fetch, so the outbound JSON changes and the cache would never hit.
+        const key = screeningKey(exit.node)
+        // A candidate this machine measured inside the cache TTL answers from
+        // that verdict: a reload re-probes nothing it did not need to.
+        const cached = restored.get(key)
+        if (cached !== undefined) {
+          this.#reused += 1
+          this.#verdicts.set(key, cached)
+          this.#candidates.set(exit.address, candidateOf(exit, cached))
+          return
+        }
         const verdict = await coarseScreen(screenDeps, { address: exit.address, protocol: exit.protocol })
-        this.#candidates.set(exit.address, {
-          slot: exit.slot,
-          address: exit.address,
-          protocol: exit.protocol,
-          node: exit.node,
-          facts: 'exitIP' in verdict ? verdict : null,
-          screenRejection: 'rejected' in verdict ? verdict.rejected : '',
-        })
+        const rejection = 'rejected' in verdict ? verdict.rejected : ''
+        // Only a VERDICT about the exit is worth remembering. A timeout or a
+        // blocked echo endpoint says the probe failed, and caching that would
+        // keep a healthy node out of the pool for the whole TTL.
+        const recorded: ScreeningVerdict | null = 'exitIP' in verdict
+          ? { at: Date.now(), facts: verdict }
+          : isVerdict(rejection) ? { at: Date.now(), rejected: rejection } : null
+        if (recorded !== null) this.#verdicts.set(key, recorded)
+        this.#candidates.set(exit.address, candidateOf(exit, recorded ?? { at: Date.now(), rejected: rejection }))
       },
     }))
     await prober.enqueueAll(tasks)

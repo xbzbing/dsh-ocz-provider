@@ -123,3 +123,25 @@ supervisor 解析不到 bun → 适配器直接出网 → 车道回 429（连接
 
 模型列表那一步刻意保持直连：它不受门禁，走中继反而会拿一个能用的中继把坏出口藏起来。
 
+
+## 7. 跨插件重载的交接（`src/relay/lease.ts`、`src/child-record.ts`）
+
+插件重载（`pnpm add` / 卸载再安装）会在同一个 Node 进程里 dispose 掉旧 fiber 再 apply
+新一代；relay 的连接活在子进程里，直接 `stop()` 会把到上游的 TCP 一起杀掉。所以 dispose
+改为**交接**而不是停止：
+
+- `RelaySupervisor.handOff()` 把子进程连同 `origin`/`baseUrl`/`token` 交给进程级
+  `globalThis[Symbol.for('oc2dsh.relay.lease')]`，并起一个 60s 宽限定时器；
+- 新一代 `start()` 先 `takeLease()`，用 `/_/<token>/__oc2dsh/health` 探活后**接管同一个
+  子进程**（脚本路径或 upstream 变了、探活失败、进程已退出都直接杀掉重开）；
+- 宽限窗口内没有任何一代来认领 → 定时器 `stdin.end()` + SIGTERM 结束它，所以真正卸载
+  不会留下常驻进程；进程退出时 `process.once('exit')` 兜底。
+
+交接只摘 `exit` 监听，**stdout 读取器保持挂着**：relay 的日志写 stdout，没人读的管道会
+写满并阻塞子进程。
+
+两个子进程都在磁盘留下 `{pid, marker}` 记录（relay 在 `~/.dsh/oc2dsh/children/relay.json`，
+sing-box 在 `<dataDir>/child.json`），每次进程内首次 spawn 前清扫一次：pid 还活着**且**
+命令行仍带自己的 marker 才发信号，marker 不匹配只删记录不杀进程——pid 复用不会误杀陌生人。
+sing-box 目前只做清扫、不参与交接：它不读 stdin，父进程被 SIGKILL 后不会自己退出，
+清扫是唯一能收回 30001+ 端口的手段。

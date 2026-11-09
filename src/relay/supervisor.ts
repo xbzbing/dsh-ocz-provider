@@ -14,8 +14,12 @@ import { randomBytes } from 'node:crypto'
 import { get as httpGet } from 'node:http'
 import { existsSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { delimiter, join } from 'node:path'
+import { basename, delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { childRecordPath, clearChildRecord, sweepChildRecordOnce, writeChildRecord } from '../child-record.ts'
+import { stateDir } from '../paths.ts'
+import { installLeaseExitHook, killLease, offerLease, takeLease } from './lease.ts'
 
 /** Config the supervisor reads (subset of the plugin's `relay` node). */
 export interface RelayConfig {
@@ -83,6 +87,13 @@ const READY_MARKER = 'OC2DSH_RELAY_READY'
 
 /** Health path behind the token prefix (relay/oc2dsh-relay.mjs). */
 const HEALTH_PATH = '/__oc2dsh/health'
+
+/**
+ * How long an unclaimed relay child stays alive across a plugin reload. The
+ * window covers uninstall -> pnpm install -> the next apply; a reload hands
+ * the child over, an uninstall lets the timer end it.
+ */
+const HANDOFF_GRACE_MS = 60_000
 
 /** Startup stdout kept for the failure message; a longer line is cut. */
 const STARTUP_EXCERPT_CHARS = 400
@@ -212,6 +223,8 @@ export class RelaySupervisor {
   #origin: string | null = null
   /** {@link #origin} plus the per-spawn `/_/<token>` prefix every request needs. */
   #baseUrl: string | null = null
+  /** The per-spawn capability token, kept so a reload can hand the child over. */
+  #token: string | null = null
   /** Earliest time warm() may spawn again (startup-failure backoff). */
   #nextAttemptAt = 0
   #bunPath: string | null = null
@@ -229,6 +242,9 @@ export class RelaySupervisor {
     this.#readyTimeoutMs = options.readyTimeoutMs ?? 15_000
     this.#maxRestarts = options.maxRestarts ?? 5
     this.#healthyResetMs = options.healthyResetMs ?? 60_000
+    // A leased child must not outlive the process: a graceful dispose hands it
+    // over, and a process that ends without an adopter kills it here.
+    installLeaseExitHook()
   }
 
   get upstream(): string {
@@ -283,10 +299,134 @@ export class RelaySupervisor {
       return Promise.resolve(null)
     }
     if (this.#starting !== null) return this.#starting
-    this.#starting = this.#spawnAndWait().finally(() => {
+    this.#starting = this.#acquire().finally(() => {
       this.#starting = null
     })
     return this.#starting
+  }
+
+  /**
+   * Take the child a previous generation leased, or start a new one. Adoption
+   * is what makes a plugin reload free: the Bun process and its upstream
+   * connections are the expensive part, and they are still alive here.
+   */
+  async #acquire(): Promise<string | null> {
+    if (await this.#adoptLease()) return this.#baseUrl
+    return this.#spawnAndWait()
+  }
+
+  /**
+   * Claim the offered child when it is still ours and still healthy. Anything
+   * else (another script, another upstream, a dead listener) is ended here:
+   * a lease may only reduce the cost of a reload, never carry a stale child
+   * into service.
+   */
+  async #adoptLease(): Promise<boolean> {
+    const lease = takeLease()
+    if (lease === null) return false
+    if (lease.scriptPath !== this.#scriptPath || lease.upstream !== this.upstream) {
+      killLease(lease)
+      return false
+    }
+    try {
+      await this.#probe(`${lease.origin}/_/${lease.token}${HEALTH_PATH}`)
+    } catch {
+      killLease(lease)
+      return false
+    }
+    this.#child = lease.child
+    this.#origin = lease.origin
+    this.#token = lease.token
+    this.#baseUrl = lease.baseUrl
+    // A generation that only ever adopted never resolved a binary itself, so
+    // the lease may carry none: fall back to the same search a spawn would do.
+    this.#bunPath = lease.bunPath ?? findBun(this.#config.bunPath)
+    this.#restarts = 0
+    this.#lastError = ''
+    this.#nextAttemptAt = 0
+    // Re-attach the listeners the offering supervisor stripped: the child now
+    // belongs to this generation, and a crash after adoption must restart it.
+    lease.child.once('exit', (code: number | null, signal: string | null) => {
+      if (this.#child !== lease.child) return
+      this.#child = null
+      this.#onExit(code, signal)
+    })
+    lease.child.once('error', (err: Error) => {
+      this.#lastError = err.message
+    })
+    // The child may have exited between the probe and this attach: adopt only a
+    // process that is still there, or the status would claim a dead listener.
+    if (lease.child.exitCode !== null || lease.child.signalCode !== null) {
+      this.#child = null
+      this.#baseUrl = null
+      this.#origin = null
+      this.#token = null
+      this.#lastError = 'relay exited during handoff'
+      return false
+    }
+    this.#logger?.info(`oc2dsh: upstream relay adopted from the previous plugin instance at ${lease.origin}`)
+    return true
+  }
+
+  /**
+   * Hand the child to the process-level lease instead of killing it. The next
+   * generation of this plugin adopts it within {@link HANDOFF_GRACE_MS}; a
+   * plugin that is really removed leaves it unclaimed and the lease ends it.
+   */
+  handOff(graceMs = HANDOFF_GRACE_MS): void {
+    this.#stopping = true
+    const child = this.#child
+    const origin = this.#origin
+    const baseUrl = this.#baseUrl
+    const token = this.#token
+    this.#child = null
+    this.#origin = null
+    this.#baseUrl = null
+    this.#token = null
+    if (child === null) return
+    // Still starting: there is no origin/token to hand over, and dropping the
+    // handle here would leave the process behind for good.
+    if (origin === null || baseUrl === null || token === null) {
+      this.#terminate(child)
+      return
+    }
+    // Only the ownership listener goes: the stdout reader stays attached (the
+    // relay logs on stdout, and an unread pipe would fill and block it) and the
+    // old exit handler would restart a supervisor whose fiber is already gone.
+    child.removeAllListeners('exit')
+    offerLease(
+      {
+        child,
+        origin,
+        baseUrl,
+        token,
+        scriptPath: this.#scriptPath,
+        upstream: this.upstream,
+        bunPath: this.#bunPath,
+        orphanedAt: Date.now(),
+      },
+      graceMs,
+    )
+    this.#logger?.info(`oc2dsh: upstream relay kept for the next plugin instance (${origin}, ${Math.round(graceMs / 1000)}s grace)`)
+  }
+
+  /** Stop the child synchronously, for a process exit path that cannot await. */
+  killSync(): void {
+    const child = this.#child
+    this.#child = null
+    this.#token = null
+    if (child === null) return
+    this.#terminate(child)
+  }
+
+  /** End one child without awaiting: stdin EOF is the relay's own shutdown. */
+  #terminate(child: ChildProcessWithoutNullStreams): void {
+    try {
+      child.stdin?.end()
+      child.kill('SIGTERM')
+    } catch {
+      // already gone
+    }
   }
 
   /**
@@ -322,6 +462,18 @@ export class RelaySupervisor {
     }
     // Per-spawn capability: the relay refuses any request path without it.
     const token = randomBytes(24).toString('hex')
+    const recordPath = childRecordPath(join(stateDir(), 'children'), 'relay')
+    // A record describes a script that exists on disk; a test seam's synthetic
+    // path owns neither a leftover nor a claim in the host's state dir.
+    const recordable = existsSync(this.#scriptPath)
+    // A crashed host can leave a relay behind; this is the one moment the pid
+    // record can be trusted, because nothing in this process has spawned yet.
+    if (recordable) {
+      await sweepChildRecordOnce(recordPath, {
+        marker: this.#scriptPath,
+        ...(this.#logger === undefined ? {} : { logger: this.#logger }),
+      })
+    }
     try {
       const port = await this.#spawnOnce(bun, token)
       if (this.#stopping) {
@@ -329,9 +481,19 @@ export class RelaySupervisor {
         return null
       }
       this.#origin = `http://127.0.0.1:${port}`
+      this.#token = token
       this.#baseUrl = `${this.#origin}/_/${token}`
       this.#lastError = ''
       this.#nextAttemptAt = 0
+      const child = this.#child
+      if (recordable && child !== null && child.pid !== undefined) {
+        void writeChildRecord(recordPath, {
+          pid: child.pid,
+          startedAt: new Date().toISOString(),
+          marker: this.#scriptPath,
+          binary: basename(bun),
+        })
+      }
       this.#logger?.info(`oc2dsh: upstream relay ready at ${this.#origin} (bun ${bun})`)
       return this.#baseUrl
     } catch (err) {
@@ -524,6 +686,7 @@ export class RelaySupervisor {
   async #killChild(): Promise<void> {
     const child = this.#child
     this.#child = null
+    this.#token = null
     if (child === null) return
     try {
       // Closing stdin is the relay's own parent-death signal (it exits on EOF),
@@ -533,6 +696,7 @@ export class RelaySupervisor {
     } catch {
       // already gone
     }
+    await clearChildRecord(childRecordPath(join(stateDir(), 'children'), 'relay'), child.pid)
   }
 
   /** Stop the relay (plugin dispose). Idempotent. */
