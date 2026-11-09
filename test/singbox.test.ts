@@ -235,7 +235,7 @@ test('subscription refresh with supervisor: encrypted nodes convert and speed-ad
   const report = parseSubscription(fixture)
   assert.equal(report.nodes.length, 38)
 
-  const pool = new ExitPool()
+  const pool = new ExitPool({ poolSize: 10 })
   const prober = new Prober({ pool })
   // A fake supervisor: converts every node to a local address without a
   // real binary (the SingBoxSupervisor's process paths are covered by the
@@ -418,7 +418,7 @@ test('subscription refresh: a node whose server cannot be dialled is skipped, ne
  */
 test('subscription refresh: nodes that fail every measurement stay unverified at the tail', async () => {
   const fixture = ANYTLS_SUBSCRIPTION
-  const pool = new ExitPool()
+  const pool = new ExitPool({ poolSize: 10 })
   const prober = new Prober({ pool })
   const supervisor = {
     async reload(nodes: ParsedNode[], keep?: readonly number[]) {

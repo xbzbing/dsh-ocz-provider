@@ -103,7 +103,7 @@ export interface IpPoolConfig {
   maxConcurrentProbes?: number
   /**
    * Whole-pool capacity: how many exits stay online at once, any source
-   * (settings schema default 10). The onboarding speed-tests candidates, keeps
+   * (settings schema default 20, max 50). The onboarding speed-tests candidates, keeps
    * the fastest `poolSize` and shrinks the sing-box config to them, so it also
    * bounds the number of local SOCKS listeners.
    */

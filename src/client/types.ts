@@ -39,7 +39,7 @@ export interface IpPoolSettingsValue {
   /** Probe-content pool; empty = the Host default ('hello'). */
   probeContents: string[]
   maxConcurrentProbes: number
-  /** Whole-pool capacity: exits kept online at once (default 10). */
+  /** Whole-pool capacity: exits kept online at once (default 20, max 50). */
   poolSize: number
   manual: string[]
   subscription: { urls: string[]; refreshMs: number; userAgent: string }
@@ -145,7 +145,7 @@ export interface PoolStatusView {
   bySource: Record<'manual' | 'subscription' | 'goproxy', number>
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
-  /** Whole-pool capacity in force (settings `poolSize`, default 10). */
+  /** Whole-pool capacity in force (settings `poolSize`, default 20, max 50). */
   poolSize: number
   /** The pin in force. `local` marks the 本机 sentinel (no exit at all). */
   pinned: { id: string; strict: boolean; local?: boolean } | null

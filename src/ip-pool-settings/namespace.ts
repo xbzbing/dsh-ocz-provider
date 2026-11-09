@@ -76,11 +76,11 @@ export const IpPoolConfigSchema = Schema.object({
   maxConcurrentProbes: Schema.number().min(1).max(8).step(1).default(3),
   /**
    * Whole-pool capacity — how many exits stay online at once, any source
-   * (default 10). The onboarding speed-tests every candidate, keeps the
+   * (default 20, max 50). The onboarding speed-tests every candidate, keeps the
    * fastest `poolSize` and shrinks the sing-box config to them, so this is
    * also the number of local SOCKS listeners the pool opens.
    */
-  poolSize: Schema.number().min(1).max(100).step(1).default(10),
+  poolSize: Schema.number().min(1).max(50).step(1).default(20),
   /** Manually added plain proxies: 'http://h:p' or 'socks5://h:p' (§1.2 source 2). */
   manual: Schema.array(Schema.string()).default([]),
   /**
@@ -261,7 +261,7 @@ export function resolveIpPoolSettings(value: AnyIpPoolSection | undefined): IpPo
     probeModels: raw.probeModels ?? [],
     probeContents: raw.probeContents ?? [],
     maxConcurrentProbes: raw.maxConcurrentProbes ?? 3,
-    poolSize: raw.poolSize ?? 10,
+    poolSize: raw.poolSize ?? 20,
     manual: raw.manual ?? [],
     subscription: {
       urls,

@@ -82,7 +82,7 @@ interface ModelBan {
 export interface PoolOptions {
   /**
    * Whole-pool capacity: how many exits the pool keeps online at once, any
-   * source (settings `poolSize`, default 10). This is the number that bounds
+   * source (settings `poolSize`, default 20). This is the number that bounds
    * local connections too, because the onboarding shrinks the sing-box config
    * to the selected exits.
    *
@@ -183,7 +183,7 @@ export class ExitPool {
   #now: () => number
 
   constructor(options: PoolOptions = {}) {
-    this.#poolSize = options.poolSize ?? 10
+    this.#poolSize = options.poolSize ?? 20
     this.#cooldownBase = options.limitedCooldownBaseMs ?? 60_000
     this.#cooldownMax = options.limitedCooldownMaxMs ?? 30 * 60_000
     this.#banConfirmations = options.modelBanConfirmations ?? 2

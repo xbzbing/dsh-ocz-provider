@@ -177,7 +177,7 @@ export interface PoolStatusView {
   bySource: Record<ExitSource, number>
   /** Usable exits across the whole pool, any source. */
   availableTotal: number
-  /** Whole-pool capacity in force (settings `poolSize`, default 10). */
+  /** Whole-pool capacity in force (settings `poolSize`, default 20). */
   poolSize: number
   /**
    * The pin in force. `local` marks the 本机 sentinel (every request egresses
@@ -355,7 +355,7 @@ export function buildStatusView(
     total: snapshot.total,
     bySource: snapshot.bySource,
     availableTotal,
-    poolSize: runtime ? runtime.pool.poolSize : 10,
+    poolSize: runtime ? runtime.pool.poolSize : 20,
     pinned: snapshot.pinned !== ''
       ? { id: snapshot.pinned, strict: pinnedStrict, local: snapshot.pinned === LOCAL_EXIT_ID }
       : null,

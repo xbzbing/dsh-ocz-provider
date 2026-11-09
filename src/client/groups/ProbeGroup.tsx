@@ -72,7 +72,7 @@ export function ProbeGroup(props: GroupFormProps & {
           testId="field-poolSize"
           type="number"
           min={1}
-          max={100}
+          max={50}
           step={1}
           width="narrow"
           invalid={rangeInvalid}

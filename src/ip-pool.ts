@@ -377,7 +377,7 @@ export async function startIpPool(
     // Whole-pool capacity (settings `poolSize`; the settings schema defaults it
     // to 10): the onboarding keeps the fastest N and shrinks the sing-box config
     // to them.
-    pool.setPoolSize(current.poolSize ?? 10)
+    pool.setPoolSize(current.poolSize ?? 20)
     admissionDeps.smokeModel = probeModels[0]
     admissionDeps.smokeContents = probeContents
     prober.setMaxConcurrent(current.maxConcurrentProbes ?? 3)

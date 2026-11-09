@@ -174,7 +174,7 @@ export function validateForm(form: FormState): FormValidationFailure | null {
   const conc = Number(form.maxConcurrentProbes)
   if (!isInteger(form.maxConcurrentProbes) || conc < 1 || conc > 8) return { reason: 'invalidRange', group: 'probe' }
   const poolSize = Number(form.poolSize)
-  if (!isInteger(form.poolSize) || poolSize < 1 || poolSize > 100) return { reason: 'invalidRange', group: 'probe' }
+  if (!isInteger(form.poolSize) || poolSize < 1 || poolSize > 50) return { reason: 'invalidRange', group: 'probe' }
   const refresh = Number(form.refreshMs)
   if (!isInteger(form.refreshMs) || refresh < 60_000) return { reason: 'invalidRange', group: 'sources' }
   // The server's own parser decides, so a stored entry the pool accepts never blocks a save.

@@ -29,7 +29,7 @@ test('schema fills every default from an empty section', () => {
   assert.equal(value.enabled, false)
   assert.deepEqual(value.probeModels, [])
   assert.equal(value.maxConcurrentProbes, 3)
-  assert.equal(value.poolSize, 10, 'whole-pool capacity defaults to 10')
+  assert.equal(value.poolSize, 20, 'whole-pool capacity defaults to 20')
   assert.equal('free' in value, false, 'there is no free-proxy source')
   assert.deepEqual(value.manual, [])
   assert.deepEqual((value.subscription as Record<string, unknown>).urls, [])
