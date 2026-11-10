@@ -374,26 +374,32 @@ test('usage view: the recent speed comes from the process ring in every scope', 
   assert.equal(run!.recentSpeed, 200)
 })
 
-test('status view: todayTokens counts today’s ledger bucket, falling back to the run scope', () => {
-  // The footer's compact two-line mode shows TODAY's tokens on its first
-  // line. The day bucket comes from the ledger; a composition without one
-  // reports the process tracker's own totals.
+test('status view: today figures count today’s ledger bucket, falling back to the run scope', () => {
+  // The footer shows ONE window: its request count and its token figure both
+  // come from today's day bucket, so the line cannot pair a lifetime count
+  // with a daily one. The ledger supplies that bucket; a composition without
+  // one reports the process tracker's own totals.
   const dir = mkdtempSync(join(tmpdir(), 'usage-today-'))
   try {
     const now = new Date('2026-10-15T10:00:00').getTime()
-    const store = new UsageStore({ path: join(dir, 'usage.json'), flushMs: 0, now: () => now })
+    let clock = new Date('2026-10-14T10:00:00').getTime()
+    const store = new UsageStore({ path: join(dir, 'usage.json'), flushMs: 0, now: () => clock })
+    store.record('a:1', { inputTokens: 900, outputTokens: 900 }) // yesterday's bucket
+    clock = now
     store.record('a:1', { inputTokens: 10, outputTokens: 5, cacheReadTokens: 2, cacheWriteTokens: 1 })
     store.record('a:1', { inputTokens: 4, outputTokens: 6 })
     const view = buildStatusView(null, false, [], { usage: store, now })
+    assert.equal(view.todayRequests, 2, 'today’s requests only')
     assert.equal(view.todayTokens, 28, 'input+output+cache of today’s bucket only')
-    assert.equal(view.usage?.total.requests, 2, 'the all-time figure is untouched')
+    assert.equal(view.usage?.total.requests, 3, 'the all-time figure is untouched')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
   usageTracker.record(LOCAL_EXIT_ID, { inputTokens: 7, outputTokens: 3 })
   try {
     const noStore = buildStatusView(null, false, [])
-    assert.equal(noStore.todayTokens, 10, 'no ledger = the process tracker’s totals stand in')
+    assert.equal(noStore.todayRequests, 1, 'no ledger = the process tracker’s totals stand in')
+    assert.equal(noStore.todayTokens, 10)
   } finally {
     usageTracker.reset()
   }

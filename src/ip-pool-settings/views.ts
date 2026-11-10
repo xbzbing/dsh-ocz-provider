@@ -222,6 +222,12 @@ export interface PoolStatusView {
    */
   recentSpeed: number
   /**
+   * Today's request count from the ledger's day bucket — the footer's request
+   * figure (docs §5.5). Same basis and fallback as {@link todayTokens}, so the
+   * two numbers on that line always describe the same window.
+   */
+  todayRequests: number
+  /**
    * Today's all-in token figure (input + output + cache) from the ledger's
    * day bucket — THE footer's token figure in every variant (docs §5.5).
    * Falls back to the process tracker's own totals when no ledger is wired;
@@ -343,6 +349,8 @@ export function buildStatusView(
     : pinnedRow.state === 'dead'
       ? 'dead'
       : pinnedRow.cooling ? 'cooling' : null
+  /** The footer's pair, read once so requests and tokens share one bucket. */
+  const today = todayFiguresOf(store, now)
   return {
     enabled: runtime !== null && runtime.installer.enabled,
     runtimeReady: runtime !== null,
@@ -388,7 +396,8 @@ export function buildStatusView(
     }),
     zenUserAgent: opencodeUserAgent(),
     recentSpeed: tracker.speedAll(),
-    todayTokens: todayTokensOf(store, now),
+    todayRequests: today.requests,
+    todayTokens: today.tokens,
     // Report the ROUTER's policy, not the setting plus a guess: the two can
     // differ for a moment (install deferred, R1) and the card must not claim
     // "no local egress" while traffic is still leaving from this machine.
@@ -406,20 +415,26 @@ function grandTotal(totals: TokenTotals): number {
 }
 
 /**
- * Today's all-in tokens: the ledger's local-calendar-day bucket when one is
+ * Today's footer figures: the ledger's local-calendar-day bucket when one is
  * wired (scope-independent — "today" is a day, not a scope), the process
  * tracker's totals otherwise, so a composition without a ledger still shows
- * what this machine spent today.
+ * what this machine did today. Requests and tokens come from the SAME bucket,
+ * so the footer line never mixes two windows.
  */
-function todayTokensOf(store: UsageStore | undefined, now: number): number {
+function todayFiguresOf(store: UsageStore | undefined, now: number): { requests: number; tokens: number } {
   if (store === undefined) {
-    let sum = 0
-    for (const id of usageTracker.exits()) sum += grandTotal(usageTracker.totals(id))
-    return sum
+    let requests = 0
+    let tokens = 0
+    for (const id of usageTracker.exits()) {
+      const totals = usageTracker.totals(id)
+      requests += totals.requests
+      tokens += grandTotal(totals)
+    }
+    return { requests, tokens }
   }
   const key = localDay(now)
   const row = store.days('total').find((entry) => entry.day === key)
-  return row === undefined ? 0 : grandTotal(row.totals)
+  return row === undefined ? { requests: 0, tokens: 0 } : { requests: row.totals.requests, tokens: grandTotal(row.totals) }
 }
 
 /**

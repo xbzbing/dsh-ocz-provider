@@ -4,9 +4,10 @@
  * that lists every pool exit sorted BY REQUEST COUNT — per-exit tokens,
  * latency, in-flight markers and last-used stamps, plus pool-wide totals and
  * the 本机 row. Data rides the shared /status poller (usePoolStatus), so the
- * entry works whether or not the settings card is mounted. Request counts are
- * process-lifetime; per-exit tokens follow the card's usage scope (default:
- * the persisted ledger).
+ * entry works whether or not the settings card is mounted. The footer subline
+ * reports TODAY (the ledger's day bucket: requests, tokens, then the
+ * recent-window speed); the table's per-exit counts are process-lifetime and
+ * its tokens follow the card's usage scope (default: the persisted ledger).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
@@ -21,6 +22,7 @@ import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import { UsagePanel } from './UsagePanel.tsx'
 import { compact, grandTotal } from './usage-format.ts'
+import { dayKey } from './usage-window.ts'
 import { usePoolStatus } from './usePoolStatus.ts'
 import shared from './shared.module.css'
 import footer from './footer.module.css'
@@ -188,17 +190,25 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [status])
 
   /**
-   * The footer's own numbers: the ledger's ALL-TIME request total, TODAY's
-   * token spend (`todayTokens`, never the card's scope) and the recent-window
-   * speed. Falls back to the live totals when the host serves no ledger.
+   * The footer's own numbers, all in ONE window: TODAY's requests and token
+   * spend (`todayRequests`/`todayTokens`, never the card's scope) plus the
+   * recent-window speed. Falls back to the live totals when the host serves no
+   * ledger.
+   *
+   * The host's pair wins because "today" is the HOST's calendar day — the day
+   * the ledger buckets by — while a browser can sit in another timezone. A
+   * host that predates those fields still ships the ledger's day buckets, so
+   * the same row stands in; the lifetime total is the last resort (it is what
+   * this line showed before the window was unified, never a fake 0).
    */
   const overview = useMemo(() => {
     if (status === null) return totals
     const ledger = status.usage
     if (ledger === null || ledger === undefined) return totals
+    const today = ledger.days.find((row) => row.day === dayKey(new Date()))
     return {
-      requests: ledger.total.requests,
-      tokens: status.todayTokens ?? 0,
+      requests: status.todayRequests ?? today?.requests ?? ledger.total.requests,
+      tokens: status.todayTokens ?? today?.tokens ?? 0,
       inFlight: totals.inFlight,
       speed: status.recentSpeed ?? 0,
     }

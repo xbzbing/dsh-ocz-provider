@@ -163,6 +163,8 @@ export interface PoolStatusView {
   usage?: UsageView | null
   /** Pool-wide recent (3-min window) output speed in tok/s; 0 = hidden. */
   recentSpeed?: number
+  /** Today's request count (ledger day bucket): the footer's request figure. */
+  todayRequests?: number
   /** Today's all-in token figure (ledger day bucket): the footer's token figure. */
   todayTokens?: number
   /** 本地出口兜底 in force on the router. */
