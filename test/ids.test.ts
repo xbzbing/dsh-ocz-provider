@@ -19,10 +19,14 @@ test('canonicalSessionID passes a FRESH official session through unchanged', () 
   const official = `ses_${(~word & ((1n << 48n) - 1n)).toString(16).padStart(12, '0')}2U0aluUnb5nnpZ`
   assert.match(official, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/)
   assert.equal(canonicalSessionID(official), official, 'a fresh client id keeps its identity')
-  // The fixture's prefix decodes to about two weeks ago, so it is still inside
-  // the freshness window and keeps its identity — freshness, not age in days,
-  // is the rule.
-  const fixture = 'ses_ecc5beb7cffe2U0aluUnb5nnpZ'
+  // A prefix that decodes to two weeks back is still inside the freshness
+  // window and keeps its identity — freshness, not age in days, is the rule.
+  // The instant is RELATIVE on purpose: the field is 36 bits of unix-ms on a
+  // 2^36 clock, so a hardcoded timestamp walks out of the window on its own
+  // (the old `ses_ecc5beb7…` fixture passed -30.34 days and started being
+  // re-minted, which failed this test without any code change).
+  const fortnightWord = (BigInt(Date.now() - 14 * 24 * 60 * 60 * 1000) << 12n) | 1n
+  const fixture = `ses_${(~fortnightWord & ((1n << 48n) - 1n)).toString(16).padStart(12, '0')}2U0aluUnb5nnpZ`
   assert.equal(canonicalSessionID(fixture), fixture)
   // An id whose timestamp is outside the window is re-minted instead (the full
   // matrix lives in the stale/future test below).
