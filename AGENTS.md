@@ -105,7 +105,7 @@ argument itself.
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/settings-writes.ts |
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie, transport/body format headers, the client-identity flag `x-opencode-client` and every `x-oc2dsh-*` control header are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |
-| Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.2.5/cli`; the client flag is pinned to `cli` and no setting moves it (the header is plugin-managed). Read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
+| Zen-lane User-Agent (legacy config, ordinary field) | `userAgent` — empty = the built-in current-client shape `opencode/latest/2.2.7/cli`; the client flag is pinned to `cli` and no setting moves it (the header is plugin-managed). Read at request time by all three senders, so one setting moves chat + catalog + admission | src/config.ts, src/adapter/ids.ts `setUserAgentOverride` / `zenUserAgent` / `opencodeUserAgent` |
 | 本机出口协议族 (live setting) | `ipPool.localIpFamily` — `auto` (default) / `ipv4` / `ipv6`, edited on the pool card. It decides which family the LOCAL egress dials with when the pool does not carry the request (固定本机 pin, 本地出口兜底); `auto` = prefer IPv6 where this machine has a routable address and keep the IPv4 fallback. Relay traffic gets the same choice as an `x-oc2dsh-egress: direct;family=4|6|prefer6` directive (`relayDirectFamily`), so it holds whichever stack sends. Exit traffic is untouched. The polarity of that refusal FLIPS: this host's IPv4 was refused and its IPv6 accepted on identical bytes (2026-10-18), and the reverse was measured 2026-10-31 (IPv6 429, IPv4 200, official body, same second) — so a hard pin on either family is a one-way ticket. Relay traffic therefore has its own 429 fallback: the relay retries one direct attempt on the other family and remembers the answer for 30 min (`relay/family-fallback.mjs`, `FAMILY-FIX` / `FAMILY-MEMO` in its log), which is why `auto` survives a flip | src/pool/local-family.ts, src/pool/dispatcher.ts `#localEgress`, src/pool/installer.ts, src/ip-pool.ts relay seam, relay/family-fallback.mjs |
 | Upstream base URL | `https://opencode.ai/inference` (chats + `/openai/v1`, catalog/admission model list + `/v1`), with `https://opencode.ai/zen` as the second rung of the ladder — chat, catalog and admission all walk it (401/403/404/5xx switch origins, 429/transport/RegionError keep to the IP pool) | src/adapter/catalog.ts `ZEN_BASE_URL`, src/adapter/lane.ts `laneOrigins` |
 | Upstream relay (ordinary config) | `relay` — `enabled` (default true), `bunPath` (empty = search PATH, `OC2DSH_BUN`, `~/.bun/bin`, Homebrew prefixes, nvm's node bin dirs), `port` (0 = ephemeral; the relay reports its port on stdout as `OC2DSH_RELAY_READY <port>`), `upstream` (default `https://opencode.ai`). Started lazily by `listModels`/`prepareCall`/the catalog refresh, never at `apply()`; a host without bun keeps working and answers 429. Loopback only and authenticated: every request path carries `/_/<token>` (a random token per spawn, passed as `OC2DSH_RELAY_TOKEN` and folded into `baseUrl`, stripped before forwarding), the Host must be the relay's own loopback authority (421 otherwise), its CONNECT bridges only reach the upstream host, and the child gets an allowlisted env with no proxy variables. Startup failures and crashes share one restart budget with backoff, and the 5-restart budget is GIVEN BACK after 60 s of continuous uptime — it bounds a crash loop, not a process lifetime (live 2026-10-25: five isolated kills left a healthy host one crash away from a silent direct/429 downgrade). Debug: `OC2DSH_RELAY_TRACE=1` mirrors the child's log to stderr; the component contract (env vars, readiness handshake, timeouts, egress seam) is `docs/relay.md`. A plugin reload does not kill it: the outgoing supervisor hands the live child to a process-level lease (60 s grace) and the next generation adopts it after a health probe, so the free lane's connections survive an install; an uninstall leaves it unclaimed and the lease ends it. Both children leave a `{pid, marker}` record that the next start sweeps — a leftover is signalled only while its command line still carries our own marker, so a recycled pid never kills a stranger (`src/relay/lease.ts`, `src/child-record.ts`) | src/relay/supervisor.ts, relay/oc2dsh-relay.mjs, src/config.ts |
@@ -167,9 +167,9 @@ Headlines:
   (`Workspace root folder`, `Is directory a git repo`), so header and prompt
   name one place. `prj_*` is refused; `global` and any 40-hex also pass;
 - the UA version segment tracks the INSTALLED client and the shipped value is
-  `2.2.5` (the desktop app bundles its CLI at
+  `2.2.7` (the desktop app bundles its CLI at
   `/Applications/OpenCode.app/Contents/Resources/opencode-cli` since 2.2.x;
-  2.2.5 landed 2026-10-31). The gate does not pin the version string (2.0.29 /
+  2.2.7 landed 2026-11-10). The gate does not pin the version string (2.0.29 /
   the 1.19.0 app branch / the built-in all pass, probed 2026-10-23/24), and
   the 2.2.0 CLI binary keeps the recipe stable (strings 2026-10-28: same
   header set with no `x-opencode-request`, the same `shell`+`read` pair —
@@ -188,6 +188,39 @@ Headlines:
   the same day through the relay on prefer6, one variable (the UA) alternated
   2.2.5 / 2.2.0 / 2.2.5 / 2.2.0 on `mimo-v2.6-flash-free`: all four 200, and
   the bumped built-in answered 200 twice more after the rebuild;
+- 2.2.5 -> 2.2.7 (tags `v2.2.5..v2.2.7`, the 2.2.7 app binary's strings, and a
+  live A/B, 2026-11-12) also moves nothing but that version segment. The tag
+  range is 5164 files, so the wire files were diffed by name: `model-request.ts`
+  changed only in plumbing — `http: { headers }` became a top-level `headers`,
+  the header LITERALS (names, casing, order: `x-opencode-session-id`,
+  `x-opencode-parent-session-id`, `x-session-affinity`, `X-Session-Id`,
+  `x-parent-session-id`, `User-Agent`, `x-opencode-project`,
+  `x-opencode-session`, `x-opencode-client`) are byte-identical and
+  `x-opencode-request` is still absent; `session-id.ts`, `identifier.ts`,
+  `affinity.ts`, `schema/project.ts` and `session/system-prompt.ts` have no
+  diff at all; `core/project.ts` only gained an injectable clock and a
+  forkable `activate`, the id RESOLUTION is untouched. The body builder
+  (`packages/ai/src/protocols/openai-chat.ts`) keeps every key in place —
+  `model, messages, tools, tool_choice, stream, stream_options{include_usage},
+  max_completion_tokens, temperature, top_p, frequency_penalty,
+  presence_penalty, seed, stop` — and only sources the values differently
+  (`request.generation?.X` became flat `request.X`; model metadata moved from
+  `compatibility` to `capabilities`, internal). The gate pair `shell`/`read`
+  keeps its `Input` schema and description byte-identical (the changes there
+  are runtime: `read` gained `skill://` URIs and better not-found text,
+  `shell` gained background timeout annotations), the `<env>` block
+  (`instructions/builtins.ts`) has no diff, the binary still embeds Bun
+  v1.4.4, the zen base-URL set is the same 7 entries, and the free-model list
+  is the same 60 ids. Six NEW header names appear in the binary
+  (`x-opencode-capabilities`, `-directory`, `-event-watches`, `-org-id`,
+  `-ticket`, `-claude-agent-kind`/`-fork-source`) and NONE of them is on the
+  model path — they belong to the app↔server media route, the artifact
+  handler, the new Console event-watch plugin, usage-limits/voice, and the
+  claude-agent provider. Live: on two exits whose quota was still open,
+  the same smoke body through one private relay answered 200 for 2.2.5 and
+  200 for the 2.2.7 built-in, twice (4/4); the other 11 exits tested answered
+  `429` WITH `retry-after` (~10.5-11.4 h), i.e. their egress quota was spent
+  and they said nothing about the shape (`docs/local/ua-227-hunt.mts`);
 - WIRE PARITY with the 2.2.0 client (TLS capture 2026-10-29,
   `docs/local/capture-214/tls/`): the adapter -> relay path now emits the
   client's 16 headers with the same names, casing and order, the same

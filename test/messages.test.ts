@@ -680,7 +680,7 @@ test('TOOL_NAME_ALIASES carries the gate pair and the reverse of every rename', 
 })
 
 /**
- * The captured 2.2.5 client's top-level tool names (the wire vocabulary). The
+ * The captured 2.2.7 client's top-level tool names (the wire vocabulary). The
  * rename table may only send names from this set, plus neutral spellings used
  * where the client has no counterpart and the host spelling is refused.
  */

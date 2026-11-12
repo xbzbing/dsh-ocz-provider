@@ -415,7 +415,7 @@ export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
  *    (152 synthetic tools / 35 KB and 40 real schemas / 131 KB both pass).
  *  - every other entry moves a host name onto the OFFICIAL client's vocabulary
  *    where the meaning is the same, so the wire speaks one dialect: `webfetch`,
- *    `question` and `execute` are what the captured 2.2.5 client ships, and a
+ *    `question` and `execute` are what the captured 2.2.7 client ships, and a
  *    name it has never sent is one more thing a future refusal can key on.
  *
  * Names with no honest counterpart stay as they are (`web_search` has none —
