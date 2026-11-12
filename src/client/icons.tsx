@@ -62,3 +62,12 @@ export function RotateIcon(): ReactNode {
     </Glyph>
   )
 }
+
+/** 探活: a pulse line — run one admission probe against this exit now. */
+export function ProbeIcon(): ReactNode {
+  return (
+    <Glyph>
+      <path d="M1.8 8h3l1.8-4.2 2.7 8.4 1.8-4.2h3.1" />
+    </Glyph>
+  )
+}

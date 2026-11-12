@@ -17,8 +17,9 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { bridgeErrorText, exitAction, postBridge, probeAction, type ExitAction } from './bridge-client.ts'
+import { exitRowState } from './exit-state.ts'
 import type { ExitRowView, TokenTotalsView } from './types.ts'
-import { PinIcon, RotateIcon, UnpinIcon } from './icons.tsx'
+import { PinIcon, ProbeIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import { UsagePanel } from './UsagePanel.tsx'
 import { compact, grandTotal } from './usage-format.ts'
@@ -49,12 +50,6 @@ const TOAST_FADE_MS = 300
 function timeLabel(epoch: number, never: string): string {
   if (epoch <= 0) return never
   return new Date(epoch).toLocaleTimeString()
-}
-
-/** An exit row reads "usable" when it is probed healthy (state ok) and not
- *  cooling; bans are per-model, so they never hide a whole row. */
-function isUsable(exit: ExitRowView): boolean {
-  return exit.state === 'ok' && !exit.cooling
 }
 
 /** The sortable columns: request count, the three token buckets, latency. */
@@ -171,6 +166,25 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
       showNote(value.persisted === false
         ? `${text} · ${t('statsActionVolatile')}`
         : text, value.persisted === false)
+    } finally {
+      setBusy('')
+      await refresh()
+    }
+  }, [refresh, showNote, t])
+
+  /**
+   * 探活 one row: the bridge runs the full admission (listener → exit IP →
+   * Zen model list → free-lane smoke) and its POST answers only when the probe
+   * has fully run, so the re-read shows the verdict the probe just wrote. The
+   * outcome is never reported as success/failure here — the probe's own verdict
+   * IS the answer, and it lands in the State column.
+   */
+  const runProbe = useCallback(async (exitId: string): Promise<void> => {
+    setBusy(`probe:${exitId}`)
+    setNote(null)
+    try {
+      const reply = await probeAction({ scope: 'exit', exitId })
+      showNote(reply.ok ? t('statsProbed') : bridgeErrorText(reply, t('statsActionFailed')), !reply.ok)
     } finally {
       setBusy('')
       await refresh()
@@ -441,21 +455,33 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               </thead>
               <tbody>
                 {rows.map((exit) => {
-                  const usableRow = isUsable(exit) && exit.demoted !== true
+                  const rowState = exitRowState(exit)
+                  const usableRow = rowState === 'usable'
                   const dotClass = usableRow
                     ? styles.statsDotOk
-                    : exit.state === 'dead'
+                    : rowState === 'dead'
                       ? styles.statsDotBad
                       : styles.statsDotWarn
-                  const stateLabel = exit.demoted === true
+                  /**
+                   * One word covered two different faults: a row nothing ever
+                   * measured, and a row that HAS measured facts but lost its
+                   * health claim (a renumbered port, or a failed lane probe).
+                   * The second carried an exit IP and a latency while reading
+                   * 「未验证」, so the label claimed "never tested" about a row
+                   * that was tested this round.
+                   */
+                  const unproven = rowState === 'unproven'
+                  const stateLabel = rowState === 'demoted'
                     ? t('stateDemoted')
-                    : usableRow
+                    : rowState === 'usable'
                       ? t('statsStateUsable')
-                      : exit.cooling
+                      : rowState === 'cooling'
                         ? t('stateCooling')
-                        : exit.state === 'dead'
+                        : rowState === 'dead'
                           ? t('stateDead')
-                          : t('statsStateUnverified')
+                          : unproven
+                            ? t('statsStateUnproven')
+                            : t('statsStateUnverified')
                   return (
                     <tr key={exit.id} className={usableRow ? undefined : styles.statsRowMuted}>
                       {/* The location rides the IP cell as a tooltip. */}
@@ -469,7 +495,7 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                       <td className={styles.statsRegion} title={exit.exitLocation || undefined}>
                         {regionCode(exit.exitLocation) || t('statsNever')}
                       </td>
-                      <td>
+                      <td title={unproven ? t('stateUnprovenHint') : undefined}>
                         <span className={`${styles.statsDot} ${dotClass}`} aria-hidden="true" />
                         {stateLabel}
                       </td>
@@ -526,6 +552,16 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
                           onClick={() => { void runExitAction('rotate', exit.id) }}
                         >
                           <RotateIcon />
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.rowAction}
+                          disabled={busy !== ''}
+                          title={t('statsProbeHint')}
+                          aria-label={t('statsProbe')}
+                          onClick={() => { void runProbe(exit.id) }}
+                        >
+                          <ProbeIcon />
                         </button>
                         </span>
                       </td>

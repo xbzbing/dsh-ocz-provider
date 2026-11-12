@@ -1,6 +1,7 @@
 import { useId, useState, type ReactNode } from 'react'
 import { Button, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import { PinIcon, RotateIcon } from './icons.tsx'
+import { exitRowState } from './exit-state.ts'
 import type { ExitRowView, IpPoolCardLocale, PoolStatusView } from './types.ts'
 import shared from './shared.module.css'
 import styles from './exit-table.module.css'
@@ -8,17 +9,18 @@ import styles from './exit-table.module.css'
 /** The state cell: a semantic StateDot plus the label beside it. */
 function StateCell(props: { exit: ExitRowView; t: IpPoolCardLocale }): ReactNode {
   const { exit, t } = props
-  const cell = (state: 'error' | 'warning' | 'done' | 'idle', label: string): ReactNode => (
-    <span className={styles.stateCell}><StateDot state={state} />{label}</span>
+  const cell = (state: 'error' | 'warning' | 'done' | 'idle', label: string, hint?: string): ReactNode => (
+    <span className={styles.stateCell} title={hint}><StateDot state={state} />{label}</span>
   )
-  if (exit.state === 'dead') return cell('error', t('stateDead'))
-  // The upstream IP flag outranks cooling: it is a reputation verdict that
-  // survives rotations, not a minutes-long quota wait.
+  const rowState = exitRowState(exit)
+  if (rowState === 'dead') return cell('error', t('stateDead'))
+  // The upstream IP flag outranks the remaining liveness states: it is a
+  // reputation verdict that survives rotations, not a minutes-long quota wait.
   if (exit.note === 'abusive') return cell('warning', t('stateAbusive'))
-  // Demoted = kept but ranked last (refused upstream, no reserve left).
-  if (exit.demoted === true) return cell('warning', t('stateDemoted'))
-  if (exit.cooling) return cell('warning', t('stateCooling'))
-  if (exit.state === 'ok') return cell('done', t('stateOk'))
+  if (rowState === 'demoted') return cell('warning', t('stateDemoted'))
+  if (rowState === 'cooling') return cell('warning', t('stateCooling'))
+  if (rowState === 'usable') return cell('done', t('stateOk'))
+  if (rowState === 'unproven') return cell('warning', t('stateUnproven'), t('stateUnprovenHint'))
   return cell('idle', t('stateUnknown'))
 }
 

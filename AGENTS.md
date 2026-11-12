@@ -454,3 +454,18 @@ The stats modal renders those four separately, so the local-only exit table
 (exit rows are filtered when the pool is off) no longer reads as "the pool is
 switched off".
 
+A row's state label is one rule, not two: `src/client/exit-state.ts`
+(`exitRowState`) classifies a row once and both tables name it. A row with no
+health claim splits on whether this machine measured the exit — 「已测速·未验证」
+(`exitIP` non-empty: a port that now serves another node, or a failed lane
+probe) versus 「未验证」 (nothing ever reached it). Treating them as one word read
+as "never tested" on rows carrying a fresh exit IP and latency. `onboard.ts
+#refreshFacts` restores the speed-level claim (`pool.markMeasured`, only
+`unknown` → `ok`) for a row that entered the round with no facts and was
+measured — without it every port renumber (§4.7) left ~12 of 20 rows ranked
+behind every `ok` row, so they got traffic only when nothing better was left
+and never earned the 2xx that would have climbed them back. The row's third
+action icon is 探活 (`/probe`, `scope: 'exit'`): the subscription flow never
+probes the lane on its own, so that button is the only way to settle such a row
+without real traffic.
+
