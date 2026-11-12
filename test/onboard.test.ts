@@ -450,6 +450,33 @@ test('a port that comes back serving a different node starts over as a new exit'
   assert.ok(pool.has(first), 'the address is re-admitted for its new node')
   assert.equal(pool.list().find((row) => row.id === first)!.health.cooldownUntil, 0, 'the old node\'s cooldown did not carry over')
   assert.ok(pool.list().find((row) => row.id === second)!.health.cooldownUntil > 0, 'an unchanged node keeps its health')
+  // THIS round measured the new node, and a speed pass is the evidence
+  // admission itself trusts (docs §4.5): the row must not end up with a fresh
+  // exit IP on screen while ranking as 「未验证」 below every ok row.
+  const resetRow = pool.list().find((row) => row.id === first)!
+  assert.equal(resetRow.health.state, 'ok', 'a re-measured reset row is back in the verified tier')
+  assert.ok(resetRow.exitIP !== '', 'and it carries the new node\'s own facts')
+})
+
+test('a reset row the round could not measure stays unproven until a round measures it', async () => {
+  const { pool, nodes, onboarder, live } = controllableHarness({ count: 2, poolSize: 2 })
+  const keyed = (keys: string[]): ConvertedExit[] => nodes.map((exit, index) => ({ ...exit, key: keys[index]! }))
+  await onboarder.run(keyed(['node-a', 'node-b']))
+  const first = `127.0.0.1:${BASE_PORT + 1}`
+
+  // The port now serves another node AND that node fails the speed pass: the
+  // row is reset and nothing measured it, so it claims nothing.
+  live.failPorts = [BASE_PORT + 1]
+  await onboarder.run(keyed(['node-z', 'node-b']))
+  assert.equal(pool.list().find((row) => row.id === first)!.health.state, 'unknown', 'an unmeasured reset row claims no health')
+  assert.equal(pool.list().find((row) => row.id === first)!.exitIP, '', 'and it has no facts to show')
+
+  // The claim comes back on the first round that measures it — not only on the
+  // round that reset it.
+  live.failPorts = []
+  await onboarder.run(keyed(['node-z', 'node-b']))
+  assert.equal(pool.list().find((row) => row.id === first)!.health.state, 'ok')
+  assert.ok(pool.list().find((row) => row.id === first)!.exitIP !== '')
 })
 
 test('rows that stay online take the new round\'s speed facts', async () => {

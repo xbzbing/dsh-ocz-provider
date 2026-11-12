@@ -367,18 +367,35 @@ export class Onboarder {
     }
   }
 
-  /** Write this round's speed facts onto a row that stayed online. */
+  /**
+   * Write this round's speed facts onto a row that stayed online.
+   *
+   * A row that arrived here with NO facts is new or was just reset because its
+   * port now serves another node (§4.7), and this round is what measured the
+   * new node. That measurement is the evidence admission itself trusts (docs
+   * §4.5), so the row takes the same claim `#admit` gives it; without the
+   * promotion the row kept the measured IP/latency but not the tier, read
+   * 「未验证」 with facts on screen, and stayed behind every ok row — so it only
+   * got traffic when nothing better was left and never earned its way back.
+   * Only a row that actually ended up with the measured exit IP qualifies (one
+   * bucket, one row: a skipped exit IP is not this row's measurement).
+   */
   #refreshFacts(candidate: Candidate): void {
     const facts = candidate.facts
     if (facts === null) return
-    const holder = this.#deps.pool.exitIPHolder(facts.exitIP)
-    this.#deps.pool.refresh(candidate.address, {
+    const { pool } = this.#deps
+    const unmeasured = (pool.get(candidate.address)?.exitIP ?? '') === ''
+    const holder = pool.exitIPHolder(facts.exitIP)
+    const refreshed = pool.refresh(candidate.address, {
       // An exit IP another row holds stays off this row (one bucket, one row).
       ...(holder === undefined || holder === candidate.address ? { exitIP: facts.exitIP } : {}),
       exitLocation: facts.exitLocation,
       latencyMs: facts.latencyMs,
       quality: gradeOf(facts.latencyMs),
     })
+    if (refreshed && unmeasured && (pool.get(candidate.address)?.exitIP ?? '') !== '') {
+      pool.markMeasured(candidate.address)
+    }
   }
 
   /**

@@ -441,6 +441,32 @@ export class ExitPool {
   }
 
   /**
+   * The row had no facts and this round measured it: give it back the claim
+   * admission makes on the same evidence (a speed pass, docs §4.5), and nothing
+   * more.
+   *
+   * Only 'unknown' moves. A cooling row keeps its backoff, a demoted row stays
+   * at the pool tail, and a dead mark is never cleared here — a speed test says
+   * the tunnel answers and where it exits, not that the lane accepted it, so it
+   * cannot undo a verdict that came from real traffic (the same reason
+   * `markUnverified` never revives a dead row).
+   *
+   * Without this a renumbered port (§4.7) kept its measured IP and latency but
+   * not its tier: it read 「未验证」 with facts on screen and ranked below every
+   * ok row, so it only got traffic when nothing better was left and therefore
+   * never earned a 2xx to climb back.
+   */
+  markMeasured(id: string): boolean {
+    const health = this.#health.get(id)
+    if (health === undefined || health.state !== 'unknown' || this.#demoted.has(id)) return false
+    // A cooling row is 'ok' with a deadline; 'unknown' + cooldown has no shape.
+    if (health.cooldownUntil !== 0) return false
+    health.state = 'ok'
+    health.lastProbedAt = this.#now()
+    return true
+  }
+
+  /**
    * Put one struck-dead row back into service, WITHOUT claiming it is healthy.
    *
    * A `dead` mark is permanent until something proves the row alive, and

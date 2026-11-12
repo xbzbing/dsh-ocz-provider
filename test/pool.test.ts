@@ -808,3 +808,43 @@ test('reset() clears the per-model bans that belonged to the old node', () => {
   p.reset('a:1')
   assert.equal(p.list().find((entry) => entry.id === 'a:1')!.bans.length, 0, 'the new node behind the same port inherits nothing')
 })
+
+test('markMeasured(): the round that measured a reset row restores its claim, and only that', () => {
+  // A reset row carries no health claim (§4.7), and the next speed pass that
+  // measures the new node is the same evidence admission trusts (§4.5). Without
+  // the promotion the row kept its exit IP and latency while ranking as
+  // 「未验证」 below every ok row, so it only got traffic when nothing better was
+  // left and never earned the 2xx that would have climbed it back.
+  const p = pool()
+  p.add(node({ id: 'a:1', exitIP: '1.1.1.1', latencyMs: 120, quality: 'S' }))
+  p.reset('a:1')
+  assert.equal(p.list()[0]!.health.state, 'unknown')
+  assert.equal(p.markMeasured('a:1'), true)
+  assert.equal(p.list()[0]!.health.state, 'ok', 'a measured row is back in the verified tier')
+  assert.equal(p.markMeasured('a:1'), false, 'nothing is claimed twice')
+
+  // A dead mark is NOT cleared: a speed test proves the tunnel, not the lane.
+  p.add(node({ id: 'b:2', exitIP: '2.2.2.2' }))
+  p.markDeadStrike('b:2')
+  p.markMeasured('b:2')
+  assert.equal(p.list().find((entry) => entry.id === 'b:2')!.health.state, 'dead')
+
+  // A demoted row stays at the tail: its refusal came from real traffic.
+  p.add(node({ id: 'c:3', exitIP: '3.3.3.3' }))
+  p.demoteToTail('c:3')
+  p.markMeasured('c:3')
+  assert.equal(p.list().find((entry) => entry.id === 'c:3')!.health.state, 'unknown')
+  assert.equal(p.demoted('c:3'), true)
+
+  // An unknown row in a cooldown is left alone (its backoff is not a claim).
+  p.add(node({ id: 'd:4', exitIP: '4.4.4.4' }))
+  p.markLimited('d:4')
+  p.markUnverified('d:4')
+  const before = p.list().find((entry) => entry.id === 'd:4')!.health.cooldownUntil
+  assert.ok(before > 0)
+  p.markMeasured('d:4')
+  assert.equal(p.list().find((entry) => entry.id === 'd:4')!.health.state, 'unknown', 'the cooldown outranks a measurement')
+  assert.equal(p.list().find((entry) => entry.id === 'd:4')!.health.cooldownUntil, before, 'the backoff survives')
+
+  assert.equal(p.markMeasured('nope:1'), false)
+})
