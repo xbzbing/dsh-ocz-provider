@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ensureFreeLaneShape, TOOL_NAME_ALIASES, toPiContext, WIRE_TOOL_RENAMES, type HarnessGenerateOptions, type HarnessMessage, type PiMessage } from '../src/adapter/messages.ts'
+import { CLIENT_TOOL_DESCRIPTIONS, ensureFreeLaneShape, TOOL_NAME_ALIASES, toPiContext, WIRE_TOOL_RENAMES, type HarnessGenerateOptions, type HarnessMessage, type PiMessage } from '../src/adapter/messages.ts'
 import { FREE_LANE_GATE_TOOL_NAMES, freeLaneGateTool, GENUINE_GATE_TOOLS } from '../src/adapter/gate-tools.ts'
 import { withEnvBlock } from '../src/adapter/env-block.ts'
 
@@ -665,6 +665,62 @@ test('ensureResponsesFreeLaneShape renames a refused tool name in the flat shape
   assert.deepEqual(names, ['fork_conversation', 'shell', 'read'])
 })
 
+test('the host edit ships as file_edit: a shared name needs the client shape', () => {
+  // The client's own tool name is only tolerated with the client's parameter
+  // shape, so the host edit must not ride under it.
+  const body = {
+    messages: [
+      { role: 'system', content: withEnvBlock('be brief') },
+      { role: 'user', content: 'ping' },
+    ],
+    tools: [
+      {
+        type: 'function',
+        function: {
+          name: 'edit',
+          description: 'edit a file',
+          parameters: {
+            type: 'object',
+            properties: {
+              file_path: { type: 'string' },
+              old_string: { type: 'string' },
+              new_string: { type: 'string' },
+            },
+            required: ['file_path', 'old_string', 'new_string'],
+          },
+        },
+      },
+    ],
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const names = (next.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)
+  assert.ok(!names.includes('edit'), `edit must not ride under the client name: ${names.join(', ')}`)
+  assert.ok(names.includes('file_edit'))
+})
+
+test('a tool the client also ships carries the client description, not the host one', () => {
+  // The lane fingerprints description text: the host wording under a shared
+  // name answers 429 while the client's wording on the same name answers 200.
+  const hostText = 'Edit an existing UTF-8 text file by replacing literal text.'
+  const body = {
+    messages: [
+      { role: 'system', content: withEnvBlock('be brief') },
+      { role: 'user', content: 'ping' },
+    ],
+    tools: [
+      { type: 'function', function: { name: 'edit', description: hostText, parameters: { type: 'object', properties: {} } } },
+      { type: 'function', function: { name: 'skill', description: 'host skill wording', parameters: { type: 'object', properties: {} } } },
+    ],
+  }
+  const next = ensureFreeLaneShape(body) as Record<string, unknown>
+  const byName = new Map(
+    (next.tools as Array<{ function: { name: string; description?: string } }>).map((t) => [t.function.name, t.function.description]),
+  )
+  assert.equal(byName.get('file_edit'), CLIENT_TOOL_DESCRIPTIONS.file_edit)
+  assert.equal(byName.get('skill'), CLIENT_TOOL_DESCRIPTIONS.skill)
+  assert.ok(!String(byName.get('file_edit')).includes('UTF-8 text file'))
+})
+
 test('TOOL_NAME_ALIASES carries the gate pair and the reverse of every rename', () => {
   assert.equal(TOOL_NAME_ALIASES.shell, 'bash')
   assert.equal(TOOL_NAME_ALIASES.fork_conversation, 'subagent_fork')
@@ -690,7 +746,7 @@ const CLIENT_TOOL_NAMES = [
 ] as const
 
 /** Names the client never sends, spent only on host names the lane refuses. */
-const NEUTRAL_WIRE_NAMES = ['fork_conversation', 'oar_agent', 'image_read', 'cwd'] as const
+const NEUTRAL_WIRE_NAMES = ['fork_conversation', 'oar_agent', 'image_read', 'cwd', 'file_edit'] as const
 
 test('every wire spelling is one the client itself sends', () => {
   for (const [host, wire] of Object.entries(WIRE_TOOL_RENAMES)) {

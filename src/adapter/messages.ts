@@ -432,6 +432,11 @@ export const GATE_TOOL_ALIASES: Record<string, string> = { shell: 'bash' }
  * neutral spellings; the full host tool set then passes, which is what rules
  * out a third member hiding behind them.
  *
+ * A third shape is a DESCRIPTION fingerprint: the lane reads tool description
+ * text, so a tool the client also ships by name must carry the client's own
+ * wording ({@link CLIENT_TOOL_DESCRIPTIONS}); the host's wording on that name is
+ * refused with the same quota error.
+ *
  * The model's call is renamed back ({@link TOOL_NAME_ALIASES}), exactly like
  * `shell` -> `bash`: the host never learns the wire spelling.
  */
@@ -451,6 +456,21 @@ export const WIRE_TOOL_RENAMES: Record<string, string> = {
   ask_user_question: 'question',
   web_fetch: 'webfetch',
   workflow: 'execute',
+  // keeps the client name out of the wire vocabulary; its description rides the
+  // client's own text like every other shared name
+  edit: 'file_edit',
+}
+
+/** The client's own description for the tools whose NAME it also ships.
+ *
+ * The lane fingerprints tool descriptions as well as names: a shared name with
+ * the host's own wording is refused with the quota error, while the client's
+ * wording on the same name passes. Only the tools measured to trip it are
+ * listed; a host tool with no client counterpart keeps its description.
+ */
+export const CLIENT_TOOL_DESCRIPTIONS: Record<string, string> = {
+  file_edit: "Edit the contents of a file by finding and replacing exact text. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. Write line breaks as \\n; the file's existing CRLF or LF line endings are matched and preserved. To change line endings themselves, make oldString and newString differ only in \\r; that edit applies to the exact bytes. If there is no exact match, the edit retries while ignoring typographic quote, dash, and space variants, then trailing whitespace on each line. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.",
+  skill: "Load a specialized skill's instructions and resources into the current conversation when the task at hand matches its description.",
 }
 
 /** Wire name -> host name: what the chunk stream applies (events.ts `toolNameAlias`). */
@@ -533,7 +553,8 @@ function shapeWireTools(tools: unknown[], flat: boolean): boolean {
     const wire = name === undefined ? undefined : WIRE_TOOL_RENAMES[name]
     const rename = wire !== undefined && !taken.has(wire) ? wire : undefined
     const description = toolEntryDescription(entry, flat)
-    const text = description === undefined ? undefined : rewriteToolText(description)
+    const clientText = (rename ?? name) === undefined ? undefined : CLIENT_TOOL_DESCRIPTIONS[rename ?? name!]
+    const text = clientText ?? (description === undefined ? undefined : rewriteToolText(description))
     if (rename === undefined && text === undefined) continue
     if (rename !== undefined) taken.add(rename)
     tools[index] = shapeToolEntry(entry, flat, rename, text)
