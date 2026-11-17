@@ -131,6 +131,33 @@ export interface UsageView {
   stored: { sessions: number; days: number; exits: number }
 }
 
+/** One 工具名录 row (mirrors src/tool-catalog.ts ToolCatalogRow). */
+export interface ToolCatalogRowView {
+  name: string
+  wire: string
+  wireSource: 'custom' | 'builtin' | 'identity'
+  /** The description text that would ride the wire (client wording or dsh's). */
+  description: string
+  descriptionSource: 'client' | 'custom' | 'host'
+  chars: number
+  state: 'ok' | 'added' | 'drifted' | 'renamed' | 'gone'
+  renamedFrom?: string
+  seenAt: number
+  source: 'observed' | 'registered'
+}
+
+/** Bridge /tools view (mirrors src/tool-catalog.ts ToolCatalogView). */
+export interface ToolCatalogView {
+  /** Host version the baseline was recorded under; '' when unreadable then. */
+  dshVersion: string
+  recordedAt: number
+  /** Host version readable now; '' when this host does not export one. */
+  currentDshVersion: string
+  pending: number
+  recorded: boolean
+  rows: ToolCatalogRowView[]
+}
+
 /** Bridge /status view. Optional fields are absent on older host snapshots. */
 export interface PoolStatusView {
   zenUserAgent?: string

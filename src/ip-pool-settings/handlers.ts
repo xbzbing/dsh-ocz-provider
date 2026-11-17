@@ -11,6 +11,7 @@ import type { UsageScope, UsageStore } from '../pool/usage-store.ts'
 import type { SessionTitleMap, SessionTitleResolver } from '../pool/session-titles.ts'
 import { detectProxyProtocol, type ProxyProtocol } from '../pool/protocol.ts'
 import { USAGE_SESSION_LIMIT, buildStatusView, type ProjectResolver } from './views.ts'
+import type { ToolCatalog, ToolCatalogView, ToolOverride } from '../tool-catalog.ts'
 
 export type BridgeResult = { ok: true; value: unknown } | { ok: false; code: string; message: string }
 
@@ -46,6 +47,12 @@ export interface BridgeHandlers {
    * there too.
    */
   usage(body: { action?: unknown }): Promise<BridgeResult>
+  /**
+   * The 工具名录 tab: read the catalogue (no action), `save` one tool's
+   * override (`wire` and/or `description`; an empty field restores the built-in
+   * text), `reset` one tool, or `record` today's set as the new baseline.
+   */
+  tools(body: { action?: unknown; name?: unknown; wire?: unknown; description?: unknown }): Promise<BridgeResult>
 }
 
 /** Live-catalog seam for the models() dropdown rows (index.ts injects the
@@ -73,6 +80,10 @@ export function makeBridgeHandlers(
     sessionTitles?: SessionTitleResolver
     /** Process start, for the 本次重启 label. */
     runSince?: () => number
+    /** The tool catalogue behind the 工具名录 tab (absent = no tab data). */
+    toolCatalog?: ToolCatalog
+    /** The host registry's tools, read per open (the upgrade early warning). */
+    registeredTools?: () => Array<{ name: string; description: string }>
     /**
      * Which protocol a listener actually speaks (pool/protocol.ts). Injected so
      * the pin checks below stay unit-testable without opening sockets; the
@@ -268,6 +279,45 @@ export function makeBridgeHandlers(
       if (body.action !== 'reset') return { ok: false, code: 'settings-rejected', message: "usage action must be 'reset'" }
       await store.clear()
       return { ok: true, value: { cleared: true } }
+    },
+    async tools(body) {
+      const catalog = deps.toolCatalog
+      if (catalog === undefined) return { ok: false, code: 'no-catalog', message: 'this composition has no tool catalogue' }
+      const action = body.action
+      if (action === 'record') {
+        // The baseline may only be frozen from what a request carried: the
+        // registry view includes tools this preset never sends.
+        return { ok: true, value: catalog.recordBaseline() }
+      }
+      if (action === 'save') {
+        const name = typeof body.name === 'string' ? body.name : ''
+        if (name === '') return { ok: false, code: 'settings-rejected', message: 'save needs a tool name' }
+        const override: ToolOverride = {}
+        if (typeof body.wire === 'string') override.wire = body.wire
+        if (typeof body.description === 'string') override.description = body.description
+        const saved = catalog.saveOverride(name, override)
+        if (!saved.ok) {
+          return {
+            ok: false,
+            code: saved.reason,
+            message: saved.reason === 'wire-taken'
+              ? `wire name "${override.wire ?? ''}" already belongs to another tool`
+              : saved.reason === 'wire-invalid'
+                ? 'a wire name is 1-64 characters of A-Za-z0-9_-'
+                : `"${name}" is not a tool this host has shown`,
+          }
+        }
+        return { ok: true, value: catalog.view(deps.registeredTools?.() ?? []) }
+      }
+      if (action === 'reset') {
+        const name = typeof body.name === 'string' ? body.name : ''
+        if (name === '') return { ok: false, code: 'settings-rejected', message: 'reset needs a tool name' }
+        catalog.resetOverride(name)
+        return { ok: true, value: catalog.view(deps.registeredTools?.() ?? []) }
+      }
+      if (action !== undefined) return { ok: false, code: 'settings-rejected', message: "tools action must be 'save', 'reset' or 'record'" }
+      const view: ToolCatalogView = catalog.view(deps.registeredTools?.() ?? [])
+      return { ok: true, value: view }
     },
   }
 }

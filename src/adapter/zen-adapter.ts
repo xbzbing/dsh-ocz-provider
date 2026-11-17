@@ -12,6 +12,7 @@ import { gateToolArgumentBridge } from './gate-tools.ts'
 import { hostProjectAsync } from './project.ts'
 import { nextRetryDelayMs, retryDelayKey } from './retry-delay.ts'
 import { ensureFreeLaneShape, ensureResponsesFreeLaneShape, TOOL_NAME_ALIASES, inClientKeyOrder, toPiContext, type HarnessGenerateOptions, type PiContext } from './messages.ts'
+import { observedToolsFrom, type ToolCatalog } from '../tool-catalog.ts'
 import { apiForModel, isResponsesModel } from './routing.ts'
 export { apiForModel, isResponsesModel } from './routing.ts'
 export { WATCHDOG_FIRST_MESSAGE, WATCHDOG_IDLE_MESSAGE } from './attempt.ts'
@@ -246,6 +247,12 @@ export function toPiModel(
   }
 }
 
+/**
+ * The tool catalogue seam: `ToolCatalog` (src/tool-catalog.ts) satisfies it
+ * structurally, so the adapter stays testable with a plain object.
+ */
+export type ToolShapeSource = Pick<ToolCatalog, 'resolve' | 'aliases' | 'observe'>
+
 export class ZenAdapter {
   readonly #catalog: CatalogLike
   readonly #provider: { streamSimple(model: unknown, context: unknown, options: unknown): unknown }
@@ -261,6 +268,13 @@ export class ZenAdapter {
    * different port mid-session; null = no relay configured, requests go direct.
    */
   readonly #relay: Pick<RelaySupervisor, 'baseUrlFor' | 'warm'> | null
+  /**
+   * The tool catalogue (`src/tool-catalog.ts`): every shaped request reports
+   * the tool set it carried, and the wire shape of each entry (name +
+   * description) is resolved through the operator's overrides on top of the
+   * built-in tables. Null = the built-in tables alone.
+   */
+  readonly #tools: ToolShapeSource | null
 
   constructor(catalog: CatalogLike, options: {
     zenBaseUrl?: string
@@ -278,9 +292,12 @@ export class ZenAdapter {
      * matter what the payload says (relay/supervisor.ts has the measurements).
      */
     relay?: Pick<RelaySupervisor, 'baseUrlFor' | 'warm'> | null
+    /** The tool catalogue (see {@link ToolShapeSource}). */
+    tools?: ToolShapeSource | null
   } = {}) {
     this.#catalog = catalog
     this.#relay = options.relay ?? null
+    this.#tools = options.tools ?? null
     this.#firstEventMs = options.firstEventMs ?? DEFAULT_FIRST_EVENT_MS
     this.#bodyIdleMs = options.bodyIdleMs ?? DEFAULT_BODY_IDLE_MS
     this.#responsesBodyIdleMs = options.responsesBodyIdleMs ?? RESPONSES_BODY_IDLE_MS
@@ -509,7 +526,7 @@ export class ZenAdapter {
       bodyIdleMs: model.api === 'openai-responses' ? Math.max(this.#bodyIdleMs, this.#responsesBodyIdleMs) : this.#bodyIdleMs,
     }
     const chunksOf = (events: AsyncIterable<PiEvent>): AsyncGenerator<HarnessChunk> =>
-      attributeUsage(contextStore, toStreamChunks(events, TOOL_NAME_ALIASES, argumentBridge))
+      attributeUsage(contextStore, toStreamChunks(events, this.#tools?.aliases() ?? TOOL_NAME_ALIASES, argumentBridge))
     const origins = this.#origins
     const story: string[] = []
     let originIndex = 0
@@ -588,14 +605,17 @@ export class ZenAdapter {
     // onPayload injects the gate's shell+read pair (adapter/messages.ts) right
     // before dispatch: the lane 403s a body whose tools lack `read`. It also
     // carries the selected effort, because a selected off must SEND `none`.
+    const resolveTool = this.#tools === null ? undefined : (name: string) => this.#tools!.resolve(name)
     const onPayload =
       isResponses
         ? (payload: unknown): unknown => {
+            this.#observeTools(payload, true)
             const normalized = normalizeResponsesPayload(payload, responseReasoning)
-            return ensureResponsesFreeLaneShape(normalized ?? payload) ?? normalized
+            return ensureResponsesFreeLaneShape(normalized ?? payload, resolveTool) ?? normalized
           }
         : (payload: unknown): unknown => {
-            const shaped = ensureFreeLaneShape(payload)
+            this.#observeTools(payload, false)
+            const shaped = ensureFreeLaneShape(payload, resolveTool)
             if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return shaped
             const body = (shaped ?? payload) as Record<string, unknown>
             return inClientKeyOrder(effortWire === undefined ? body : { ...body, reasoning_effort: effortWire })
@@ -655,6 +675,18 @@ export class ZenAdapter {
       }),
     }
   }
+
+  /**
+   * Hand the catalogue the tool set this request is about to carry. The lane
+   * fingerprints tool entries, so the set has to be recorded per PRESET, not
+   * read off the host registry: only what a real request sends is evidence.
+   */
+  #observeTools(payload: unknown, flat: boolean): void {
+    if (this.#tools === null || typeof payload !== 'object' || payload === null) return
+    const observed = observedToolsFrom((payload as { tools?: unknown }).tools, flat)
+    if (observed.length > 0) this.#tools.observe(observed)
+  }
+
 }
 
 /** Build the adapter over a live catalog. */

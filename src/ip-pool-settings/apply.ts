@@ -21,6 +21,7 @@ import { IP_POOL_BRIDGE_PREFIX, makeBridgeHandlers, makeBridgeRoutes, type Conne
 import { makeSessionTitleResolver, type SessionTitleResolver } from '../pool/session-titles.ts'
 import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
 import type { UsageStore } from '../pool/usage-store.ts'
+import type { ToolCatalog } from '../tool-catalog.ts'
 
 export interface IpPoolController {
   /** The live runtime (null until enabled and assembled). */
@@ -65,6 +66,10 @@ export function applyIpPoolSettings(
      * then reads as spent quota and cools a healthy exit.
      */
     relayBaseUrl?: RelayBaseUrlReader
+    /** The tool catalogue (index.ts owns it; the 工具名录 tab reads it). */
+    toolCatalog?: ToolCatalog
+    /** The host registry's tools, read per open (the upgrade early warning). */
+    registeredTools?: () => Array<{ name: string; description: string }>
   } = {},
 ): IpPoolController {
   const assemble = deps.assemble ?? defaultAssemble(deps.relayBaseUrl)
@@ -292,6 +297,9 @@ export function applyIpPoolSettings(
           sessionTitles: async (ids: readonly string[]) =>
             sessionTitles !== undefined ? sessionTitles(ids) : new Map<string, string>(),
           runSince: () => Date.now() - Math.round(process.uptime() * 1000),
+          // The 工具名录 tab: the known-tools catalogue and the registry join.
+          toolCatalog: deps.toolCatalog,
+          registeredTools: deps.registeredTools,
         },
       )
       const disposers: Array<() => void> = []

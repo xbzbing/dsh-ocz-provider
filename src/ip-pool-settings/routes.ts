@@ -119,5 +119,8 @@ export function makeBridgeRoutes(
     jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/probe`, (body) => handlers.probe(body as { scope?: unknown; exitId?: unknown })),
     jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/exit`, (body) => handlers.exit(body as { action?: unknown; exitId?: unknown })),
     jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/usage`, (body) => handlers.usage(body as { action?: unknown })),
+    jsonRoute(`${IP_POOL_BRIDGE_PREFIX}/tools`, (body) =>
+      handlers.tools(body as { action?: unknown; name?: unknown; wire?: unknown; description?: unknown }),
+    ),
   ]
 }

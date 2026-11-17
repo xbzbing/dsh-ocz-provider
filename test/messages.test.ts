@@ -716,9 +716,65 @@ test('a tool the client also ships carries the client description, not the host 
   const byName = new Map(
     (next.tools as Array<{ function: { name: string; description?: string } }>).map((t) => [t.function.name, t.function.description]),
   )
-  assert.equal(byName.get('file_edit'), CLIENT_TOOL_DESCRIPTIONS.file_edit)
+  assert.equal(byName.get('file_edit'), CLIENT_TOOL_DESCRIPTIONS.edit)
   assert.equal(byName.get('skill'), CLIENT_TOOL_DESCRIPTIONS.skill)
   assert.ok(!String(byName.get('file_edit')).includes('UTF-8 text file'))
+})
+
+test('a resolver from the tool catalogue outranks the built-in tables', () => {
+  // The operator's override is what the plugin hands the shaper at request
+  // time; without one the built-in tables decide exactly as before.
+  const body = {
+    messages: [
+      { role: 'system', content: withEnvBlock('be brief') },
+      { role: 'user', content: 'ping' },
+    ],
+    tools: [
+      { type: 'function', function: { name: 'working_directory', description: 'host wording', parameters: { type: 'object', properties: {} } } },
+      { type: 'function', function: { name: 'cache_search', description: 'host wording', parameters: { type: 'object', properties: {} } } },
+    ],
+  }
+  const resolve = (name: string): { wire?: string; description?: string } | undefined => {
+    if (name === 'working_directory') return { wire: 'pwd', description: 'custom wording' }
+    if (name === 'cache_search') return { wire: 'cache_search' }
+    return undefined
+  }
+  const next = ensureFreeLaneShape(body, resolve) as Record<string, unknown>
+  const byName = new Map(
+    (next.tools as Array<{ function: { name: string; description?: string } }>).map((t) => [t.function.name, t.function.description]),
+  )
+  assert.equal(byName.get('pwd'), 'custom wording')
+  // The built-in `cwd` spelling is gone from this body: the override replaced it.
+  assert.equal(byName.has('cwd'), false)
+  // A resolver that names no wire keeps the host name.
+  assert.equal(byName.has('cache_search'), true)
+})
+
+test('an empty catalogue changes nothing: the wire body is byte-identical', () => {
+  // The catalogue is a layer OVER the built-in tables. With no operator entry
+  // its resolver must reproduce them exactly, or every install would ride an
+  // unverified shape the moment the tab exists.
+  const body = () => ({
+    messages: [
+      { role: 'system', content: withEnvBlock('be brief') },
+      { role: 'user', content: 'ping' },
+    ],
+    tools: [
+      { type: 'function', function: { name: 'edit', description: 'host edit', parameters: { type: 'object', properties: {} } } },
+      { type: 'function', function: { name: 'skill', description: 'host skill', parameters: { type: 'object', properties: {} } } },
+      { type: 'function', function: { name: 'working_directory', description: 'host cwd', parameters: { type: 'object', properties: {} } } },
+      { type: 'function', function: { name: 'create_goal', description: 'host goal', parameters: { type: 'object', properties: {} } } },
+    ],
+  })
+  const builtinOnly = ensureFreeLaneShape(body())
+  const resolve = (name: string): { wire?: string; description?: string } | undefined => {
+    const wire = WIRE_TOOL_RENAMES[name]
+    const clientText = CLIENT_TOOL_DESCRIPTIONS[name]
+    if (wire === undefined && clientText === undefined) return undefined
+    return { ...(wire === undefined ? {} : { wire }), ...(clientText === undefined ? {} : { description: clientText }) }
+  }
+  const throughCatalogue = ensureFreeLaneShape(body(), resolve)
+  assert.deepEqual(throughCatalogue, builtinOnly)
 })
 
 test('TOOL_NAME_ALIASES carries the gate pair and the reverse of every rename', () => {

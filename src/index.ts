@@ -12,6 +12,7 @@ import { applyIpPoolSettings, type IpPoolController } from './ip-pool-settings/a
 import { mirrorLogToFile } from './log-file.ts'
 import { setUsageRecorder } from './pool/usage.ts'
 import { usageStore } from './pool/usage-store.ts'
+import { ToolCatalog, type ObservedTool } from './tool-catalog.ts'
 import { readVolatile, type IpPoolSettings } from './ip-pool-settings/namespace.ts'
 import { stateDir } from './paths.ts'
 import { RelaySupervisor, type RelayStatus } from './relay/supervisor.ts'
@@ -65,6 +66,15 @@ export interface PluginContext {
     get?(ns: string): unknown
     mutate?(ns: string, ops: Array<{ op: 'set' | 'unset'; path: Array<string | number>; value?: unknown }>, expectedRevision?: number): Promise<void>
     configure?(presentation: { auto?: boolean }, owner?: unknown): () => void
+  }
+  /**
+   * The host's tool registry (`@deepseek-ai/dsh-tools`). Read for the modal's
+   * 工具名录 tab only: `schemas()` is the REGISTERED view, which a preset
+   * narrows before a step sees it, so it is the upgrade early warning and never
+   * the wire's truth. Absent = the tab shows observations alone.
+   */
+  tools?: {
+    schemas?(scope?: unknown): ReadonlyArray<{ name?: unknown; description?: unknown }>
   }
   /** Web route registration (dsh-host-webserver service, docs §5.3). */
   webServer?: {
@@ -209,11 +219,28 @@ function applyAdapter(
       if (lastError) logger.warn(`oc2dsh: catalog refresh issue: ${lastError}`)
     },
   })
+  // The known-tools catalogue (src/tool-catalog.ts): the wire's tool names and
+  // descriptions move under every dsh upgrade, and one of those moves broke the
+  // lane for a whole session. Every shaped request reports its set here; the
+  // modal diffs that against a recorded baseline.
+  const toolCatalog = new ToolCatalog({ logger })
+  if (typeof ctx.effect === 'function') ctx.effect.call(ctx, () => () => { toolCatalog.dispose() })
+  // Captured through inject, so a host without the service never sees a read
+  // and the provider route does not wait for one.
+  let toolsService: PluginContext['tools'] | undefined
+  if (typeof ctx.inject === 'function') {
+    try {
+      ctx.inject(['tools'], (inner) => { toolsService = inner.tools })
+    } catch {
+      // A host without a tools service keeps the observation-only table.
+    }
+  }
   const adapter = new ZenAdapter(catalog, {
     firstEventMs: cfg.firstEventMs,
     bodyIdleMs: cfg.bodyIdleMs,
     responsesBodyIdleMs: cfg.responsesBodyIdleMs,
     relay,
+    tools: toolCatalog,
   })
 
   // Persistent usage ledger, installed HERE, not inside the ip-pool runtime:
@@ -272,6 +299,10 @@ function applyAdapter(
     ipPool = applyIpPoolSettings(ctx, ordinary, readIpPool, logger, {
       listLiveModels: () => catalog.list(),
       usage: usageStore,
+      toolCatalog,
+      // The host registry's view, read per modal open (never cached here): it
+      // is the early warning for a dsh upgrade, not the wire's truth.
+      registeredTools: () => registeredToolList(toolsService),
       // Read per probe, not captured: the relay can restart onto another port.
       relayBaseUrl: () => relay.baseUrl,
     })
@@ -294,6 +325,29 @@ function applyAdapter(
       catalog.stop()
     })
   }
+}
+
+/**
+ * The host registry's tools as `ctx.tools.schemas()` reports them. A host that
+ * predates the service, or a registry that throws, yields no rows — the tab
+ * then shows what real requests carried, which is the authority anyway.
+ */
+export function registeredToolList(service: PluginContext['tools'] | undefined): ObservedTool[] {
+  let rows: ReadonlyArray<{ name?: unknown; description?: unknown }> | undefined
+  try {
+    rows = service?.schemas?.()
+  } catch {
+    return []
+  }
+  if (!Array.isArray(rows)) return []
+  const out: ObservedTool[] = []
+  for (const row of rows) {
+    if (typeof row !== 'object' || row === null) continue
+    const record = row as { name?: unknown; description?: unknown }
+    if (typeof record.name !== 'string' || record.name === '') continue
+    out.push({ name: record.name, description: typeof record.description === 'string' ? record.description : '' })
+  }
+  return out
 }
 
 export { RelaySupervisor, defaultRelayScript, findBun, type RelayStatus } from './relay/supervisor.ts'

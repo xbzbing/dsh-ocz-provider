@@ -37,7 +37,7 @@ src/relay/      the Bun upstream relay: supervisor (spawn/health/restart) and
                 the egress seam between the adapter and the exit pool
 relay/          oc2dsh-relay.mjs — the shipped bun script the supervisor runs
 src/client/     browser half: IP pool settings card, exit-stats modal (+ its
-                流量 tab), Zen request-headers editor, locales
+                出口/流量/工具 tabs), Zen request-headers editor, locales
 src/config.ts   the whole settings schema (Config, exported for dsh-settings)
 test/           node:test suite (runs the real TS sources, no build step)
 lib/            build output (gitignored; `pnpm build` before installing)
@@ -103,6 +103,7 @@ at the doc in one clause, never carry the argument itself.
 | On-disk state root | `~/.dsh/oc2dsh` (env `OC2DSH_HOME` redirects) | src/paths.ts `stateDir()` |
 | Plugin log file | `~/.dsh/oc2dsh/logs/oc2dsh.log` — every `info`/`warn`/`error` the plugin logs, mirrored off the host logger (batched, 2 MiB × 3 rotations). The host keeps plugin lines in an in-process buffer (stderr only when started from a terminal), so this file is the only artifact that survives a restart; read it FIRST when a pool change has to be explained after the fact | src/log-file.ts, src/index.ts |
 | Node identity → local port map | `~/.dsh/oc2dsh/singbox/ports.json` (atomic write, 2000-entry cap), deliberately outliving the supervisor so a restart does not renumber every node from 30001 and repoint every pool row at the wrong node. Beside it `singbox/onboarding.json` keeps each node's last speed-pass verdict with its own measurement time, so a rebuild inside the 20-minute TTL reuses them; only verdicts about the exit are stored (a timeout is re-probed, a round that measured nothing writes nothing) | src/pool/singbox.ts `#loadPorts`/`#persistPorts`, src/pool/onboard-cache.ts (rationale: docs/ip-pool.md §4.7) |
+| Known-tools catalogue | `~/.dsh/oc2dsh/tool-catalog.json` — the BASELINE tool set (recorded while the lane answered), the CURRENT set (latest observation + host registry), and the operator's per-tool `wire`/`description` overrides. It is the answer to "dsh was upgraded, did any tool name or description move", which the settings card cannot show. State, not settings: one description runs to ~1 KB and the settings form re-serializes its whole document twice per read. Merge order for a tool's wire shape: override > `WIRE_TOOL_RENAMES`/`CLIENT_TOOL_DESCRIPTIONS` > as-is. Editing a wire name retires the old spelling into the reply alias table, so a call already on the wire still resolves | src/tool-catalog.ts, src/adapter/messages.ts `ToolShapeResolver`, src/adapter/zen-adapter.ts `#observeTools`, src/ip-pool-settings/handlers.ts `tools()`, src/client/ToolCatalogPanel.tsx |
 | Settings form field | `ipPool` (one volatile node; every write path is `['ipPool', <field>]`) | src/config.ts, src/client/settings-writes.ts |
 | Zen request headers (live settings) | `requestHeaders` — separate volatile dictionary edited on the plugin page; case-insensitive overrides for chat + catalog + admission, applied at request time. Empty inherits `userAgent`/built-in defaults; authentication, Cookie, transport/body format headers, the client-identity flag `x-opencode-client` and every `x-oc2dsh-*` control header are managed by the plugin | src/request-headers.ts, src/config.ts, src/adapter/ids.ts `zenRequestHeaders` |
 | Per-model context windows (live settings) | `modelContextWindows` — separate volatile dictionary (`model id` → tokens) edited on the plugin page; the catalog reads it on EVERY `limits()` call, so a save applies to the next `resolveModel` without a restart. Precedence: live setting > built-in `LOCAL_MODEL_OVERRIDES` (mimo 1M) > models.dev `limit.context`. Values are sanitized per read, never in the schema | src/model-context.ts, src/config.ts, src/adapter/catalog.ts `limits()`, src/index.ts |
@@ -148,6 +149,12 @@ an allow-list, and it moves — assume it can move again.
 - UA: the version segment tracks the INSTALLED client, not a pinned string.
 - one cause that is not a gate at all: the quota is per EGRESS ADDRESS, so a
   spent exit reads exactly like a refusal.
+
+A dsh upgrade can move this list, so the plugin keeps a known-tools catalogue
+(the 工具 tab) that diffs today's set against a recorded baseline and lets the
+operator override one tool's wire name or description. The baseline may only be
+frozen from what a real request carried: the host registry (`ctx.tools`) is the
+early warning, because a preset narrows it before a step sees it.
 
 Probing rules: one variable per request, on an egress whose state you know; a
 refusal costs nothing while a 200 spends that egress's own quota; `retry-after`

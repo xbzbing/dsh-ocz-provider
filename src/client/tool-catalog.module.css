@@ -1,0 +1,152 @@
+/* The stats modal's 工具名录 tab (ToolCatalogPanel). */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.headerLine {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+.chip {
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+/* A set that drifted from the baseline is the whole point of the tab, so the
+   chip carrying the count is the one element allowed a warning colour. */
+.chipPending {
+  composes: chip;
+  border-color: var(--dsw-alias-state-warning-primary, #d97706);
+  color: var(--dsw-alias-state-warning-primary, #d97706);
+  font-weight: 600;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
+}
+
+/* 30/20/26/12/12: the tool name is short but the description column carries
+   the longest label, so it takes the widest share after the name. */
+.table th:nth-child(1) { width: 30%; }
+.table th:nth-child(2) { width: 20%; }
+.table th:nth-child(3) { width: 26%; }
+.table th:nth-child(4) { width: 12%; }
+.table th:nth-child(5) { width: 12%; }
+
+.table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+}
+
+.table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l3, #eaeef2);
+  color: var(--dsw-alias-label-primary, #1f2329);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+
+.table tbody tr:hover td {
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.nameCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toolName {
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace);
+}
+
+/* The wire spelling is a code identifier, not copy: one line, no wrapping. */
+.wire {
+  font-family: var(--dsw-alias-font-mono, ui-monospace, monospace);
+  font-size: 11px;
+}
+
+.subtle {
+  display: block;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary, #6b7280);
+}
+
+.customMark {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--dsw-alias-border-l2, #d0d7de);
+  color: var(--dsw-alias-label-secondary, #4b5563);
+}
+
+/* Only the buckets an operator must act on get a colour; `ok` stays neutral. */
+.badge[data-state='added'],
+.badge[data-state='renamed'] {
+  border-color: var(--dsw-alias-state-business-primary, #4f8cff);
+  color: var(--dsw-alias-state-business-primary, #4f8cff);
+}
+
+.badge[data-state='drifted'],
+.badge[data-state='gone'] {
+  border-color: var(--dsw-alias-state-warning-primary, #d97706);
+  color: var(--dsw-alias-state-warning-primary, #d97706);
+}
+
+.rowPending td {
+  background: var(--dsw-alias-bg-layer-1, #fbfcfd);
+}
+
+.actionCell {
+  text-align: right;
+}
+
+.editorRow td {
+  padding: 0 8px 12px;
+  background: var(--dsw-alias-bg-layer-2, #f6f8fa);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0 2px;
+}
+
+.editorActions {
+  display: flex;
+  gap: 8px;
+}

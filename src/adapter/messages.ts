@@ -461,15 +461,17 @@ export const WIRE_TOOL_RENAMES: Record<string, string> = {
   edit: 'file_edit',
 }
 
-/** The client's own description for the tools whose NAME it also ships.
+/** The client's own description for the tools whose NAME it also ships, keyed
+ *  by the HOST name so a wire rename never loses the text.
  *
- * The lane fingerprints tool descriptions as well as names: a shared name with
- * the host's own wording is refused with the quota error, while the client's
- * wording on the same name passes. Only the tools measured to trip it are
- * listed; a host tool with no client counterpart keeps its description.
+ * The lane fingerprints tool descriptions as well as names: the host's wording
+ * is refused with the quota error while the client's wording passes — even
+ * under a wire spelling no client sends (`file_edit`), because the tell is the
+ * TEXT, not the pairing. Only the tools measured to trip it are listed; a host
+ * tool with no client counterpart keeps its description.
  */
 export const CLIENT_TOOL_DESCRIPTIONS: Record<string, string> = {
-  file_edit: "Edit the contents of a file by finding and replacing exact text. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. Write line breaks as \\n; the file's existing CRLF or LF line endings are matched and preserved. To change line endings themselves, make oldString and newString differ only in \\r; that edit applies to the exact bytes. If there is no exact match, the edit retries while ignoring typographic quote, dash, and space variants, then trailing whitespace on each line. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.",
+  edit: "Edit the contents of a file by finding and replacing exact text. When editing text from Read output, preserve the exact indentation (tabs or spaces) and omit the line-number prefix, such as `1: `. Never include the prefix in oldString or newString. Write line breaks as \\n; the file's existing CRLF or LF line endings are matched and preserved. To change line endings themselves, make oldString and newString differ only in \\r; that edit applies to the exact bytes. If there is no exact match, the edit retries while ignoring typographic quote, dash, and space variants, then trailing whitespace on each line. The edit fails if oldString is not found. By default, oldString must identify a UNIQUE location. Multiple matches FAIL unless replaceAll is true. Add more surrounding context to disambiguate, or set replaceAll to true to replace every occurrence. Use replaceAll when the change should apply to every occurrence, such as renaming a variable.",
   skill: "Load a specialized skill's instructions and resources into the current conversation when the task at hand matches its description.",
 }
 
@@ -540,7 +542,12 @@ function rewriteToolText(text: string): string | undefined {
  * one wire name draw 400 from the lane (measured 2026-10-31), so a host that
  * offers both spellings keeps its own name rather than becoming unroutable.
  */
-function shapeWireTools(tools: unknown[], flat: boolean): boolean {
+/** One tool's final wire shape, supplied by the plugin's tool catalogue
+ *  (`src/tool-catalog.ts`, which layers the operator's overrides over the
+ *  built-in tables below). Absent = the built-in tables decide. */
+export type ToolShapeResolver = (name: string) => { wire?: string; description?: string } | undefined
+
+function shapeWireTools(tools: unknown[], flat: boolean, resolve?: ToolShapeResolver): boolean {
   const taken = new Set<string>()
   for (const entry of tools) {
     const name = toolEntryName(entry, flat)
@@ -550,10 +557,11 @@ function shapeWireTools(tools: unknown[], flat: boolean): boolean {
   for (let index = 0; index < tools.length; index++) {
     const entry = tools[index]
     const name = toolEntryName(entry, flat)
-    const wire = name === undefined ? undefined : WIRE_TOOL_RENAMES[name]
+    const override = name === undefined ? undefined : resolve?.(name)
+    const wire = override?.wire ?? (name === undefined ? undefined : WIRE_TOOL_RENAMES[name])
     const rename = wire !== undefined && !taken.has(wire) ? wire : undefined
     const description = toolEntryDescription(entry, flat)
-    const clientText = (rename ?? name) === undefined ? undefined : CLIENT_TOOL_DESCRIPTIONS[rename ?? name!]
+    const clientText = name === undefined ? undefined : (override?.description ?? CLIENT_TOOL_DESCRIPTIONS[name])
     const text = clientText ?? (description === undefined ? undefined : rewriteToolText(description))
     if (rename === undefined && text === undefined) continue
     if (rename !== undefined) taken.add(rename)
@@ -682,7 +690,7 @@ function shapeEnvInstructions(instructions: string, facts?: EnvFacts): EnvShape 
 }
 
 /** Responses uses flat function tools and its Zen gateway accepts auto only. */
-export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefined {
+export function ensureResponsesFreeLaneShape(payload: unknown, resolve?: ToolShapeResolver): unknown | undefined {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
   const body = payload as Record<string, unknown>
   if (!Array.isArray(body.input)) return undefined
@@ -690,7 +698,7 @@ export function ensureResponsesFreeLaneShape(payload: unknown): unknown | undefi
   const dropped = dropSupersededTools(original, true)
   const tools = [...dropped]
   let changed = dropped !== original
-  if (shapeWireTools(tools, true)) changed = true
+  if (shapeWireTools(tools, true, resolve)) changed = true
   for (const name of FREE_LANE_GATE_TOOL_NAMES) {
     const index = tools.findIndex((tool) => toolEntryName(tool, true) === name)
     if (index === -1) {
@@ -749,7 +757,7 @@ export function inClientKeyOrder(body: Record<string, unknown>): Record<string, 
  * returns undefined when nothing had to change — pi-ai then keeps the
  * original payload untouched.
  */
-export function ensureFreeLaneShape(payload: unknown): unknown | undefined {
+export function ensureFreeLaneShape(payload: unknown, resolve?: ToolShapeResolver): unknown | undefined {
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined
   const body = payload as Record<string, unknown>
   if (!Array.isArray(body.messages)) return undefined
@@ -757,7 +765,7 @@ export function ensureFreeLaneShape(payload: unknown): unknown | undefined {
   const dropped = dropSupersededTools(original, false)
   const tools = [...dropped]
   let changed = dropped !== original
-  if (shapeWireTools(tools, false)) changed = true
+  if (shapeWireTools(tools, false, resolve)) changed = true
   for (const name of FREE_LANE_GATE_TOOL_NAMES) {
     const index = tools.findIndex((tool) => toolEntryName(tool, false) === name)
     if (index === -1) {

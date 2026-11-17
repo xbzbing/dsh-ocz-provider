@@ -12,7 +12,7 @@ export type BridgeReply<T> =
   | { ok: false; code: string; message: string }
 
 /** The bridge routes the browser half calls. */
-export type BridgeRoute = '/status' | '/models' | '/probe' | '/exit' | '/usage'
+export type BridgeRoute = '/status' | '/models' | '/probe' | '/exit' | '/usage' | '/tools'
 
 export interface PostBridgeOptions {
   signal?: AbortSignal
@@ -97,6 +97,25 @@ export interface ExitActionResult {
 export function exitAction(action: ExitAction, exitId?: string, options?: PostBridgeOptions): Promise<BridgeReply<ExitActionResult>> {
   const body = action === 'pin-local' || action === 'unpin' ? { action } : { action, exitId }
   return postBridge<ExitActionResult>('/exit', body, options)
+}
+
+/**
+ * The 工具名录 write paths. `save` sends only what the operator typed: an empty
+ * field restores the built-in value, because the catalogue reads an empty
+ * string as "no override" and the wire falls back to our tables.
+ */
+export type ToolCatalogAction =
+  | { action: 'save'; name: string; wire?: string; description?: string }
+  | { action: 'reset'; name: string }
+  | { action: 'record' }
+
+/**
+ * POST /tools. Reading is the same route with an empty body, so one path
+ * carries the table and its three writes.
+ * @param body - an action, or `{}` to read the catalogue.
+ */
+export function toolCatalogAction<T>(body: ToolCatalogAction | Record<string, never> = {}, options?: PostBridgeOptions): Promise<BridgeReply<T>> {
+  return postBridge<T>('/tools', body, options)
 }
 
 /** /probe scopes: every exit, one exit, or a subscription re-pull. */

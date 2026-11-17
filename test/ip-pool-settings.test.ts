@@ -562,7 +562,7 @@ test('routes carry the exact paths and POST-only method guard', async () => {
   const routes = makeBridgeRoutes(handlers, { guard: () => true }) as unknown as Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }>
   assert.deepEqual(
     routes.map((r) => r.path),
-    [`${IP_POOL_BRIDGE_PREFIX}/status`, `${IP_POOL_BRIDGE_PREFIX}/models`, `${IP_POOL_BRIDGE_PREFIX}/probe`, `${IP_POOL_BRIDGE_PREFIX}/exit`, `${IP_POOL_BRIDGE_PREFIX}/usage`],
+    [`${IP_POOL_BRIDGE_PREFIX}/status`, `${IP_POOL_BRIDGE_PREFIX}/models`, `${IP_POOL_BRIDGE_PREFIX}/probe`, `${IP_POOL_BRIDGE_PREFIX}/exit`, `${IP_POOL_BRIDGE_PREFIX}/usage`, `${IP_POOL_BRIDGE_PREFIX}/tools`],
   )
   assert.ok(routes.every((r) => r.kind === 'exact'))
 

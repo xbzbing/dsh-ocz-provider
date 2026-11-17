@@ -16,9 +16,10 @@ import type { SegmentedTab } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import { bridgeErrorText, exitAction, postBridge, probeAction, type ExitAction } from './bridge-client.ts'
+import { bridgeErrorText, exitAction, postBridge, probeAction, toolCatalogAction, type ExitAction, type ToolCatalogAction } from './bridge-client.ts'
 import { exitRowState } from './exit-state.ts'
-import type { ExitRowView, TokenTotalsView } from './types.ts'
+import type { ExitRowView, TokenTotalsView, ToolCatalogView } from './types.ts'
+import { ToolCatalogPanel } from './ToolCatalogPanel.tsx'
 import { PinIcon, ProbeIcon, RotateIcon, UnpinIcon } from './icons.tsx'
 import { regionCode } from './region.ts'
 import { UsagePanel } from './UsagePanel.tsx'
@@ -75,8 +76,44 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   const stale = error !== null && status !== null
   /** Headline ordering contract: newest click wins, request count is home. */
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'requests', dir: 'desc' })
-  /** Which pane the modal shows: the exit table, or the traffic breakdown. */
-  const [tab, setTab] = useState<'exits' | 'usage'>('exits')
+  /** Which pane the modal shows: the exit table, the traffic breakdown, or the tool catalogue. */
+  const [tab, setTab] = useState<'exits' | 'usage' | 'tools'>('exits')
+  /**
+   * The 工具名录 pane's data: loaded when the tab is first opened and again
+   * after every write, never polled — it only moves when dsh or the operator
+   * moves it. The message is the host's own when one came back, so a refused
+   * wire name explains itself.
+   */
+  const [toolCatalog, setToolCatalog] = useState<ToolCatalogView | null>(null)
+  const [toolBusy, setToolBusy] = useState(false)
+  const [toolError, setToolError] = useState('')
+  const readTools = useCallback(async (signal?: AbortSignal): Promise<void> => {
+    const reply = await toolCatalogAction<ToolCatalogView>({}, signal === undefined ? {} : { signal })
+    if (reply.ok) {
+      setToolCatalog(reply.value)
+      setToolError('')
+      return
+    }
+    if (reply.code === 'client-aborted') return
+    setToolError(reply.message)
+  }, [])
+  const writeTools = useCallback(async (body: ToolCatalogAction): Promise<void> => {
+    setToolBusy(true)
+    const reply = await toolCatalogAction<ToolCatalogView>(body)
+    setToolBusy(false)
+    if (reply.ok) {
+      setToolCatalog(reply.value)
+      setToolError('')
+      return
+    }
+    setToolError(reply.message)
+  }, [])
+  useEffect(() => {
+    if (!open || tab !== 'tools') return
+    const controller = new AbortController()
+    void readTools(controller.signal)
+    return () => controller.abort()
+  }, [open, tab, readTools])
   /** The pane's own scroll container; a pane switch resets its offset. */
   const paneRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -274,11 +311,14 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   )
 
   /** The two panes as platform tabs, each linked to the panel rendered below. */
-  const tabs: [SegmentedTab<'exits' | 'usage'>, SegmentedTab<'exits' | 'usage'>] = [
+  const tabs: readonly [SegmentedTab<'exits' | 'usage' | 'tools'>, ...Array<SegmentedTab<'exits' | 'usage' | 'tools'>>] = [
     { value: 'exits', label: t('tabExits'), id: 'oc2dsh-stats-tab-exits', panelId: 'oc2dsh-stats-panel-exits' },
     { value: 'usage', label: t('tabUsage'), id: 'oc2dsh-stats-tab-usage', panelId: 'oc2dsh-stats-panel-usage' },
+    { value: 'tools', label: t('tabTools'), id: 'oc2dsh-stats-tab-tools', panelId: 'oc2dsh-stats-panel-tools' },
   ]
-  const activeTab = tabs[tab === 'usage' ? 1 : 0]
+  // Indexed explicitly: the tuple type keeps position 0 required, so a
+  // computed index needs the non-null assertion TypeScript will not infer.
+  const activeTab = tabs[tab === 'usage' ? 1 : tab === 'tools' ? 2 : 0]!
   const staleText = stale ? t('statsStale', { time: timeLabel(updatedAt, t('statsNever')) }) : ''
   const footerSummary = `${t('footerRequests', { count: overview.requests.toLocaleString() })} · ${compact(overview.tokens)} tok${overview.speed > 0 ? ` · ${t('footerSpeed', { count: overview.speed.toLocaleString() })}` : ''}`
 
@@ -341,7 +381,9 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
         closeLabel={t('statsClose')}
         description={tab === 'usage'
           ? t('statsDescriptionUsage', { days: String(status?.usage?.retentionDays ?? 90) })
-          : t('statsDescription')}
+          : tab === 'tools'
+            ? t('statsDescriptionTools')
+            : t('statsDescription')}
         className={styles.statsModal}
         contentClassName={styles.statsContent}
       >
@@ -367,6 +409,23 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           status?.usage == null
             ? <p className={shared.status}>{error !== null && status === null ? t('statsError') : t('usageNoStore')}</p>
             : <UsagePanel usage={status.usage} t={t} onClear={clearUsage} />
+        ) : tab === 'tools' ? (
+          <ToolCatalogPanel
+            view={toolCatalog}
+            t={t}
+            busy={toolBusy}
+            error={toolError === '' ? '' : bridgeErrorText({ code: '', message: toolError }, t('toolsError'))}
+            onSave={(name, wire, description) => {
+              // Only the fields the operator actually filled, so an untouched
+              // description keeps the built-in text instead of being frozen.
+              const body: ToolCatalogAction = { action: 'save', name }
+              if (wire.trim() !== '') body.wire = wire.trim()
+              if (description.trim() !== '') body.description = description
+              void writeTools(body)
+            }}
+            onReset={(name) => { void writeTools({ action: 'reset', name }) }}
+            onRecord={() => { void writeTools({ action: 'record' }) }}
+          />
         ) : (
         <>
         <div className={shared.statsSummary}>
