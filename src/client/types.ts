@@ -141,6 +141,11 @@ export interface ToolCatalogRowView {
   descriptionSource: 'client' | 'custom' | 'host'
   chars: number
   state: 'ok' | 'added' | 'drifted' | 'renamed' | 'gone'
+  /** What the built-in tables alone send: the editor's prefill and the value
+   *  that means "no override". */
+  builtinWire: string
+  /** Absent when the host's own text is all there is to restore. */
+  builtinDescription?: string
   renamedFrom?: string
   seenAt: number
   source: 'observed' | 'registered'

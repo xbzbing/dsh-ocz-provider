@@ -80,6 +80,11 @@ export interface ToolCatalogRow {
   descriptionSource: 'client' | 'custom' | 'host'
   chars: number
   state: ToolRowState
+  /** What the built-in tables alone would send: the editor's prefill fallback
+   *  and the value that means "no override". */
+  builtinWire: string
+  /** Undefined = the host's own text (nothing built in to restore). */
+  builtinDescription?: string
   /** For `renamed`: the baseline name this one took over. */
   renamedFrom?: string
   seenAt: number
@@ -480,7 +485,11 @@ export class ToolCatalog {
         description: tool.description,
       }
     }
-    const diff = diffToolSets(doc.baseline, current)
+    // No baseline = nothing to compare against: every row would read "added",
+    // which is noise on a fresh install. The header says the baseline is unset.
+    const diff = doc.recordedAt === 0
+      ? { added: [] as string[], removed: [] as string[], renamed: [] as Array<{ from: string; to: string }>, drifted: [] as string[] }
+      : diffToolSets(doc.baseline, current)
     const addedSet = new Set(diff.added)
     const driftedSet = new Set(diff.drifted)
     const renamedFrom = new Map(diff.renamed.map((pair) => [pair.to, pair.from]))
@@ -491,6 +500,7 @@ export class ToolCatalog {
     for (const name of names) {
       const entry = current[name]!
       const shape = this.resolve(name)
+      const builtin = resolveToolShape(name)
       const state: ToolRowState = addedSet.has(name)
         ? 'added'
         : renamedFrom.has(name)
@@ -506,6 +516,8 @@ export class ToolCatalog {
         descriptionSource: shape.descriptionSource,
         chars: shape.description?.length ?? entry.chars,
         state,
+        builtinWire: builtin.wire,
+        ...(builtin.description === undefined ? {} : { builtinDescription: builtin.description }),
         ...(renamedFrom.has(name) ? { renamedFrom: renamedFrom.get(name)! } : {}),
         seenAt: entry.seenAt,
         source: entry.source,
@@ -515,6 +527,7 @@ export class ToolCatalog {
     // to drop an override that would otherwise map a tool nobody sends.
     for (const name of diff.removed) {
       const shape = this.resolve(name)
+      const builtin = resolveToolShape(name)
       rows.push({
         name,
         wire: shape.wire,
@@ -523,6 +536,8 @@ export class ToolCatalog {
         descriptionSource: shape.descriptionSource,
         chars: shape.description?.length ?? 0,
         state: 'gone',
+        builtinWire: builtin.wire,
+        ...(builtin.description === undefined ? {} : { builtinDescription: builtin.description }),
         seenAt: doc.seen[name]?.seenAt ?? 0,
         source: doc.seen[name]?.source ?? 'registered',
       })

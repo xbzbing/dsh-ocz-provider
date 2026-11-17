@@ -113,6 +113,22 @@ test('both lane shapes parse into one observation list', () => {
   assert.deepEqual(observedToolsFrom([{ description: 'x' }, { name: 'a' }], true), [tool('a', '')])
 })
 
+test('without a baseline nothing reads as added', () => {
+  const dir = tempDir()
+  try {
+    const catalog = new ToolCatalog({ dir })
+    // A fresh install knows today's set from the registry only: flagging all of
+    // it as "new" would be noise, so the diff waits for a recorded baseline.
+    const view = catalog.view([tool('read', 'r'), tool('write', 'w')])
+    assert.equal(view.recorded, false)
+    assert.equal(view.pending, 0)
+    assert.deepEqual(view.rows.map((row) => row.state), ['ok', 'ok'])
+    catalog.dispose()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('the first observation records the baseline, and an upgrade shows as pending', async () => {
   const dir = tempDir()
   try {

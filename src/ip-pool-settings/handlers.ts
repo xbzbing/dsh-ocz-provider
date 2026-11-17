@@ -285,8 +285,9 @@ export function makeBridgeHandlers(
       if (catalog === undefined) return { ok: false, code: 'no-catalog', message: 'this composition has no tool catalogue' }
       const action = body.action
       if (action === 'record') {
-        // The baseline may only be frozen from what a request carried: the
-        // registry view includes tools this preset never sends.
+        // Freezes what the catalogue knows NOW: an observed entry outranks the
+        // registry for the same name, and a registry-only entry is the weaker
+        // claim — it may name a tool this preset never sends.
         return { ok: true, value: catalog.recordBaseline() }
       }
       if (action === 'save') {

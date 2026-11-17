@@ -152,9 +152,10 @@ an allow-list, and it moves — assume it can move again.
 
 A dsh upgrade can move this list, so the plugin keeps a known-tools catalogue
 (the 工具 tab) that diffs today's set against a recorded baseline and lets the
-operator override one tool's wire name or description. The baseline may only be
-frozen from what a real request carried: the host registry (`ctx.tools`) is the
-early warning, because a preset narrows it before a step sees it.
+operator override one tool's wire name or description. Recording freezes what the
+catalogue knows now, and an OBSERVED entry outranks the host registry
+(`ctx.tools`) for the same name: the registry is the early warning, because a
+preset narrows it before a step sees it.
 
 Probing rules: one variable per request, on an egress whose state you know; a
 refusal costs nothing while a 200 spends that egress's own quota; `retry-after`
