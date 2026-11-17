@@ -155,6 +155,48 @@ test('the first observation records the baseline, and an upgrade shows as pendin
   }
 })
 
+test('the row carries the text that rode the wire, so the editor can prefill it', async () => {
+  const dir = tempDir()
+  try {
+    const catalog = new ToolCatalog({ dir, now: () => 5_000 })
+    const text = 'Edit an existing UTF-8 text file by replacing literal text.'
+    catalog.observe([tool('edit', text)])
+    const row = catalog.view().rows.find((entry) => entry.name === 'edit')!
+    // The built-in client wording wins on the wire, and the row shows exactly
+    // that — an editor that prefilled an empty box would hide it.
+    assert.equal(row.descriptionSource, 'client')
+    assert.match(row.description, /^Edit the contents of a file/)
+    // A tool with no built-in text keeps the observation's own wording.
+    catalog.observe([tool('create_goal', 'Goal text'), tool('edit', text)])
+    const plain = catalog.view().rows.find((entry) => entry.name === 'create_goal')!
+    assert.equal(plain.descriptionSource, 'host')
+    assert.equal(plain.description, 'Goal text')
+    await catalog.flush()
+    const onDisk = JSON.parse(readFileSync(join(dir, 'tool-catalog.json'), 'utf8')) as {
+      seen: Record<string, { description?: string }>
+    }
+    assert.equal(onDisk.seen.create_goal?.description, 'Goal text')
+    catalog.dispose()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a document that kept only digests borrows the registry text', () => {
+  const dir = tempDir()
+  try {
+    const catalog = new ToolCatalog({ dir })
+    catalog.observe([tool('cache_search', 'host wording')])
+    // Simulate the older document: drop the stored text.
+    ;(catalog.document().seen.cache_search as { description?: string }).description = undefined
+    const row = catalog.view([tool('cache_search', 'host wording')]).rows.find((entry) => entry.name === 'cache_search')!
+    assert.equal(row.description, 'host wording')
+    catalog.dispose()
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('the registry view is an early warning, never a replacement for an observation', () => {
   const dir = tempDir()
   try {

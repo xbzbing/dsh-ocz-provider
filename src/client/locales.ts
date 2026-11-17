@@ -173,7 +173,7 @@ export const zh = {
   toolsWireLabel: '线上名',
   toolsWireHint: '留空表示沿用内建映射（没有映射就是同名）。只允许字母、数字、下划线和连字符，最长 64 个字符；不能和别的工具重名。改名会自动把旧名登记为回程别名，本会话已经发出的调用仍能还原。',
   toolsDescriptionLabel: '描述',
-  toolsDescriptionHint: '描述也是指纹的一部分：留空最安全，用内建文本。',
+  toolsDescriptionHint: '保持原样或留空 = 不覆盖。描述也是指纹的一部分，改之前先确认有实测依据。',
   toolsClientTextHint: '这个名字客户端也在用：描述必须读起来像客户端自己的文本，手写措辞会被免费车道拒绝。留空即照抄客户端原文，除非有实测依据，不要改。',
 
   usageScopeLabel: '用量口径',
@@ -449,7 +449,7 @@ export const en: Record<keyof typeof zh, string> = {
   toolsWireLabel: 'Wire name',
   toolsWireHint: 'Empty keeps the built-in mapping (identity when there is none). 1-64 characters of A-Za-z0-9_- only, unique across tools. A rename registers the old name as a reply alias, so a call already on the wire still resolves.',
   toolsDescriptionLabel: 'Description',
-  toolsDescriptionHint: 'The description is part of the fingerprint: empty is the safe choice.',
+  toolsDescriptionHint: 'Leave it as it is (or empty) to keep no override. The description is part of the fingerprint.',
   toolsClientTextHint: 'The client ships this name too: its description must read like the client text. Empty copies that text; do not reword it without a measurement.',
 
   usageScopeLabel: 'Usage scope',

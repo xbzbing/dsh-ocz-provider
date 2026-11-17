@@ -166,13 +166,16 @@ export function ToolCatalogPanel(props: ToolCatalogPanelProps): ReactNode {
           busy={busy}
           onCancel={() => setEditing(null)}
           onSave={(wire, description) => {
-            // A field that still equals its built-in value is sent empty, and
-            // empty is what deletes the override on the host.
+            // A field that still reads as it does today is sent empty, and
+            // empty is what deletes the override on the host. For a host-text
+            // tool there is no built-in text to compare against, so "today's
+            // text" is the baseline: opening the editor must not freeze it.
             const trimmed = wire.trim()
+            const baselineText = editing.builtinDescription ?? editing.description
             onSave(
               editing.name,
               trimmed === editing.builtinWire ? '' : trimmed,
-              description === (editing.builtinDescription ?? '') ? '' : description,
+              description === baselineText ? '' : description,
             )
             setEditing(null)
           }}

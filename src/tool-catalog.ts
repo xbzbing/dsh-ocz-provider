@@ -56,7 +56,10 @@ export interface ToolCatalogDocument {
   /** sha256 over the baseline's sorted names — cheap "did the set move". */
   fingerprint: string
   baseline: Record<string, BaselineEntry>
-  seen: Record<string, { chars: number; descHash: string; seenAt: number; source: ToolSource }>
+  /** What is on the wire today, per name. `description` is the text the tool
+   *  actually rode with: the editor's 原文, and the only way to show it for a
+   *  tool the host registry does not carry. */
+  seen: Record<string, { chars: number; descHash: string; seenAt: number; source: ToolSource; description?: string }>
   overrides: Record<string, ToolOverride>
   /** Wire spellings that no longer apply but must still resolve in a reply —
    *  an alias change mid-session would otherwise break the tool call already
@@ -383,9 +386,15 @@ export class ToolCatalog {
       if (prior !== undefined && prior.source === 'observed' && source === 'registered') continue
       if (prior !== undefined && prior.descHash === digest && prior.source === source) {
         prior.seenAt = at
+        if (prior.description === undefined) {
+          // An older document kept only the digest; backfill the text so the
+          // editor has something to prefill.
+          prior.description = tool.description
+          changed = true
+        }
         continue
       }
-      doc.seen[tool.name] = { chars: tool.description.length, descHash: digest, seenAt: at, source }
+      doc.seen[tool.name] = { chars: tool.description.length, descHash: digest, seenAt: at, source, description: tool.description }
       changed = true
     }
     return changed
@@ -474,9 +483,17 @@ export class ToolCatalog {
     if (registered.length > 0) this.observeRegistered(registered)
     const current: Record<string, { descHash: string; chars: number; seenAt: number; source: ToolSource; description?: string }> = {}
     for (const [name, entry] of Object.entries(doc.seen)) current[name] = { ...entry }
+    // A registry entry for a name an observation already covers carries the
+    // CURRENT text; it is not evidence, but it is the best prefill when the
+    // stored observation predates the text being kept.
     for (const tool of registered) {
       const existing = current[tool.name]
-      if (existing !== undefined && existing.source === 'observed') continue
+      if (existing !== undefined && existing.source === 'observed') {
+        // The observation stays the authority for WHAT rode the wire; the
+        // registry only lends its text, and only when nothing was stored.
+        if (existing.description === undefined) existing.description = tool.description
+        continue
+      }
       current[tool.name] = {
         chars: tool.description.length,
         descHash: descriptionHash(tool.description),
