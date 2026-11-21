@@ -24,6 +24,8 @@ import { basename, join } from 'node:path'
 
 import { childRecordPath, clearChildRecord, sweepChildRecordOnce, writeChildRecord } from '../child-record.ts'
 import { buildOutbound, nodeKey } from './singbox-outbound.ts'
+import { screeningKey } from './onboard-cache.ts'
+import { closeSingBox, matchesLease, offerSingBox, takeSingBox, SINGBOX_GRACE_MS, type SingBoxLease } from './singbox-lease.ts'
 import type { ParsedNode } from './subscription.ts'
 
 export { buildOutbound, nodeKey }
@@ -379,15 +381,10 @@ export class SingBoxSupervisor {
 
   async #reload(input: ParsedNode[], keep: readonly number[] | undefined, epoch: number): Promise<ConvertedExit[]> {
     if (epoch !== this.#stopEpoch) throw new Error('sing-box was stopped; reload abandoned')
-    // A host killed with SIGKILL leaves the previous child holding our ports,
-    // and the next `run` then dies on EADDRINUSE. The record names that child;
-    // the sweep ends it before anything binds.
-    await sweepChildRecordOnce(childRecordPath(this.#dataDir, 'child'), {
-      marker: this.#configPath,
-      ...(this.#options.binPath === undefined ? {} : { binary: basename(this.#options.binPath) }),
-      signal: 'SIGINT',
-      ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
-    })
+    // A child the outgoing generation handed over is claimed BEFORE the sweep:
+    // the sweep ends exactly the leftover whose record matches, which is the
+    // child a reload should keep serving (a reload is not a crash).
+    const leased = takeSingBox(this.#dataDir)
     // One pass splits dialable nodes from placeholder servers (private /
     // loopback / link-local literals a public subscription should never hand
     // out); only the dialable half reaches the config.
@@ -423,6 +420,25 @@ export class SingBoxSupervisor {
       this.#options.logger?.warn(`oc2dsh: sing-box conversion skipped ${invalid} node(s) with an unsupported type or an invalid config (bad port, missing credentials)`)
     }
     const { config, ports } = generateConfig(nodes, this.#options.basePort ?? 30_000, keep, assigned)
+    if (leased !== null) {
+      const keys = nodes.map((node) => screeningKey(node))
+      if (await this.#adopt(leased, { binPath: this.#options.binPath, binary: basename(binary), configPath: this.#configPath, dataDir: this.#dataDir, ports, keys })) {
+        this.#nodes = nodes
+        this.#ports = ports
+        this.#options.logger?.info('oc2dsh: sing-box child adopted from the previous plugin instance (same nodes, ports kept)')
+        return this.#convertedExits(nodes, ports)
+      }
+      closeSingBox(leased)
+    }
+    // A host killed with SIGKILL leaves the previous child holding our ports,
+    // and the next `run` then dies on EADDRINUSE. The record names that child;
+    // the sweep ends it before anything binds.
+    await sweepChildRecordOnce(childRecordPath(this.#dataDir, 'child'), {
+      marker: this.#configPath,
+      ...(this.#options.binPath === undefined ? {} : { binary: basename(this.#options.binPath) }),
+      signal: 'SIGINT',
+      ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
+    })
 
     // atomic config write (tmp + rename)
     await mkdir(this.#dataDir, { recursive: true })
@@ -494,6 +510,11 @@ export class SingBoxSupervisor {
     }
     if (!ready) this.#options.logger?.warn('oc2dsh: sing-box ports not ready in time; some converted nodes may be unreachable')
 
+    return this.#convertedExits(nodes, ports)
+  }
+
+  /** The converted exits of one node list, index-aligned with its ports. */
+  #convertedExits(nodes: ParsedNode[], ports: readonly number[]): ConvertedExit[] {
     const exits: ConvertedExit[] = []
     nodes.forEach((node, index) => {
       const port = ports[index] ?? 0
@@ -501,6 +522,92 @@ export class SingBoxSupervisor {
       exits.push({ address: `127.0.0.1:${port}`, protocol: 'socks5', node, slot: index, key: nodeKey(node) })
     })
     return exits
+  }
+
+  /**
+   * Keep a handed-over child instead of restarting one.
+   *
+   * The child is ours only if it is the same binary on the same config path
+   * serving the same SEMANTIC node set (the airport re-rolls TLS fingerprints,
+   * so the generated file always differs) on the same ports — and its ports
+   * still answer. Anything else is replaced by the ordinary stop-and-spawn
+   * path, because a child serving another node list would route exits to the
+   * wrong inbounds.
+   */
+  async #adopt(lease: SingBoxLease, want: Parameters<typeof matchesLease>[1]): Promise<boolean> {
+    if (!matchesLease(lease, want)) return false
+    const child = lease.child
+    this.#child = child
+    this.#running = true
+    child.stderr?.on('data', (chunk: Buffer) => {
+      const text = chunk.toString('utf8').trim()
+      if (text.length > 0) this.#options.logger?.info(`[sing-box] ${text}`)
+    })
+    child.once('exit', (code, signal) => {
+      if (this.#child !== child) return
+      this.#running = false
+      void clearChildRecord(childRecordPath(this.#dataDir, 'child'), child.pid)
+      this.#options.logger?.warn(`oc2dsh: sing-box exited unexpectedly (${signal !== null ? `signal ${signal}` : `code ${code}`}); converted exits are unreachable until the next refresh`)
+    })
+    child.once('error', (err) => {
+      if (this.#child !== child) return
+      this.#running = false
+      this.#options.logger?.warn(`oc2dsh: sing-box failed: ${err.message}`)
+    })
+    if (!(await this.#portsAnswer(want.ports, Math.min(this.#options.readyTimeoutMs ?? 10_000, 3_000)))) {
+      this.#child = null
+      this.#running = false
+      return false
+    }
+    return true
+  }
+
+  /** Whether every opened port accepts a connection within `timeoutMs`. */
+  async #portsAnswer(ports: readonly number[], timeoutMs: number): Promise<boolean> {
+    const listening = ports.filter((port) => port > 0)
+    if (listening.length === 0) return true
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      let all = true
+      for (const port of listening) {
+        // eslint-disable-next-line no-await-in-loop
+        if (!(await canConnect(port))) {
+          all = false
+          break
+        }
+      }
+      if (all) return true
+      if (Date.now() >= deadline) return false
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+
+  /**
+   * Hand the live child to the next generation (plugin reload) instead of
+   * killing it: the config file is rewritten on every fetch (randomised
+   * fingerprints), so a stop-and-spawn would drop every converted exit for a
+   * second and strike the rows with requests in flight. Listeners are detached
+   * here so the adopter owns the streams; the record stays on disk, where a
+   * later start uses it as the sweep's evidence.
+   */
+  handOff(graceMs: number = SINGBOX_GRACE_MS): void {
+    const child = this.#child
+    if (child === null || !this.#running) return
+    this.#child = null
+    this.#running = false
+    child.removeAllListeners('exit')
+    child.removeAllListeners('error')
+    child.stderr?.removeAllListeners('data')
+    offerSingBox({
+      child,
+      binPath: this.#options.binPath,
+      binary: basename(this.#options.binPath),
+      configPath: this.#configPath,
+      dataDir: this.#dataDir,
+      ports: [...this.#ports],
+      keys: this.#nodes.map((node) => screeningKey(node)),
+      handedAt: Date.now(),
+    }, graceMs)
   }
 
   /**

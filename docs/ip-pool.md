@@ -721,6 +721,42 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 **状态根与 `OC2DSH_HOME`**（`src/paths.ts` 的 `stateDir()`）：台账、`adapter-status.json`、models.dev 目录缓存、sing-box 运行目录全部落在 `~/.dsh/oc2dsh`；`OC2DSH_HOME` 可整体重定向（与 `DSH_HOME` 同一套路，惰性读环境，import 之后再设也生效）。这条缝是**测试的硬要求**：`apply()` 是生产入口，会安装真实台账，而 `test/watchdog-config.test.ts` 的三个看门狗场景就是拿真实入口发一次真实请求（label `hi`、无宿主 session id、无路由 → `local`、看门狗 TIMEOUT 的零用量仍记 1 次请求，`Date` 被 mock 成 0 时铸出的 id 前缀正好是 `fffffffffffe`）——修之前每跑一次 `pnpm test` 就往用户自己的流量统计里加 3 行，线上表现就是弹窗里那条「hi / 36 次 / 0 token」的幽灵会话（2026-10-14 用户提问）。现在这两个测试文件把状态根指到临时目录，并在断言里钉住「写进 scratch 台账」这件事；`test/state-root.test.ts` 再把它变成规则：任何 **runtime import** 插件入口（`../src/index.ts`）的测试文件都必须设 `OC2DSH_HOME`，否则直接红（删掉一处重定向即验证有效），并带一条「扫描必须匹配到 ≥2 个文件」的防空转断言。
 
+### 5.7 插件重载时的交接（路由层 / 池子健康 / sing-box 子进程）
+
+**现象与根因**（2026-11-21 实测）：在 dsh-git-panel 里 `remove_bundle` / `install_bundle` 一个和本插件毫无关系的包，`oc2dsh.log` 里会成对出现 `exit routing disabled … requests fall through` → `adapter registered`：
+
+| 时刻（本地） | 宿主动作 | 我们这边的表现 |
+| --- | --- | --- |
+| 19:54:37 remove | 19:54:38.461 关层 → 19:54:39.369 重新挂上 | 0.91 s 内请求全部走本机/直连 |
+| 19:54:54 install | 19:55:00.457 关层 → 19:55:01.170 挂上 → 19:55:01.357 engaged | 0.90 s 空窗 + 重拉订阅 56 节点 + 重跑 onboarding |
+| 20:09:37 / 20:09:46 | 20:09:40.356 与 20:09:47.913 两代连着死 | sing-box 20:10:06 换了新进程（新 pid） |
+
+宿主侧链路是 `plugin_manager.reload()` → `hmr.reconcileProfile()` → 全量 recompose；HMR 按模块文件身份（`inode:size:mtime`）判断「模块变了」就停掉重装，而 `file:` 依赖在 profile 里是拷贝，pnpm 每次 add/remove 都会重写 `package.json` / lock / `node_modules`。所以**没被改动的插件也会被重新 apply**。这条改不了，能做的是让「重启一代」变便宜。
+
+三段交接（都挂在 `globalThis[Symbol.for(...)]` 上，因为 HMR 会把本插件的模块整体换掉）：
+
+| 东西 | 文件 | 交接语义 | 没人认领时 |
+| --- | --- | --- | --- |
+| 路由层（undici 槽） | `src/pool/slot-lease.ts` | dispose 只 offer、不 `disable()`；新代用 `installer.retarget(pool)` 把池子换到仍然挂着的那层下面，in-flight 请求在退休的 router 上跑完（退休用 `close()` 而不是 `destroy()`），composer 分片按同一路径重新 chain | 60 s 宽限后 `disable()`，等于正常卸载 |
+| 池子健康 | `src/pool/pool-health.ts` | 有变化时（最长 15 s 一次）原子写 `~/.dsh/oc2dsh/pool-health.json`；启动时 `seedHealth` 播种：表里已有的行立刻吃记录，**之后才落地的行**（订阅出口晚一轮 refresh）在 `add()` 时吃 | 文件过期、损坏、版本不认识 = 冷池子，绝不阻塞启动 |
+| sing-box 子进程 | `src/pool/singbox-lease.ts` | `handOff()` 把活着的子进程交出去；新代只有在「同二进制、同 config 路径、同**语义**节点集（`screeningKey`，去掉机场每次重 roll 的 `fingerprint`）、同端口表、端口仍能连」时才接管，否则退回杀-重开 | 60 s 宽限后 SIGINT（5 s 后 SIGKILL） |
+
+**健康记忆的 TTL**（每个 claim 从自己的时钟起算，不是从文件写入时刻）：
+
+| 事实 | TTL | 过期后 |
+| --- | --- | --- |
+| `ok`（探活通过或真实 2xx） | 10 min（`PROVEN_TTL_MS`） | 降为 `unknown`，测量事实仍在 → 卡片显示「已测速·未验证」 |
+| `dead`（strike） | 15 min（`DEAD_TTL_MS`） | 降为 `unknown`，给这行一次新机会 |
+| `cooldownUntil` | 绝对时间 | 已过期就丢 |
+| `bans`（出口×模型） | 6 h（`BAN_TTL_MS`），且只存 `banned` | 丢 |
+| `note: 'abusive'` | 3 h（`ABUSIVE_TTL_MS`） | 丢 |
+| 测量事实（exitIP / location / latency / quality） | 6 h（`FACTS_TTL_MS`） | 不恢复 |
+| 被动计数、最后使用 | 永久（诊断） | — |
+
+**不变量**：① 一个数据目录同时只有一层路由 / 一个 live 子进程，offer 会先关掉上一份；② 交接失败（槽被别人拿走、`retarget` 返回 false、节点集变了、端口不通）一律退回老路——杀旧、重建，绝不「半接管」；③ 进程退出时两个租约自己收尾，真正卸载不会留下常驻子进程，也不会留下捕获全局 fetch 的层。
+
+**没进交接范围的**：本进程用量环（`usageTracker` 的 3 分钟 tok/s 窗口）随实例重建。它只影响显示，不影响路由。
+
 ## 6. 文件落点（增量，不动现有结构）
 
 ```

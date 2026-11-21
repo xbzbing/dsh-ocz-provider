@@ -30,6 +30,8 @@ import { SingBoxSupervisor } from './pool/singbox.ts'
 import { createRotateDelegate, setRotateDelegate } from './pool/rotate.ts'
 import { pickSmokeContent } from './pool/smoke-content.ts'
 import { stateDir } from './paths.ts'
+import { closeLease, offerSlot, takeSlot, SLOT_GRACE_MS, type SlotLease } from './pool/slot-lease.ts'
+import { loadPoolHealth, restorePoolHealth, startPoolHealthWriter } from './pool/pool-health.ts'
 
 /** Data dir shared with the catalog cache (config.ts convention). */
 function dataDir(): string {
@@ -235,6 +237,22 @@ export interface IpPoolAssemblyDeps {
    * opening sockets.
    */
   detectProtocol?: (address: string) => Promise<ProxyProtocol | null>
+  /**
+   * Whether this runtime joins the reload handoff (pool/slot-lease.ts): it
+   * claims an offered layer on start and offers its own on dispose. Defaults
+   * to the production installer — an injected fake installer neither offers
+   * nor claims, so tests stay isolated.
+   */
+  slotLease?: boolean
+  /**
+   * Whether the pool keeps what it learned on disk (pool/pool-health.ts):
+   * cooldowns, bans, counters and measured facts are restored on the next
+   * start, so a reload or a host restart does not re-burn exits this machine
+   * already found out about. Defaults to the production path, like the lease.
+   */
+  persistPoolHealth?: boolean
+  /** Where that store lives; the default is `<stateDir>/pool-health.json`. */
+  poolHealthPath?: string
 }
 
 /**
@@ -253,6 +271,28 @@ export async function startIpPool(
 ): Promise<IpPoolRuntime | null> {
   const ipPool = config.ipPool ?? {}
   const pool = buildPoolFromConfig(config)
+
+  /**
+   * Carried-over health (pool/pool-health.ts): a reload or a restart must not
+   * forget a 429 cooldown or an (exit, model) ban the lane just handed out.
+   * Subscription rows land after assembly, so the store seeds ids instead of
+   * writing rows: the row takes its record the moment it appears.
+   */
+  const persistPoolHealth = deps.persistPoolHealth ?? deps.makeInstaller === undefined
+  const poolHealthPath = deps.poolHealthPath ?? join(dataDir(), 'pool-health.json')
+  let healthWriter: ReturnType<typeof startPoolHealthWriter> | null = null
+  if (persistPoolHealth) {
+    const stored = await loadPoolHealth(poolHealthPath)
+    if (stored !== null) {
+      const seeded = restorePoolHealth(pool, stored)
+      if (seeded > 0) logger.info(`oc2dsh: pool health restored for ${seeded} exit(s) from ${poolHealthPath}`)
+    }
+    healthWriter = startPoolHealthWriter({
+      pool,
+      path: poolHealthPath,
+      onError: (err) => { logger.warn(`oc2dsh: pool health store not written (${err instanceof Error ? err.message : String(err)})`) },
+    })
+  }
 
   let undici: UndiciSeam
   if (deps.undici !== undefined) {
@@ -294,9 +334,32 @@ export async function startIpPool(
     onTransportCut: (exitId) => { transportVerdicts.cut(exitId) },
     logger,
   }
-  const installer: IpPoolRuntime['installer'] = deps.makeInstaller !== undefined
-    ? deps.makeInstaller(installerDeps)
-    : new (await import('./pool/installer.ts')).RoutingInstaller(installerDeps)
+  /**
+   * Reload handoff (pool/slot-lease.ts). Another plugin's install recomposes
+   * the profile and HMR re-applies this one in the same process; claiming the
+   * layer the previous generation offered keeps the slot installed and only
+   * swaps the pool under it. A layer that cannot be re-pointed (or is no
+   * longer the routing in force) is closed and a fresh one built below.
+   */
+  const slotLease = deps.slotLease ?? deps.makeInstaller === undefined
+  const cutJudge = (exitId: string): void => { transportVerdicts.cut(exitId) }
+  let adoptedLease: SlotLease | null = null
+  if (slotLease) {
+    const offered = takeSlot()
+    if (offered !== null) {
+      const retarget = (offered.installer as { retarget?: (pool: ExitPool, hooks: { onTransportCut?: (id: string) => void; logger?: typeof logger }) => boolean }).retarget
+      if (typeof retarget === 'function' && retarget.call(offered.installer, pool, { onTransportCut: cutJudge, logger })) {
+        adoptedLease = offered
+      } else {
+        closeLease(offered)
+      }
+    }
+  }
+  const installer: IpPoolRuntime['installer'] = adoptedLease !== null
+    ? adoptedLease.installer as IpPoolRuntime['installer']
+    : deps.makeInstaller !== undefined
+      ? deps.makeInstaller(installerDeps)
+      : new (await import('./pool/installer.ts')).RoutingInstaller(installerDeps)
 
   const admissionDeps: AdmissionDeps = {
     pool,
@@ -684,8 +747,22 @@ export async function startIpPool(
       // (the adapter then sends direct, which the lane answers 429 — the same
       // surface as a profile with no pool at all).
       setRelayEgressSeams(null)
+      // Offer the sing-box child before the subscription layer stops it: a
+      // reload keeps the converted exits bound on their ports instead of
+      // dropping every listener for the length of a respawn. A real uninstall
+      // leaves it unclaimed and its lease timer ends it.
+      supervisor?.handOff()
       subscriptions?.stop()
-      installer.dispose()
+      // Hand the LAYER to the next generation instead of closing it: a reload
+      // must not leave the process unrouted, even for the sub-second gap the
+      // host needs to re-apply this plugin. A lease nobody claims (uninstall,
+      // pool switched off) is closed by its grace timer.
+      if (healthWriter !== null) {
+        await healthWriter.flush()
+        healthWriter.stop()
+      }
+      if (slotLease) offerSlot(installer, SLOT_GRACE_MS)
+      else installer.dispose()
     },
   }
 }

@@ -102,6 +102,25 @@ export interface PoolOptions {
   now?: () => number
 }
 
+/** One row's carried-over health, as `pool-health.ts` restores it. */
+export interface SeededHealth {
+  state: ExitState
+  lastProbedAt: number
+  consecutiveLimited: number
+  cooldownUntil: number
+  deadStrikes: number
+  deadAt: number
+  note: ExitNote
+  noteAt: number
+  /** Passive-signal counters (diagnostics, never cleared by the restore). */
+  passive?: { ok: number; limited: number; refused: number; dead: number; transport: number }
+  /** Measured exit facts; absent once they are too old to show. */
+  facts?: { exitIP: string; exitLocation: string; latencyMs: number; quality: ExitNode['quality'] }
+  /** Last dispatch stamp (exit-stats 最后使用), not an in-flight count. */
+  lastUsedAt?: number
+  bans?: Array<{ model: string; state: BanState; bannedAt: number; consecutiveFailures: number }>
+}
+
 /** Quality grade from admission latency (GoProxy thresholds). */
 export function gradeOf(latencyMs: number): ExitNode['quality'] {
   if (latencyMs <= 500) return 'S'
@@ -155,6 +174,9 @@ export class ExitPool {
   readonly #health = new Map<string, ExitHealth>()
   readonly #bans = new Map<string, ModelBan>()
   readonly #sessionExit = new Map<string, string>()
+  /** Health carried over from an earlier process, applied when its row lands. */
+  readonly #seeded = new Map<string, SeededHealth>()
+
   /** Passive-signal counters per exit (docs/ip-pool.md §4.3 被动 + IP-6 stats). */
   readonly #passive = new Map<string, { ok: number; limited: number; refused: number; dead: number; transport: number }>()
   /** Live-request activity per exit: last dispatch stamp + in-flight count
@@ -321,6 +343,47 @@ export class ExitPool {
    * Only the admission-measured fields are writable here — identity, source and
    * the pin flag belong to whoever put the row in the table.
    */
+  /**
+   * Seed health carried over from an earlier process (pool-health.ts).
+   *
+   * A row in the table now takes the record immediately; a row that lands
+   * LATER under the same id (subscription exits arrive one refresh after
+   * assembly) takes it on `add()`. Ids nothing ever adds keep no record — the
+   * table, not the store, decides which rows exist.
+   */
+  seedHealth(rows: Iterable<readonly [string, SeededHealth]>): void {
+    for (const [id, row] of rows) {
+      this.#seeded.set(id, row)
+      if (this.#nodes.has(id)) this.#applySeed(id, row)
+    }
+  }
+
+  #applySeed(id: string, row: SeededHealth): void {
+    const health = this.#health.get(id)
+    if (health === undefined) return
+    health.state = row.state
+    health.lastProbedAt = row.lastProbedAt
+    health.consecutiveLimited = row.consecutiveLimited
+    health.cooldownUntil = row.cooldownUntil
+    health.deadStrikes = row.deadStrikes
+    health.deadAt = row.deadAt
+    health.note = row.note
+    health.noteAt = row.noteAt
+    if (row.passive !== undefined) this.#passive.set(id, { ...row.passive })
+    if (row.lastUsedAt !== undefined) this.#activity.set(id, { lastUsedAt: row.lastUsedAt, inFlight: 0 })
+    const node = this.#nodes.get(id)
+    if (node !== undefined && row.facts !== undefined) {
+      node.exitIP = row.facts.exitIP
+      node.exitLocation = row.facts.exitLocation
+      node.latencyMs = row.facts.latencyMs
+      node.quality = row.facts.quality
+    }
+    for (const ban of row.bans ?? []) {
+      this.#bans.set(banKey(id, ban.model), { state: ban.state, bannedAt: ban.bannedAt, consecutiveFailures: ban.consecutiveFailures })
+    }
+    this.#seeded.delete(id)
+  }
+
   refresh(id: string, facts: Partial<Pick<ExitNode, 'protocol' | 'exitIP' | 'exitLocation' | 'latencyMs' | 'quality'>>): boolean {
     const node = this.#nodes.get(id)
     if (node === undefined) return false
@@ -341,7 +404,11 @@ export class ExitPool {
     if (node.exitIP !== '' && this.#hasExitIP(node.exitIP, node.id)) return false
     const isNew = !this.#nodes.has(node.id)
     this.#nodes.set(node.id, node)
-    if (!this.#health.has(node.id)) this.#health.set(node.id, freshHealth())
+    if (!this.#health.has(node.id)) {
+      this.#health.set(node.id, freshHealth())
+      const seeded = this.#seeded.get(node.id)
+      if (seeded !== undefined) this.#applySeed(node.id, seeded)
+    }
     if (isNew) this.#notifyAdmitted()
     return true
   }

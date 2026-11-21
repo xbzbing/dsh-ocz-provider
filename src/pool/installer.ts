@@ -45,6 +45,14 @@ export interface InstallerDeps {
   logger?: { info(message: string): void; warn(message: string): void }
 }
 
+/** What an adopted layer learns about the generation that takes it over. */
+export interface RetargetHooks {
+  /** Judge one transport cut for the NEW pool (pool/transport.ts). */
+  onTransportCut?: (exitId: string) => void
+  /** Where the adopting generation's diagnostics go. */
+  logger?: { info(message: string): void; warn(message: string): void }
+}
+
 /**
  * Why the routing layer is not active (docs/ip-pool.md R1, coexistence
  * policy): another dispatcher-level plugin owns the global dispatcher, so we
@@ -251,25 +259,13 @@ export class RoutingInstaller {
     // resolved again per request below.
     const snapshot = this.#liveLayer(probe.downstream())
     const router = this.#buildRouter()
-    let adopted = true
-    try {
-      probe.chainTo(router, { role: 'route' })
-      adopted = probe.downstream() === router
-    } catch {
-      adopted = false
-    }
-    if (!adopted) {
+    const composer = occupant.dispatcher
+    if (!this.#chainBelow(composer, router, snapshot)) {
       this.#refusedBy = occupant.dispatcher
       this.#deferForeign(occupant.name, 'did not adopt this layer as its downstream')
       void router.destroy().catch(() => {})
       return
     }
-    // Hand non-carried traffic to whatever sits BELOW us, re-resolved per
-    // request: a composer adopts a layer that appears under us later (another
-    // dispatcher plugin replacing the slot), and a join-time pointer would
-    // starve it while still claiming the policy survived.
-    const composer = occupant.dispatcher
-    router.setDownstream(() => this.#below(composer, router) ?? snapshot)
     const old = this.#current
     this.#current = router
     this.#enabled = true
@@ -284,6 +280,29 @@ export class RoutingInstaller {
     this.#previous = snapshot ?? null
     if (old !== null) void old.destroy().catch(() => {})
     this.#deps.logger?.info(`oc2dsh: exit routing joined below "${occupant.name}" (body masked first, then the exit is picked)`)
+  }
+
+  /**
+   * Chain `router` into `composer` as its `route` layer and verify adoption.
+   * Hand non-carried traffic to whatever sits BELOW us, re-resolved per
+   * request: a composer adopts a layer that appears under us later (another
+   * dispatcher plugin replacing the slot), and a join-time pointer would
+   * starve it while still claiming the policy survived.
+   */
+  #chainBelow(composer: Dispatcher, router: PoolRoutingDispatcher, fallback?: Dispatcher): boolean {
+    const probe = composer as unknown as {
+      chainTo?: (d: unknown, options?: { role?: string }) => void
+      downstream?: () => unknown
+    }
+    if (typeof probe.chainTo !== 'function' || typeof probe.downstream !== 'function') return false
+    try {
+      probe.chainTo(router, { role: 'route' })
+      if (probe.downstream() !== router) return false
+    } catch {
+      return false
+    }
+    router.setDownstream(() => this.#below(composer, router) ?? fallback)
+    return true
   }
 
   /** The live layer just below `router` in `composer`'s order, re-read per request. */
@@ -470,6 +489,49 @@ export class RoutingInstaller {
       this.#deps.logger?.info('oc2dsh: globalThis.fetch -> undici module fetch (built-in fetch bypasses the pool dispatcher otherwise)')
     }
     this.#deps.logger?.info('oc2dsh: global dispatcher -> PoolRoutingDispatcher (exit routing enabled)')
+  }
+
+  /**
+   * Re-point the live layer at another generation's pool (plugin reload).
+   *
+   * HMR disposes and re-applies this plugin inside one process; closing the
+   * layer here would send every request in the process down the direct path
+   * until the next generation installs again. Adoption keeps the slot instead:
+   * the running router swaps its pool, in-flight requests finish on the retired
+   * router, and a composer that had adopted us gets the new router chained the
+   * same way. The caller re-applies the live settings through the ordinary
+   * setters right after.
+   *
+   * False = this layer is no longer the routing in force (not enabled, or a
+   * foreign layer took the slot): the caller installs from scratch.
+   */
+  retarget(pool: ExitPool, hooks: RetargetHooks = {}): boolean {
+    if (!this.#enabled || !this.#stillRouted()) return false
+    this.#deps.pool = pool
+    if (hooks.onTransportCut !== undefined) this.#deps.onTransportCut = hooks.onTransportCut
+    if (hooks.logger !== undefined) this.#deps.logger = hooks.logger
+    const dying = this.#current
+    const composer = this.#composer
+    const router = this.#buildRouter()
+    if (composer === null) {
+      try {
+        this.#deps.undici.setGlobalDispatcher(router as unknown as InstallableDispatcher)
+      } catch {
+        void router.destroy().catch(() => {})
+        return false
+      }
+      this.#current = router
+    } else if (this.#chainBelow(composer, router, this.#previous ?? undefined)) {
+      this.#current = router
+    } else {
+      void router.destroy().catch(() => {})
+      return false
+    }
+    // `close()`, not `destroy()`: a request already on the retired router has
+    // to finish, and the closed flag is what makes the composer skip it.
+    if (dying !== null) void dying.close().catch(() => {})
+    this.#deps.logger?.info('oc2dsh: exit routing kept across the plugin reload (pool swapped under the live layer)')
+    return true
   }
 
   /** Restore the pre-install dispatcher and close ours. */
