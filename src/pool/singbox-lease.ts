@@ -70,15 +70,36 @@ function box(): LeaseBox {
   return created
 }
 
-/** Whether `lease` is the child this expectation would have started itself. */
+/**
+ * Whether `lease` is the child this expectation would have started itself.
+ *
+ * Identity, not order, decides "the same exits": a node's local port follows
+ * its own identity (`ports.json`), so a subscription that comes back in a
+ * different order still maps every node to the port the running child listens
+ * on. Every node this generation wants to serve has to be there at the expected
+ * port; extra listeners left in the child (reserves converted before) are
+ * harmless and stay until the next real reload.
+ */
 export function matchesLease(lease: SingBoxLease, want: SingBoxExpectation): boolean {
   if (lease.binPath !== want.binPath || lease.binary !== want.binary) return false
   if (lease.configPath !== want.configPath || lease.dataDir !== want.dataDir) return false
   if (lease.child.exitCode !== null || lease.child.signalCode !== null) return false
-  if (lease.keys.length !== want.keys.length || lease.ports.length !== want.ports.length) return false
+  if (lease.keys.length !== lease.ports.length || want.keys.length !== want.ports.length) return false
+  const served = new Map<string, number>()
   for (let index = 0; index < lease.keys.length; index += 1) {
-    if (lease.keys[index] !== want.keys[index]) return false
-    if (lease.ports[index] !== want.ports[index]) return false
+    const key = lease.keys[index] ?? ''
+    if (key === '' || served.has(key)) return false
+    served.set(key, lease.ports[index] ?? 0)
+  }
+  const seen = new Set<string>()
+  for (let index = 0; index < want.keys.length; index += 1) {
+    const key = want.keys[index] ?? ''
+    if (key === '' || seen.has(key)) return false
+    seen.add(key)
+    const port = served.get(key)
+    // A port of 0 means the child has no inbound for that node (it was
+    // converted in a narrower selection), so this generation must reload.
+    if (port === undefined || port <= 0 || port !== (want.ports[index] ?? 0)) return false
   }
   return true
 }
