@@ -6,4 +6,11 @@
  * rows the 状态 column calls 待验证. Re-exported here because every browser
  * surface (and its tests) already reach for this module.
  */
-export { exitRowState, needsVerification, type ExitRowState, type RowStateFacts } from '../pool/row-state.ts'
+export {
+  EXIT_STATE_DISPLAY_ORDER,
+  exitRowState,
+  exitRowStateRank,
+  needsVerification,
+  type ExitRowState,
+  type RowStateFacts,
+} from '../pool/row-state.ts'

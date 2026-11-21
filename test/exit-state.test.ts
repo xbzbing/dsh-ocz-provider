@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { exitRowState, needsVerification } from '../src/client/exit-state.ts'
+import { EXIT_STATE_DISPLAY_ORDER, exitRowState, exitRowStateRank, needsVerification } from '../src/client/exit-state.ts'
 import type { ExitRowView } from '../src/client/types.ts'
 
 function row(overrides: Partial<ExitRowView> = {}): ExitRowView {
@@ -80,4 +80,26 @@ test('needsVerification: exactly the 待验证 rows, and nothing a click would w
   assert.equal(needsVerification(row({ state: 'unknown', demoted: true })), false, 'a demoted row ranks last on purpose')
   assert.equal(needsVerification(row({ state: 'unknown', cooling: true })), false, 'a 429 cooldown is an answer, not a gap')
   assert.equal(needsVerification(row({ state: 'unknown', exitIP: '', latencyMs: 0 })), false, 'nothing measured yet')
+})
+
+test('the display ladder groups by state with 冷却中 last', () => {
+  // One table lists 20 rows whose states are all over the place. The ladder is
+  // what puts the rows that can dispatch on top, keeps the self-clearing
+  // cooldown out of the way at the bottom, and stays the same in both surfaces.
+  assert.deepEqual(EXIT_STATE_DISPLAY_ORDER, ['usable', 'unproven', 'unknown', 'demoted', 'dead', 'cooling'])
+  const rank = (overrides: Partial<ExitRowView>): number => exitRowStateRank(row(overrides))
+  const usable = rank({})
+  const unproven = rank({ state: 'unknown' })
+  const unknown = rank({ state: 'unknown', exitIP: '', latencyMs: 0 })
+  const demoted = rank({ demoted: true })
+  const dead = rank({ state: 'dead' })
+  const cooling = rank({ cooling: true })
+  assert.ok(usable < unproven, 'a proven row outranks one still waiting')
+  assert.ok(unproven < unknown, 'a measured row outranks one nothing reached')
+  assert.ok(unknown < demoted, 'a parked row sinks, but stays above the failures')
+  assert.ok(demoted < dead, 'dead is a fault, not a demotion')
+  assert.ok(dead < cooling, 'the cooldown clears itself: it ends the table')
+  // Rank is derived from the same classification, so precedence holds: a dead
+  // row that is also cooling ranks with the dead ones, not with the cooldown.
+  assert.equal(rank({ state: 'dead', cooling: true }), dead)
 })

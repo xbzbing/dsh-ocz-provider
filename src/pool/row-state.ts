@@ -55,3 +55,31 @@ export function exitRowState(row: RowStateFacts): ExitRowState {
 export function needsVerification(row: RowStateFacts): boolean {
   return exitRowState(row) === 'unproven'
 }
+
+/**
+ * How the exit tables group their rows, best first.
+ *
+ * The two browser surfaces list ~20 subscription rows whose states are all over
+ * the place, so pool order (or a clicked column) scattered them: a row waiting
+ * out a 429 sat between the two rows actually carrying traffic. This ladder is
+ * the display answer — rows that can dispatch, then the ones one click settles,
+ * then the parked ones — and 冷却中 ends the list because it is the only state
+ * that clears itself; during rotation churn it also holds most rows, and a
+ * table that starts with them buries the rows that want a decision.
+ *
+ * Inside one rank the caller's own order stands: the card keeps pool order, the
+ * stats modal its clicked column.
+ */
+export const EXIT_STATE_DISPLAY_ORDER: readonly ExitRowState[] = [
+  'usable',
+  'unproven',
+  'unknown',
+  'demoted',
+  'dead',
+  'cooling',
+]
+
+/** One row's position in {@link EXIT_STATE_DISPLAY_ORDER}; sort ascending. */
+export function exitRowStateRank(row: RowStateFacts): number {
+  return EXIT_STATE_DISPLAY_ORDER.indexOf(exitRowState(row))
+}

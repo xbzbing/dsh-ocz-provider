@@ -265,7 +265,12 @@ switched off".
 A row's state label is one rule, not two: `src/pool/row-state.ts`
 (`exitRowState`) classifies a row once — both tables name it, and the host's
 `/probe` `scope: 'unproven'` action (the modal's 立即验证) filters with the same
-`needsVerification`, so one click probes exactly the rows shown as 待验证. A row with no
+`needsVerification`, so one click probes exactly the rows shown as 待验证. The
+same file owns the tables' ORDER (`exitRowStateRank`): `usable` → `unproven`
+→ `unknown` → `demoted` → `dead` → `cooling` (冷却中 last), applied host-side
+in `/status` — the card renders it as-is, the modal's clicked column only
+orders INSIDE a group — because a cooldown clears itself and a churning pool
+otherwise buries the rows that want a decision. A row with no
 health claim splits on whether this machine measured the exit — 「待验证」
 (`exitIP` non-empty: a port that now serves another node, or a failed lane
 probe) versus 「未验证」 (nothing ever reached it). `onboard.ts #refreshFacts`

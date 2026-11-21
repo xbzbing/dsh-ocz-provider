@@ -1,7 +1,8 @@
 /**
  * Sidebar footer entry (bottom-left) + exit-stats modal: a headline number
  * (usable exits) with a request-count subline, click to open a centered modal
- * that lists every pool exit sorted BY REQUEST COUNT — per-exit tokens,
+ * that lists every pool exit GROUPED BY ROW STATE (a 冷却中 row sits at the
+ * bottom) and, inside a group, sorted BY REQUEST COUNT — per-exit tokens,
  * latency, in-flight markers and last-used stamps, plus pool-wide totals and
  * the 本机 row. Data rides the shared /status poller (usePoolStatus), so the
  * entry works whether or not the settings card is mounted. The footer subline
@@ -17,7 +18,7 @@ import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots
 // Type-only: the sidebar's SlotMap merge (the 'sidebar.footer.action' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { bridgeErrorText, exitAction, postBridge, probeAction, toolCatalogAction, type ExitAction, type ToolCatalogAction } from './bridge-client.ts'
-import { exitRowState } from './exit-state.ts'
+import { exitRowState, exitRowStateRank } from './exit-state.ts'
 import type { ExitRowView, TokenTotalsView, ToolCatalogView } from './types.ts'
 import { ToolCatalogPanel } from './ToolCatalogPanel.tsx'
 import { PinIcon, ProbeIcon, RotateIcon, UnpinIcon } from './icons.tsx'
@@ -296,13 +297,16 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   /** The 订阅 refresh button exists only while subscriptions are configured. */
   const hasSubscriptions = (status?.subscription?.urlCount ?? 0) > 0
 
-  // Sorted by the clicked column — request count descending is the home
-  // position. An unprobed exit (latency 0) sinks to the bottom under every
-  // latency direction: "unknown" is not "fastest".
+  // Grouped by row state first (`exitRowStateRank`: 冷却中 sinks to the bottom
+  // whatever the column), then sorted by the clicked column — request count
+  // descending is the home position. An unprobed exit (latency 0) sinks below
+  // its group under every latency direction: "unknown" is not "fastest".
   const rows = useMemo(() => {
     if (poolOff) return []
     const unknown = Number.POSITIVE_INFINITY
     return [...(status?.exits ?? [])].sort((left, right) => {
+      const rank = exitRowStateRank(left) - exitRowStateRank(right)
+      if (rank !== 0) return rank
       if (sort.key === 'latency') {
         const a = left.latencyMs > 0 ? left.latencyMs : unknown
         const b = right.latencyMs > 0 ? right.latencyMs : unknown

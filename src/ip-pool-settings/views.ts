@@ -12,6 +12,7 @@ import { DIRECT_EXIT_ID, LOCAL_EXIT_ID, emptyTotals, usageTracker, type TokenTot
 import { localDay, type UsageScope, type UsageStore } from '../pool/usage-store.ts'
 import type { SessionTitleMap } from '../pool/session-titles.ts'
 import { DEFAULT_PROXY_PATH_PREFIXES } from '../pool/dispatcher.ts'
+import { exitRowStateRank } from '../pool/row-state.ts'
 
 /**
  * Sessions listed in the 流量 tab. Shared by the status prefetch and the view
@@ -333,6 +334,13 @@ export function buildStatusView(
       }
     })
     : []
+  /**
+   * Grouped by row state, 冷却中 last (`exitRowStateRank`): the card renders this
+   * order as-is, and the same ladder keeps the stats modal's column sort inside
+   * a group instead of mixing a benched row into the ranking. `sort` is stable,
+   * so pool order survives inside one state.
+   */
+  exits.sort((left, right) => exitRowStateRank(left) - exitRowStateRank(right))
   /** Usable exits across the whole pool, any source. */
   const availableTotal = exits.filter((exit) => exit.state === 'ok').length
   /**

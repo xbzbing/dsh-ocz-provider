@@ -241,6 +241,33 @@ test('status view separates a deferred router from a missing runtime', () => {
   assert.equal(missing.deferredReason, '')
 })
 
+test('status view groups exits by state, 冷却中 last', () => {
+  // The card renders /status order as-is, so the grouping has to happen here:
+  // a benched row must not sit between two rows that are carrying traffic, and
+  // the rows keep the pool's own order inside one group.
+  const base = {
+    source: 'subscription', protocol: 'socks5', pinned: false, exitLocation: '', quality: 'C',
+    bannedModels: [], speed: 0,
+  }
+  const rows = [
+    { ...base, id: 'cool', exitIP: '5.5.5.5', latencyMs: 10, state: 'ok', cooldownUntil: Date.now() + 60_000, consecutiveLimited: 1 },
+    { ...base, id: 'dead', exitIP: '', latencyMs: 0, state: 'dead', cooldownUntil: 0, consecutiveLimited: 0 },
+    { ...base, id: 'ok-a', exitIP: '1.1.1.1', latencyMs: 10, state: 'ok', cooldownUntil: 0, consecutiveLimited: 0 },
+    { ...base, id: 'unproven', exitIP: '3.3.3.3', latencyMs: 10, state: 'unknown', cooldownUntil: 0, consecutiveLimited: 0 },
+    { ...base, id: 'ok-b', exitIP: '2.2.2.2', latencyMs: 10, state: 'ok', cooldownUntil: 0, consecutiveLimited: 0 },
+    { ...base, id: 'demoted', exitIP: '4.4.4.4', latencyMs: 10, state: 'unknown', cooldownUntil: 0, consecutiveLimited: 0 },
+  ].map((entry) => ({
+    ...entry,
+    health: { state: entry.state, cooldownUntil: entry.cooldownUntil, consecutiveLimited: entry.consecutiveLimited },
+    bans: [] as never[],
+  }))
+  const view = buildStatusView(fakeRuntime({}, {
+    list: () => rows,
+    demoted: (id: string) => id === 'demoted',
+  }) as never, true, ['opencode.ai'])
+  assert.deepEqual(view.exits.map((exit) => exit.id), ['ok-a', 'ok-b', 'unproven', 'demoted', 'dead', 'cool'])
+})
+
 test('status view projects counts, exits, bans and prober progress', () => {
   const view = buildStatusView(fakeRuntime() as never, true, ['opencode.ai'])
   assert.equal(view.enabled, true)
