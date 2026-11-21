@@ -161,6 +161,19 @@ test('the summary chip row keeps one pill height', NO_BUNDLE, () => {
   assert.ok(/statsChip\{[^}]*line-height:18px/.test(source), 'and every chip has the same pinned line box')
 })
 
+test('the modal\'s pool-wide actions sit together at the trailing edge', NO_BUNDLE, () => {
+  // 订阅 refresh and 立即验证 are rendered as ONE group: as separate flex items
+  // each carried `margin-left: auto`, so the free space was split between them
+  // and the pair drifted a field apart instead of reading as one cluster.
+  const source = code(bundle())
+  assert.ok(/statsSummaryActions\{[^}]*margin-left:auto/.test(source), 'the group owns the trailing-edge margin')
+  assert.ok(/statsSummaryActions\{[^}]*gap:8px/.test(source), 'and the two buttons keep a button-sized gap')
+  assert.equal(/statsSummaryAction\{/.test(source), false, 'no per-button auto margin survives')
+  const refresh = source.indexOf('stats-refresh-subscriptions')
+  const verify = source.indexOf('stats-verify-unproven')
+  assert.ok(refresh > 0 && verify > refresh, '立即刷新 stays left of 立即验证 in the group')
+})
+
 test('client externals stay inside the host platform table', NO_BUNDLE, () => {
   const source = bundle()
   const required = [...source.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]!)

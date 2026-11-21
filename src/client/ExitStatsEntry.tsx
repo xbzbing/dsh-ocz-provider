@@ -466,35 +466,41 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
           <span className={shared.statsChip}>{t('statsSummaryInflight', { count: totals.inFlight })}</span>
           <span className={shared.statsChip}>{t('statsSummaryLocal', { count: (status?.local?.requests ?? 0).toLocaleString() })}</span>
           <span className={shared.statsChip}>{t('statsSummaryDirect', { count: status?.direct.requests ?? 0 })}</span>
-          {/* 订阅 refresh belongs to the exit view, at the row's trailing edge. */}
-          {hasSubscriptions && (
-            <Button
-              variant="outline"
-              size="sm"
-              className={styles.statsSummaryAction}
-              data-testid="stats-refresh-subscriptions"
-              disabled={busy !== ''}
-              title={t('statsRefreshSubscriptionsHint')}
-              onClick={() => { void refreshSubscriptions() }}
-            >
-              {t('subscriptionRefreshNow')}
-            </Button>
-          )}
-          {/* 立即验证 sits beside the refresh because both are pool-wide actions
-              on the rows this table shows; it costs one probe per 待验证 row
-              and nothing for the rest. */}
-          {rows.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className={styles.statsSummaryAction}
-              data-testid="stats-verify-unproven"
-              disabled={busy !== '' || poolOff}
-              title={t('statsVerifiedHint')}
-              onClick={() => { void verifyUnproven() }}
-            >
-              {t('verifyUnprovenNow')}
-            </Button>
+          {/* The two pool-wide actions travel as ONE group at the row's trailing
+              edge: they are the same kind of gesture (subscription refresh, a
+              probe pass over the rows above), and as separate flex items each
+              one's `margin-left: auto` claimed half the free space, so they
+              drifted a field apart. */}
+          {(hasSubscriptions || rows.length > 0) && (
+            <span className={styles.statsSummaryActions}>
+              {hasSubscriptions && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="stats-refresh-subscriptions"
+                  disabled={busy !== ''}
+                  title={t('statsRefreshSubscriptionsHint')}
+                  onClick={() => { void refreshSubscriptions() }}
+                >
+                  {t('subscriptionRefreshNow')}
+                </Button>
+              )}
+              {/* 立即验证 sits beside the refresh because both act on the rows
+                  this table shows; it costs one probe per 待验证 row and
+                  nothing for the rest. */}
+              {rows.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-testid="stats-verify-unproven"
+                  disabled={busy !== '' || poolOff}
+                  title={t('statsVerifiedHint')}
+                  onClick={() => { void verifyUnproven() }}
+                >
+                  {t('verifyUnprovenNow')}
+                </Button>
+              )}
+            </span>
           )}
         </div>
         {/* The settings card states the conversion numbers beside its own 立即刷新;
