@@ -848,3 +848,67 @@ test('markMeasured(): the round that measured a reset row restores its claim, an
 
   assert.equal(p.markMeasured('nope:1'), false)
 })
+
+test('pick never dispatches into a local listener that is between processes', () => {
+  const p = pool()
+  p.add(node({ id: '127.0.0.1:30001', exitIP: '1.1.1.1', latencyMs: 100 }))
+  p.add(node({ id: '127.0.0.1:30002', exitIP: '2.2.2.2', latencyMs: 200 }))
+  p.markOk('127.0.0.1:30001')
+  p.markOk('127.0.0.1:30002')
+
+  // The child is between stop and spawn: nothing answers.
+  let serving = new Set<number>()
+  p.setLocalPortGuard((port) => serving.has(port))
+  assert.equal(p.pick('ses', 'm'), null, 'no row can carry a request while every listener is gone')
+
+  // Only the second listener is back: the faster row must not win on latency.
+  serving = new Set([30002])
+  for (let index = 0; index < 8; index += 1) {
+    assert.equal(p.pick(`ses-${index}`, 'm'), '127.0.0.1:30002')
+  }
+
+  // A sticky binding to a listener that went away does not survive it.
+  serving = new Set([30001, 30002])
+  const sticky = p.pick('ses-sticky', 'm')
+  assert.ok(sticky !== null)
+  serving = new Set(sticky === '127.0.0.1:30001' ? [30002] : [30001])
+  assert.notEqual(p.pick('ses-sticky', 'm'), sticky, 'the binding is not a free pass past the guard')
+
+  // Uninstalling the guard restores the plain behaviour (a test seam, or a
+  // pool with no converted exits at all).
+  p.setLocalPortGuard(undefined)
+  assert.ok(p.pick('ses-loose', 'm') !== null)
+  for (const row of p.list()) {
+    assert.equal(row.health.state, 'ok', 'a skipped row is not struck by the guard')
+  }
+})
+
+test('the local-port guard leaves non-loopback rows alone', () => {
+  const p = pool()
+  p.add(node({ id: 'airport.example:8080', exitIP: '3.3.3.3' }))
+  p.markOk('airport.example:8080')
+  p.setLocalPortGuard(() => false)
+  assert.equal(p.pick('ses', 'm'), 'airport.example:8080', 'somebody else\'s socket is not ours to judge')
+
+  const pinned = pool()
+  pinned.add(node({ id: '10.0.0.1:1087', source: 'manual', exitIP: '4.4.4.4' }))
+  pinned.markOk('10.0.0.1:1087')
+  pinned.pin('10.0.0.1:1087')
+  pinned.setLocalPortGuard(() => false)
+  assert.equal(pinned.pick('ses', 'm'), '10.0.0.1:1087')
+})
+
+test('a pinned row whose listener is gone falls through, loudly', () => {
+  const p = pool()
+  p.add(node({ id: '127.0.0.1:30001', exitIP: '1.1.1.1' }))
+  p.add(node({ id: '127.0.0.1:30002', exitIP: '2.2.2.2' }))
+  p.markOk('127.0.0.1:30001')
+  p.markOk('127.0.0.1:30002')
+  p.pin('127.0.0.1:30001')
+  p.setLocalPortGuard((port) => port === 30002)
+
+  const skipped: Array<[string, string]> = []
+  p.onPinnedSkip((pinned, used) => skipped.push([pinned, used]))
+  assert.equal(p.pick('ses', 'm'), '127.0.0.1:30002')
+  assert.deepEqual(skipped, [['127.0.0.1:30001', '127.0.0.1:30002']], 'the operator hears about it')
+})

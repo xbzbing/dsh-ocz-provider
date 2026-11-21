@@ -229,6 +229,9 @@ export class SingBoxSupervisor {
   #nodes: ParsedNode[] = []
   /** Port per node identity, carried across reloads. */
   #portByKey = new Map<string, number>()
+  /** The port space this supervisor owns (mirror of `#portByKey`'s values):
+   *  a local port outside it is somebody else's socket, never judged here. */
+  #ownedPorts = new Set<number>()
   /** Serializes reload/stop. */
   #lock: Promise<void> = Promise.resolve()
   /** Bumped by every stop(); a reload requested before it never spawns. */
@@ -267,6 +270,7 @@ export class SingBoxSupervisor {
       if (key === '' || typeof port !== 'number' || !Number.isInteger(port) || port <= 0) continue
       this.#portByKey.set(key, port)
     }
+    this.#ownedPorts = new Set(this.#portByKey.values())
   }
 
   /** Persist the assignments atomically; a failure costs stability, not service. */
@@ -298,6 +302,26 @@ export class SingBoxSupervisor {
    *  (`0` = that node produced no inbound). Diagnostics only. */
   get ports(): number[] {
     return [...this.#ports]
+  }
+
+  /**
+   * Whether this local port is part of the port space the supervisor assigns.
+   * A port outside it (a manual proxy, a plaintext subscription row) is not
+   * ours to judge: its liveness belongs to pool/transport.ts.
+   */
+  owns(port: number): boolean {
+    return this.#ownedPorts.has(port)
+  }
+
+  /**
+   * Whether one of our own ports answers RIGHT NOW — the child is running and
+   * bound it. Between `stop()` and the next spawn (every reload) this is false
+   * for every port, which is exactly the window the pool must not dispatch
+   * into: a connect there is a guaranteed ECONNREFUSED, not a fact about the
+   * exit (the relay reports it as a 502 `relay_error`).
+   */
+  serves(port: number): boolean {
+    return this.#running && this.#ports.includes(port)
   }
 
   #exclusive<T>(job: () => Promise<T>): Promise<T> {
@@ -364,7 +388,29 @@ export class SingBoxSupervisor {
       next.set(key, port)
     }
     this.#portByKey = next.size > PORT_MEMORY_LIMIT ? new Map([...next].slice(-PORT_MEMORY_LIMIT)) : next
+    this.#ownedPorts = new Set(this.#portByKey.values())
     return ports
+  }
+
+  /**
+   * Whether the RUNNING child already serves this exact selection.
+   *
+   * Identity is `screeningKey` (fingerprint-free) plus the port table, never
+   * the generated config: the airport re-rolls TLS fingerprints on every fetch,
+   * so the file always differs while the exits are the same. The port array has
+   * to match in full — a narrower selection must still rebuild, because its
+   * dropped nodes' listeners have to close, or the pool would hold fewer exits
+   * than sing-box has inbounds (docs/ip-pool.md §4.7 端口与选择集).
+   */
+  #servesSelection(nodes: readonly ParsedNode[], ports: readonly number[]): boolean {
+    const child = this.#child
+    if (!this.#running || child === null || child.exitCode !== null || child.signalCode !== null) return false
+    if (this.#ports.length !== ports.length) return false
+    for (let index = 0; index < ports.length; index += 1) {
+      if (ports[index] !== this.#ports[index]) return false
+      if (screeningKey(nodes[index]!) !== screeningKey(this.#nodes[index]!)) return false
+    }
+    return true
   }
 
   /**
@@ -420,6 +466,26 @@ export class SingBoxSupervisor {
       this.#options.logger?.warn(`oc2dsh: sing-box conversion skipped ${invalid} node(s) with an unsupported type or an invalid config (bad port, missing credentials)`)
     }
     const { config, ports } = generateConfig(nodes, this.#options.basePort ?? 30_000, keep, assigned)
+    /**
+     * The child already serves exactly this selection: keep it.
+     *
+     * Every fetch re-rolls each node's TLS fingerprint, so the generated FILE
+     * always differs while the exits are the same ones on the same ports
+     * (`screeningKey` ignores fingerprints — pool/onboard-cache.ts). Restarting
+     * for that would drop every converted listener for the length of the
+     * readiness wait and hand the rows that had requests in flight a
+     * connect-refused they never earned. This is the same identity test the
+     * reload handoff applies (`matchesLease`), applied inside one generation.
+     *
+     * A leased child is excluded: that path must ADOPT, or the offer expires
+     * and the child it points at is ended.
+     */
+    if (leased === null && this.#servesSelection(nodes, ports)) {
+      this.#nodes = nodes
+      this.#ports = ports
+      this.#options.logger?.info('oc2dsh: sing-box reload skipped; the running child already serves this selection')
+      return this.#convertedExits(nodes, ports)
+    }
     if (leased !== null) {
       const keys = nodes.map((node) => screeningKey(node))
       if (await this.#adopt(leased, { binPath: this.#options.binPath, binary: basename(binary), configPath: this.#configPath, dataDir: this.#dataDir, ports, keys })) {

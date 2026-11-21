@@ -504,7 +504,13 @@ const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 test('supervisor: concurrent reloads never orphan a child, and stop() returns for a signal-killed child', { skip: process.platform === 'win32' }, async () => {
   const fake = fakeSingBox()
   const supervisor = new SingBoxSupervisor({ binPath: fake.bin, dataDir: fake.dir, readyTimeoutMs: 100, basePort: 39_000, logger: { info: () => {}, warn: () => {} } })
-  await Promise.all([supervisor.reload([vmessNode()]), supervisor.reload([vmessNode()])])
+  // Two DIFFERENT selections, so both reloads really respawn: an identical one
+  // is a no-op that keeps the running child (see the fingerprint test in
+  // singbox-lease.test.ts) and would not exercise the serialization at all.
+  await Promise.all([
+    supervisor.reload([vmessNode({ name: 'one', server: 'one.example.com' })]),
+    supervisor.reload([vmessNode({ name: 'two', server: 'two.example.com' })]),
+  ])
   const pids = fake.pids()
   assert.equal(pids.length, 2, 'both reloads ran, one after the other')
   await settle(50)

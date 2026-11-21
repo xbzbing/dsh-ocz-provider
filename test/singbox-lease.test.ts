@@ -237,3 +237,66 @@ test('handoff: a lease nobody claims ends the child after its grace window', asy
   assert.equal(alive(pid), false, 'an uninstall leaves the child unclaimed, and the timer ends it')
   assert.ok(SINGBOX_GRACE_MS > 30)
 })
+
+const portOf = (address: string): number => Number(address.slice(address.lastIndexOf(':') + 1))
+
+test('serves(): only the ports the running child holds answer', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'singbox-serves-'))
+  LAST.dataDir = dataDir
+  const binPath = fakeBinary()
+  const basePort = 44_000 + Math.floor(Math.random() * 400)
+
+  await exported(async () => {
+    const supervisor = supervised({ binPath, dataDir, basePort, readyTimeoutMs: 5_000, logger: quiet })
+    assert.equal(supervisor.running, false)
+    assert.equal(supervisor.serves(basePort + 1), false, 'nothing answers before the first reload')
+
+    const exits = await supervisor.reload([node('a'), node('b')])
+    for (const exit of exits) {
+      const port = portOf(exit.address)
+      assert.equal(supervisor.serves(port), true, `${exit.address} answers while the child runs`)
+      assert.equal(supervisor.owns(port), true, 'the port belongs to the supervisor')
+    }
+    // A port nobody assigned (a manual proxy, a plaintext row) is not ours to
+    // judge: the pool's guard must leave such a row alone.
+    assert.equal(supervisor.owns(basePort + 77), false)
+
+    await supervisor.stop()
+    await sleep(100)
+    for (const exit of exits) {
+      assert.equal(supervisor.serves(portOf(exit.address)), false, 'a stopped child serves nothing')
+    }
+  })
+})
+
+test('reload: a re-rolled fingerprint keeps the child, a narrower selection does not', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'singbox-fingerprint-'))
+  LAST.dataDir = dataDir
+  const binPath = fakeBinary()
+  const basePort = 45_000 + Math.floor(Math.random() * 400)
+  const nodes = [node('a'), node('b'), node('c')]
+
+  await exported(async () => {
+    const supervisor = supervised({ binPath, dataDir, basePort, readyTimeoutMs: 5_000, logger: quiet })
+    const first = await supervisor.reload(nodes)
+    const pid = recordOf(dataDir).pid
+    assert.equal(first.length, 3)
+
+    // Every fetch re-rolls TLS fingerprints: the config file differs, the exits
+    // do not, so the child must keep serving (a restart would drop all three
+    // listeners for the readiness wait).
+    const second = await supervisor.reload(nodes.map(rerolled))
+    assert.equal(recordOf(dataDir).pid, pid, 'a fingerprint re-roll is not a new exit')
+    assert.deepEqual(second.map((exit) => exit.address), first.map((exit) => exit.address))
+
+    // A NARROWER selection must still rebuild: the dropped node's listener has
+    // to close, or sing-box holds one inbound more than the pool has exits.
+    const kept = await supervisor.reload(nodes.map(rerolled), [0, 1])
+    assert.equal(kept.length, 2)
+    assert.notEqual(recordOf(dataDir).pid, pid, 'the dropped listener closed with the old child')
+    assert.equal(supervisor.serves(portOf(first[2]!.address)), false, 'and stops answering')
+    for (const exit of kept) {
+      assert.equal(supervisor.serves(portOf(exit.address)), true)
+    }
+  })
+})

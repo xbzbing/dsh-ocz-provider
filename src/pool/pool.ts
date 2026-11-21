@@ -854,6 +854,32 @@ export class ExitPool {
   }
 
   /**
+   * Whether a row's LOCAL listener answers right now. Installed by the runtime
+   * (the sing-box supervisor, `serves()`), consulted by `pick()`: dispatching
+   * into a port that is between processes is a guaranteed ECONNREFUSED — the
+   * relay answers 502 `relay_error` for it — which says nothing about the exit
+   * and must never cost it a strike.
+   */
+  #localPortGuard: ((port: number) => boolean) | undefined
+  /**
+   * Install the local-listener predicate. A row that is not `127.0.0.1:<port>`
+   * is never asked: an airport node, a manual proxy or a pinned row is somebody
+   * else's socket. Uninstalled (no sing-box, or a test seam) = everything
+   * routable, so a pool with no converted exits behaves exactly as before.
+   */
+  setLocalPortGuard(guard: ((port: number) => boolean) | undefined): void {
+    this.#localPortGuard = guard
+  }
+
+  /** Whether this row's own listener can be dialled now (see #localPortGuard). */
+  #routable(id: string): boolean {
+    const guard = this.#localPortGuard
+    if (guard === undefined) return true
+    const match = /^127\.0\.0\.1:(\d+)$/.exec(id)
+    return match === null ? true : guard(Number(match[1]))
+  }
+
+  /**
    * Pick the exit for one upstream request. Pinned wins while usable (3.6);
    * the rotation pool then prefers session stickiness, health, fewer
    * cooldowns and lower latency with a same-tier shuffle. Pure; no IO.
@@ -867,11 +893,15 @@ export class ExitPool {
    * through the pin-skip callback. The fall-through is correct: a pin is a
    * preference (see `pinnedStrict`), so the callback is what keeps an unusable
    * pin visible to the operator (AGENTS.md, egress row hygiene).
+   *
+   * A row whose local listener is not answering right now is skipped exactly
+   * like a cooling one (#localPortGuard): the rotation must reach a row that
+   * can carry the request, not the one that was least recently unlucky.
    */
   pick(session: string, model: string): string | null {
     if (this.pinnedId === LOCAL_EXIT_ID) return null
     const pinned = this.pinnedId
-    if (pinned !== '' && this.isUsable(pinned, model)) {
+    if (pinned !== '' && this.isUsable(pinned, model) && this.#routable(pinned)) {
       // Record the binding even on the pin path: the verdicts that arrive
       // AFTER the response (the adapter's 403 accounting — exitOfSession) need
       // to know which exit answered, and while a pin is set that is always the
@@ -889,9 +919,9 @@ export class ExitPool {
   /** Sticky-else-sorted selection over the usable rows (pick's second half). */
   #rotate(session: string, model: string): string | null {
     const last = this.#sessionExit.get(session)
-    if (last !== undefined && this.isUsable(last, model)) return last
+    if (last !== undefined && this.isUsable(last, model) && this.#routable(last)) return last
 
-    const usable = [...this.#nodes.keys()].filter((id) => this.isUsable(id, model))
+    const usable = [...this.#nodes.keys()].filter((id) => this.isUsable(id, model) && this.#routable(id))
     if (usable.length === 0) return null
     const health = (id: string) => this.#health.get(id)!
     const node = (id: string) => this.#nodes.get(id)!

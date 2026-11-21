@@ -398,6 +398,17 @@ export async function startIpPool(
   }
 
   /**
+   * A rotation must never dial a local port whose listener is between
+   * processes. Every reload stops the child before spawning the next one, and
+   * a port the new selection dropped closes for good: either way the connect is
+   * a guaranteed ECONNREFUSED — which the relay reports as a 502
+   * `relay_error` — not a verdict about the exit, and it used to strike the row
+   * dead on every rebuild. The guard answers only for ports this supervisor
+   * owns; a manual proxy or a plaintext subscription row is untouched.
+   */
+  pool.setLocalPortGuard((port) => supervisor === undefined || !supervisor.owns(port) || supervisor.serves(port))
+
+  /**
    * Tear the subscription layer down (no URLs left, or the pool switched off):
    * no more fetches, sing-box stopped, and the rows it fed leave the table,
    * because nothing serves their listeners any more. Enabling again (or adding
