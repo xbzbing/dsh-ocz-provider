@@ -171,7 +171,12 @@ function applyAdapter(
       ...(ipPoolError === null ? {} : { wiringError: ipPoolError }),
     }
   }
+  /** The last catalog snapshot and failure, so the timer below can re-stamp. */
+  let lastStatus: CatalogSnapshot | null = null
+  let lastFailure = ''
   const writeStatus = (status: CatalogSnapshot, lastError: string): void => {
+    lastStatus = status
+    lastFailure = lastError
     void writeFile(
       statusPath,
       JSON.stringify(
@@ -219,6 +224,21 @@ function applyAdapter(
       if (lastError) logger.warn(`oc2dsh: catalog refresh issue: ${lastError}`)
     },
   })
+  /**
+   * Re-stamp the status file while the pool runs.
+   *
+   * `pool.exits` / `pool.singbox` are read at write time, but the write itself
+   * used to happen only on a catalog refresh: a reloaded pool therefore read as
+   * `exits: 1, singbox: running: false` minutes later, which is exactly the
+   * question the file exists to answer. A slow timer keeps those fields current
+   * without touching the catalog.
+   */
+  const statusTimer = setInterval(() => {
+    if (lastStatus !== null) writeStatus(lastStatus, lastFailure)
+  }, 30_000)
+  statusTimer.unref?.()
+  if (typeof ctx.effect === 'function') ctx.effect.call(ctx, () => () => { clearInterval(statusTimer) })
+
   // The known-tools catalogue (src/tool-catalog.ts): the wire's tool names and
   // descriptions move under every dsh upgrade, and one of those moves broke the
   // lane for a whole session. Every shaped request reports its set here; the
