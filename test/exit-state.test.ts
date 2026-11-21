@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { exitRowState } from '../src/client/exit-state.ts'
+import { exitRowState, needsVerification } from '../src/client/exit-state.ts'
 import type { ExitRowView } from '../src/client/types.ts'
 
 function row(overrides: Partial<ExitRowView> = {}): ExitRowView {
@@ -67,4 +67,17 @@ test('no health claim splits on whether anything measured the exit', () => {
   // probe keeps its facts (unproven), a row nothing reached has none (unknown).
   assert.equal(exitRowState(row({ state: 'unknown' })), 'unproven')
   assert.equal(exitRowState(row({ state: 'unknown', exitIP: '', latencyMs: 0 })), 'unknown')
+})
+
+test('needsVerification: exactly the 待验证 rows, and nothing a click would waste', () => {
+  // 待验证 = measured, no live claim, not dead/demoted/cooling. This is the set
+  // 「立即验证」 probes: proving an already-ok row again would spend that exit's
+  // own quota to learn nothing, and a row nothing ever measured has no listener
+  // worth probing yet.
+  assert.equal(needsVerification(row({ state: 'unknown' })), true, 'measured but unsettled')
+  assert.equal(needsVerification(row({ state: 'ok' })), false, 'already proven')
+  assert.equal(needsVerification(row({ state: 'dead' })), false, 'dead rows are revoked, not re-probed')
+  assert.equal(needsVerification(row({ state: 'unknown', demoted: true })), false, 'a demoted row ranks last on purpose')
+  assert.equal(needsVerification(row({ state: 'unknown', cooling: true })), false, 'a 429 cooldown is an answer, not a gap')
+  assert.equal(needsVerification(row({ state: 'unknown', exitIP: '', latencyMs: 0 })), false, 'nothing measured yet')
 })

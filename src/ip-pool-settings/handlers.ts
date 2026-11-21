@@ -138,13 +138,20 @@ export function makeBridgeHandlers(
         await rt.refreshSubscriptions()
         return { ok: true, value: { refreshed: true } }
       }
+      if (scope === 'unproven') {
+        // 立即验证: only the rows that were measured but never settled against
+        // the lane (the 待验证 state). Proving an already-ok row again would
+        // spend that exit's own quota to learn nothing.
+        const queued = await rt.probeUnproven()
+        return { ok: true, value: { queued } }
+      }
       if (scope === 'exit') {
         const exitId = typeof body.exitId === 'string' ? body.exitId : ''
         if (!rt.pool.has(exitId)) return { ok: false, code: 'unknown-exit', message: `exit "${exitId}" is not in the pool` }
         const count = await rt.probeExit(exitId)
         return { ok: true, value: { queued: count } }
       }
-      return { ok: false, code: 'settings-rejected', message: "probe scope must be 'all', 'exit' or 'subscription'" }
+      return { ok: false, code: 'settings-rejected', message: "probe scope must be 'all', 'unproven', 'exit' or 'subscription'" }
     },
     async models() {
       const { staticFreeModels } = await import('../adapter/catalog.ts')

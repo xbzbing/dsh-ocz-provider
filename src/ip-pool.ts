@@ -32,6 +32,7 @@ import { pickSmokeContent } from './pool/smoke-content.ts'
 import { stateDir } from './paths.ts'
 import { closeLease, offerSlot, takeSlot, SLOT_GRACE_MS, type SlotLease } from './pool/slot-lease.ts'
 import { offerRows, takeRows } from './pool/rows-lease.ts'
+import { needsVerification } from './pool/row-state.ts'
 import { loadPoolHealth, restorePoolHealth, startPoolHealthWriter } from './pool/pool-health.ts'
 
 /** Data dir shared with the catalog cache (config.ts convention). */
@@ -203,6 +204,9 @@ export interface IpPoolRuntime {
   /** Enqueue a probe of every pool exit against the probe models (bridge
    *  /probe scope 'all', docs §5.3). Returns the queue depth after enqueue. */
   probeAll(): Promise<number>
+  /** Enqueue a probe of ONLY the rows without a live claim (bridge /probe
+   *  scope 'unproven', the card's 立即验证). Returns the queue depth. */
+  probeUnproven(): Promise<number>
   /** Enqueue one exit's probe (bridge /probe scope 'exit'). */
   probeExit(exitId: string): Promise<number>
   /** One subscription refresh round (bridge 立即刷新, docs §5.2). */
@@ -626,9 +630,10 @@ export async function startIpPool(
     }
   }
 
-  const probeAll = async (): Promise<number> => {
+  /** Queue one probe pass over exactly these rows; the count is what was queued. */
+  const probeRows = async (entries: ReturnType<ExitPool['list']>): Promise<number> => {
     const models = probeModelsOrDefault()
-    const tasks = pool.list().map((entry): import('./pool/prober.ts').ProbeTask => ({
+    const tasks = entries.map((entry): import('./pool/prober.ts').ProbeTask => ({
       exitId: entry.id,
       kind: 'probe-all',
       run: () => probeOne(entry, models),
@@ -636,6 +641,24 @@ export async function startIpPool(
     if (tasks.length === 0) return 0
     void prober.enqueueAll(tasks).catch(() => {})
     return tasks.length
+  }
+
+  const probeAll = async (): Promise<number> => probeRows(pool.list())
+
+  /**
+   * 立即验证 (bridge /probe scope 'unproven'): the rows the 状态 column calls
+   * 待验证 — measured, but without a live claim — and nothing else. The filter
+   * is `needsVerification` (pool/row-state.ts), the same rule both tables name
+   * their states with, so the button can never disagree with what it shows.
+   */
+  const probeUnproven = async (): Promise<number> => {
+    const now = Date.now()
+    return probeRows(pool.list().filter((entry) => needsVerification({
+      state: entry.health.state,
+      cooling: entry.health.cooldownUntil > now,
+      exitIP: entry.exitIP,
+      demoted: pool.demoted(entry.id),
+    })))
   }
 
   const probeExitTask = (exitId: string, entry: ReturnType<ExitPool['list']>[number]): import('./pool/prober.ts').ProbeTask => ({
@@ -777,6 +800,7 @@ export async function startIpPool(
       }
     },
     probeAll,
+    probeUnproven,
     probeExit,
     async refreshSubscriptions() {
       await subscriptions?.refreshNow()

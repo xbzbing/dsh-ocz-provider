@@ -191,6 +191,7 @@ function fakeRuntime(overrides: Record<string, unknown> = {}, poolOverrides: Rec
       state: { pendingConversion: [{}, {}], convertedAdmitted: 1, plaintextAdmitted: 0, lastFetch: 789, lastError: '' },
     },
     probeAll: async () => 2,
+    probeUnproven: async () => 3,
     probeExit: async () => 1,
     refreshSubscriptions: async () => {},
     reconfigure: async () => {},
@@ -440,12 +441,16 @@ test('status view degrades to a disabled stub without a runtime', () => {
 
 // -- bridge: handlers ------------------------------------------------------------
 
-test('probe handlers: scope all/exit/subscription dispatch and reject unknowns', async () => {
+test('probe handlers: scope all/unproven/exit/subscription dispatch and reject unknowns', async () => {
   const refreshed: number[] = []
   const rt = fakeRuntime({ refreshSubscriptions: async () => { refreshed.push(1) } }) as never
   const handlers = makeBridgeHandlers(() => rt, () => ({ pinnedStrict: false, proxyHosts: [] }))
   const all = await handlers.probe({ scope: 'all' })
   assert.deepEqual(all, { ok: true, value: { queued: 2 } })
+  // 立即验证 asks the host for its own scope: the FILTER lives beside the rule
+  // the table renders with, so the browser never pre-computes "which rows".
+  const unproven = await handlers.probe({ scope: 'unproven' })
+  assert.deepEqual(unproven, { ok: true, value: { queued: 3 } })
   const one = await handlers.probe({ scope: 'exit', exitId: 'http://10.0.0.1:3128' })
   assert.deepEqual(one, { ok: true, value: { queued: 1 } })
   const refill = await handlers.probe({ scope: 'refill' })

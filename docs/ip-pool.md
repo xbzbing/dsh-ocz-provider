@@ -641,7 +641,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 - `POST /status`：池快照——可用/容量 + 来源计数（manual/subscription/goproxy）+ 两级健康（出口表：地址/来源/位置/延迟/质量/出口 IP/状态/冷却到期时刻 + 封禁表：(出口, 模型, bannedAt)）+ Prober 队列进度（enqueued/completed/inFlight/queued）+ 订阅层状态（pendingConversion 数、convertedAdmitted、lastFetch、lastError——**不含 URL 明文**）。返回结构化 JSON，卡片 3s 轮询（探活进行中 1s）。
 - `POST /exit`：`{action: 'pin'|'pin-local'|'unpin'|'rotate', exitId?}` —— 两张出口表的行内动作（2026-10-14 新增）。`pin` 把 `pinnedExitId` 写进本插件的设置命名空间（`ctx.settings.mutate('oc2dsh', [{op:'set', path:['ipPool','pinnedExitId'], value}])`，与卡片自己的写路径同形；空值走 `unset`，让 schema 默认值生效）并即时 `pool.pin()`；`pin-local` 是弹窗本机行的按钮——**哨兵值由宿主侧拼**，前端只表达意图（`pin-local`），这样浏览器半永远不需要拼写 `local`；`unpin` 清空。只读配置下写失败不阻断：点击仍然即时生效（live pin），响应里 `persisted: false`，弹窗据此显示「已生效，但未写入配置（重启后失效）」。`rotate` = 用户主动轮换一行（动作名原为 `remove`，2026-10-14 按语义更正：什么都没被删除）：交给订阅层的候选表 `replaceExit()`——有候补就补位（`promoted: true`），候补用尽就把该出口沉到池尾（§4.7），没有 onboarder（本进程还没跑过订阅轮）时退化为 `demoteToTail()`；若正好有上线/裁剪轮占着重建互斥量，`replaceExit()` 会在**没查候补**的情况下返回 false，这时回 `busy: true` 而**不**沉底（弹窗提示「轮换进行中，请稍后重试」）——否则「先补位、无候补才沉底」的约定会在这一窗口被违反；若被删的正是当前 pinned，先解除固定再删（否则下一次提交会把一个已不在池里的 id 重新 pin 回来，而订阅出口 id `127.0.0.1:30001` 恰好能通过 manual 地址解析，会被当成手填节点重新入池）。
-- `POST /probe`：`{scope: 'all'|'exit'|'subscription', exitId?}`。`all`：对全池出口 × probeModels 各探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`exit`：单出口插队探测；`subscription`：手动重拉订阅 URL（§5.2「立即刷新」，刷新定时器之外唯一的重拉入口）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
+- `POST /probe`：`{scope: 'all'|'unproven'|'exit'|'subscription', exitId?}`。`all`：对全池出口 × probeModels 各探测一次（入 Prober 队列，返回队列长度，前端看 /status 进度）；`unproven`：只探测「待验证」的行（弹窗的「立即验证」，判据是同一条 `needsVerification`，已通过/冷却中/dead/degraded/从未测到过的行都不碰）；`exit`：单出口插队探测；`subscription`：手动重拉订阅 URL（§5.2「立即刷新」，刷新定时器之外唯一的重拉入口）。探测在宿主侧跑：走 Prober 两级调度（同出口串行 + 全局上限），不碰浏览器。
 - `POST /usage`：`{action: 'reset'}` —— 台账的**清空按钮**（2026-10-14 新增：「总量统计保留 90 天，自然过期，增加一个清空的功能按钮」）。它**不需要池子在跑**：台账在池子关闭时也照记（每个请求落进本机桶，§5.6），所以清空也不能依赖运行中的池子。清空同时抹掉持久台账与「本次重启」两套桶（只清一半会让两个口径对不上，读起来像 bug），并且**把空文档写进磁盘**——否则重启会把数字带回来（`UsageStore.clear()`，先 `load()` 再重置再 flush，避免 flush 内部的 load 把旧文档合并回来）。响应 `{cleared: true}`，弹窗随后重读 `/status`，chips、每天柱状图与左下角入口一起归零。
 - 路由护栏照抄 dsh-llm-proxy settings.js：loopback socket + 规范 Host + same-origin 三重校验、JSON body 上限、`{ok, code, message}` 信封。**不做 settings 代理面**（官方通道在）。
 - 页面注册进 `plugins.item`（`@deepseek-ai/dsh-client-ui-plugin-manager` 拥有的 list slot，`id: 'oc2dsh'`）；插件页拥有卡片外框、标题、one-liner 与保存按钮，`view:'summary'` 返回描述、`view:'page'` 返回表单，保存走共享 `SettingsForm` 外框。挂载门控 `ctx.configForms.whileServed(['oc2dsh'], …)`，官方 form ready 之前不渲染。0.1.7 之前的 keyed `settings.plugin.item` 与双形态兼容分支都已删除。
@@ -697,11 +697,13 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 | --- | --- |
 | 出口 IP | 出口 IP；未验证的出口显示 `— 127.0.0.1:30xxx`（本地端点，弱化）；悬停显示完整位置（`HK Central`）；已固定的行带「主力」标记 |
 | 地区 | 国家/地区代码：由 `exitLocation` 的**首个 token**（ip-api 的 `countryCode`，admission.ts 拼的就是 `${countryCode} ${city}`）映射而来。口径以用户给的两个例子为锚：香港 → `HK`、新加坡 → `SGP`；大中华区保持两字母（`HK`/`TW`/`MO`），其余用三字母（`JPN`/`KOR`/`USA`/`DEU`…），未收录的国家回落成它自己的两字母代码而不是留空（新机场位置当天也能读）。映射表在 `src/client/region.ts`，有单测 |
-| 状态 | 可用（绿）/ 冷却中 / 已降级 / dead（红）/ 已测速·未验证 / 未验证。后两者由 `src/client/exit-state.ts` 的同一个判定分出（卡片与弹窗共用，有单测）：**已测速·未验证** = 有健康之外的事实（`exitIP` 非空：端口换了节点被 reset、或车道探活失败）却还没有健康结论，悬停说明「已测速但没对车道证明过」；**未验证** = 连事实都没有（从没测到过出口 IP）。 |
+| 状态 | 可用（绿）/ 冷却中 / 已降级 / dead（红）/ 待验证 / 未验证。后两者由 `src/pool/row-state.ts` 的同一个判定分出（卡片、弹窗与宿主侧的「立即验证」共用，有单测）：**待验证** = 有健康之外的事实（`exitIP` 非空：端口换了节点被 reset、或车道探活失败）却还没有健康结论，悬停说明「已测速但没对车道证明过」；**未验证** = 连事实都没有（从没测到过出口 IP）。 |
 | 请求数·输入·输出·缓存·延迟 | 按出口的进程内累计；输出列附带 `N tok/s`——最近 3 分钟窗口的 Σ输出 token ÷ Σ解码窗口（首个 output delta → usage 块），窗口内不足 200 token 不显示（一次标题生成或两行回复的解码窗口太短，那个比值是交付方式而不是速度）；表头可点排序 |
 | 最后使用 | 该出口最近一次派发时刻；在途请求带徽章 |
 | 操作 | 三个**图标**按钮组成的**按钮组**（2026-10-14 新增，走 `/exit` bridge；按钮之间无间隙：共用一条 1px 边框，只有外侧两角保留圆角；文字进 tooltip/aria-label）：🔒「固定」/「取消固定」= 后续流量固定走该出口；⟳「轮换」= 把这一行交给候选表——有候补就补位，没有候补就移到列表末尾（§4.7 的降级语义），两种结果文案不同；📈「探活」（心跳图标，走 `/probe` 的 `scope: 'exit'`，与卡片行内「探测」同一入口）= 对这一行跑一次完整准入（本地监听 → 出口 IP → Zen 模型列表 → 免费车道冒烟），POST 在探针跑完才回答，随后重读 `/status`，结论落在状态列——这是订阅行唯一不靠真实流量就能拿到车道结论的路。**「轮换」一度叫「删除」，语义是错的**：没有任何东西被删除，行只是被轮换出去（有候补时总数不变） |
 | 本机行 | 本机出口（`direct` + `local` 两个桶合并）：状态绿点 + 「直连」，同样带 🔒 图标 = 固定本机（`local` 哨兵，§3.6）。兜底关闭时这一行仍可固定，它是用户的显式选择（§3.3） |
+
+**立即验证（2026-11-22 新增）**：出口 tab 汇总区里「立即刷新」旁边的一颗按钮，只对「待验证」的行跑一次探活（`/probe` `scope: 'unproven'`）。已通过、冷却中、dead、已降级与从未测到过出口的行都不碰——判据就是表格着色用的那条 `needsVerification`（`src/pool/row-state.ts`），所以按钮承诺的集合永远等于它旁边表格显示成「待验证」的那些行，浏览器半不需要自己挑行。返回排队条数并由 toast 报告；0 条时明确说「没有待验证的节点」，与「点了没反应」区分开。
 
 要点：**弹窗没有 settings 表单**（它不在设置页的插槽里），所以固定/轮换不能像卡片那样走 `ConfigForm.mutate`，而是走 bridge 的 `/exit`（§5.3）——写设置的那一半由宿主侧完成，浏览器半只发意图。
 
@@ -754,7 +756,7 @@ dsh-llm-proxy 的 bridge 有四个面（describe/mutate/models/test），前两�
 
 | 事实 | TTL | 过期后 |
 | --- | --- | --- |
-| `ok`（探活通过或真实 2xx） | 10 min（`PROVEN_TTL_MS`） | 降为 `unknown`，测量事实仍在 → 卡片显示「已测速·未验证」 |
+| `ok`（探活通过或真实 2xx） | 10 min（`PROVEN_TTL_MS`） | 降为 `unknown`，测量事实仍在 → 卡片显示「待验证」 |
 | `dead`（strike） | 15 min（`DEAD_TTL_MS`） | 降为 `unknown`，给这行一次新机会 |
 | `cooldownUntil` | 绝对时间 | 已过期就丢 |
 | `bans`（出口×模型） | 6 h（`BAN_TTL_MS`），且只存 `banned` | 丢 |

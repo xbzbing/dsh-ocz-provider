@@ -118,10 +118,11 @@ export function toolCatalogAction<T>(body: ToolCatalogAction | Record<string, ne
   return postBridge<T>('/tools', body, options)
 }
 
-/** /probe scopes: every exit, one exit, or a subscription re-pull. */
-export type ProbeScope = { scope: 'all' | 'subscription' } | { scope: 'exit'; exitId: string }
+/** /probe scopes: every exit, only the rows still 待验证, one exit, or a
+ *  subscription re-pull. */
+export type ProbeScope = { scope: 'all' | 'subscription' | 'unproven' } | { scope: 'exit'; exitId: string }
 
-/** POST /probe. */
-export function probeAction(scope: ProbeScope, options?: PostBridgeOptions): Promise<BridgeReply<unknown>> {
-  return postBridge('/probe', scope, options)
+/** POST /probe. The value is `{queued}` for the counting scopes. */
+export function probeAction<T = unknown>(scope: ProbeScope, options?: PostBridgeOptions): Promise<BridgeReply<T>> {
+  return postBridge<T>('/probe', scope, options)
 }

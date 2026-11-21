@@ -172,6 +172,30 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
   }, [refresh, showNote, t])
 
   /**
+   * 立即验证: probe ONLY the rows the 状态 column calls 待验证 — measured, but
+   * never settled against the lane. The HOST filters them (the same
+   * `needsVerification` rule the table renders with), so this button cannot
+   * drift from what it claims to fix; an already-proven row is skipped rather
+   * than re-probing on that exit's own quota.
+   */
+  const verifyUnproven = useCallback(async (): Promise<void> => {
+    setBusy('verify-unproven')
+    setNote(null)
+    try {
+      const reply = await probeAction<{ queued?: number }>({ scope: 'unproven' })
+      if (!reply.ok) {
+        showNote(bridgeErrorText(reply, t('statsActionFailed')), true)
+      } else {
+        const queued = reply.value?.queued ?? 0
+        showNote(queued > 0 ? t('statsVerifiedQueued', { count: String(queued) }) : t('statsVerifiedNone'), false)
+      }
+    } finally {
+      setBusy('')
+      await refresh()
+    }
+  }, [refresh, showNote, t])
+
+  /**
    * One row action (固定 / 取消固定 / 轮换) over the bridge, which owns the
    * listener check, the settings write and the live pin. The toast reports what
    * actually happened, including the host's refusal text (e.g. an unreachable
@@ -450,6 +474,22 @@ export function ExitStatsEntry({ wide, t }: ExitStatsEntryProps) {
               onClick={() => { void refreshSubscriptions() }}
             >
               {t('subscriptionRefreshNow')}
+            </Button>
+          )}
+          {/* 立即验证 sits beside the refresh because both are pool-wide actions
+              on the rows this table shows; it costs one probe per 待验证 row
+              and nothing for the rest. */}
+          {rows.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={styles.statsSummaryAction}
+              data-testid="stats-verify-unproven"
+              disabled={busy !== '' || poolOff}
+              title={t('statsVerifiedHint')}
+              onClick={() => { void verifyUnproven() }}
+            >
+              {t('verifyUnprovenNow')}
             </Button>
           )}
         </div>

@@ -4,7 +4,7 @@
  * A fresh pool starts every row at "nothing proven", which re-burns cooldowns
  * and bans the lane just handed out. The store keeps only facts that carry
  * their own clock, and an expired liveness claim falls back to `unknown` while
- * the measured facts stay (the card's 已测速·未验证).
+ * the measured facts stay (the card's 待验证).
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -155,7 +155,7 @@ test('expired claims fall back to unknown, expired deadlines disappear', () => {
 
   assert.equal(rows.get('proven')!.state, 'ok', 'a recent proof is a hint the pool can use')
   assert.equal(rows.get('provenOld')!.state, 'unknown', 'an old proof is not a liveness claim any more')
-  assert.equal(rows.get('provenOld')!.facts?.exitIP, '203.0.113.1', 'the measurement still shows (已测速·未验证)')
+  assert.equal(rows.get('provenOld')!.facts?.exitIP, '203.0.113.1', 'the measurement still shows (待验证)')
   assert.equal(rows.get('dead')!.state, 'dead')
   assert.equal(rows.get('deadOld')!.state, 'unknown', 'an old strike gets the row a fresh chance')
   assert.equal(rows.get('proven')!.cooldownUntil, 0, 'a past cooldown is dropped')

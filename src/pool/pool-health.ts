@@ -10,7 +10,7 @@
  *  - cooldowns and bans are absolute deadlines; a past one is dropped;
  *  - "ok" and "dead" are LIVENESS claims with a short life (a row proven alive
  *    ten minutes ago is a hint, not a fact), and an expired claim falls back to
- *    `unknown` while the measured facts stay — the card then says 已测速·未验证,
+ *    `unknown` while the measured facts stay — the card then says 待验证,
  *    the same distinction the pool already draws for a row it cannot vouch for;
  *  - measurement facts (exit IP / location / latency / grade) and the passive
  *    counters are diagnostics and keep their longer TTL.
