@@ -31,6 +31,7 @@ import { createRotateDelegate, setRotateDelegate } from './pool/rotate.ts'
 import { pickSmokeContent } from './pool/smoke-content.ts'
 import { stateDir } from './paths.ts'
 import { closeLease, offerSlot, takeSlot, SLOT_GRACE_MS, type SlotLease } from './pool/slot-lease.ts'
+import { offerRows, takeRows } from './pool/rows-lease.ts'
 import { loadPoolHealth, restorePoolHealth, startPoolHealthWriter } from './pool/pool-health.ts'
 
 /** Data dir shared with the catalog cache (config.ts convention). */
@@ -245,6 +246,14 @@ export interface IpPoolAssemblyDeps {
    */
   slotLease?: boolean
   /**
+   * Whether this runtime joins the exit-table handoff (pool/rows-lease.ts): it
+   * claims the previous generation's admitted rows on start and offers its own
+   * on dispose. Defaults to the production assembly — a test that injects its
+   * own installer gets an isolated pool unless it opts in, so one test's
+   * dispose cannot hand its table to the next test's assembly.
+   */
+  rowsLease?: boolean
+  /**
    * Whether the pool keeps what it learned on disk (pool/pool-health.ts):
    * cooldowns, bans, counters and measured facts are restored on the next
    * start, so a reload or a host restart does not re-burn exits this machine
@@ -271,6 +280,26 @@ export async function startIpPool(
 ): Promise<IpPoolRuntime | null> {
   const ipPool = config.ipPool ?? {}
   const pool = buildPoolFromConfig(config)
+
+  /**
+   * The table the previous generation offered on dispose (pool/rows-lease.ts).
+   * Another plugin's install recomposes the profile and this generation starts
+   * from CONFIG, which carries the manual rows and nothing else — the admitted
+   * subscription rows would vanish from the table until the next subscription
+   * round re-admits them (and the panel would read "no exits" for that whole
+   * window while sing-box still listens on every port). Claimed BEFORE the
+   * health store seeds, so each row returns with the verdicts it had; the
+   * dispatch guard still refuses any row whose listener is gone.
+   */
+  const rowsLease = deps.rowsLease ?? deps.makeInstaller === undefined
+  if (rowsLease && config.ipPool?.enabled !== false) {
+    const inherited = takeRows(dataDir())
+    if (inherited !== null) {
+      let kept = 0
+      for (const row of inherited) if (pool.add(row)) kept += 1
+      if (kept > 0) logger.info(`oc2dsh: pool kept ${kept} exit(s) across the plugin reload`)
+    }
+  }
 
   /**
    * Carried-over health (pool/pool-health.ts): a reload or a restart must not
@@ -758,6 +787,28 @@ export async function startIpPool(
       // (the adapter then sends direct, which the lane answers 429 — the same
       // surface as a profile with no pool at all).
       setRelayEgressSeams(null)
+      // Offer the TABLE with the child: the next generation rebuilds its exit
+      // table from config, so without this a reload empties the panel and
+      // leaves pick() with the manual rows only, for as long as the next
+      // subscription round takes. Only rows whose listeners this generation
+      // still holds are offered — a dead child means those rows describe
+      // nothing (pool/rows-lease.ts).
+      if (rowsLease && config.ipPool?.enabled !== false && (supervisor === undefined || supervisor.running)) {
+        const rows = pool.list()
+          .filter((row) => row.source === 'subscription')
+          .map((row) => ({
+            id: row.id,
+            protocol: row.protocol,
+            source: row.source,
+            pinned: row.pinned,
+            exitIP: row.exitIP,
+            exitLocation: row.exitLocation,
+            latencyMs: row.latencyMs,
+            quality: row.quality,
+            addedAt: row.addedAt,
+          }))
+        if (rows.length > 0) offerRows(dataDir(), rows)
+      }
       // Offer the sing-box child before the subscription layer stops it: a
       // reload keeps the converted exits bound on their ports instead of
       // dropping every listener for the length of a respawn. A real uninstall
