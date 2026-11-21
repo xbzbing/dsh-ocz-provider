@@ -345,7 +345,7 @@ test('status view: recent 3-min speed rides the bridge for exits, 本机 and the
   // The displayed tok/s is the last-3-minute average; the bridge reads the
   // process tracker's rolling ring — never the lifetime ledger — because the
   // recent window only lives in this process.
-  usageTracker.record('http://10.0.0.1:3128', { outputTokens: 120, durationMs: 400 }) // 300 tok/s
+  usageTracker.record('http://10.0.0.1:3128', { outputTokens: 240, durationMs: 800 }) // 300 tok/s
   usageTracker.record(DIRECT_EXIT_ID, { outputTokens: 20, durationMs: 100 }) // under the floor
   try {
     const view = buildStatusView(fakeRuntime() as never, false, [])
@@ -354,7 +354,7 @@ test('status view: recent 3-min speed rides the bridge for exits, 本机 and the
     // 本机 merges direct+local: 20 windowed tokens is under the display
     // floor, so the row hides its speed instead of showing noise.
     assert.equal(view.local.speed, 0)
-    assert.equal(view.recentSpeed, 280, 'pool-wide = every timed bucket in the window (140 tok / 500 ms)')
+    assert.equal(view.recentSpeed, 289, 'pool-wide = every timed bucket in the window (260 tok / 900 ms)')
   } finally {
     usageTracker.reset()
   }
@@ -367,7 +367,7 @@ test('status view: recent 3-min speed rides the bridge for exits, 本机 and the
 test('usage view: the recent speed comes from the process ring in every scope', () => {
   const store = ledger()
   store.record('a:1', { inputTokens: 10, outputTokens: 10 }, { session: 'ses_1', label: 'x' })
-  store.record('a:1', { outputTokens: 100, durationMs: 500 }) // 200 tok/s
+  store.record('a:1', { outputTokens: 240, durationMs: 1_200 }) // 200 tok/s
   const total = buildUsageView(store, 'total', {})
   const run = buildUsageView(store, 'run', {})
   assert.equal(total!.recentSpeed, 200, 'the chip is a live gauge, same number under 总览')

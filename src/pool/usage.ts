@@ -42,10 +42,12 @@ export const RECENT_WINDOW_MS = 180_000
 
 /**
  * Display floor: a window carrying fewer output tokens than this reads 0 and
- * the UI hides the chip. Without it, a window holding one half-second blip
- * shows a confident number made of noise (the free lane's traffic is bursty).
+ * the UI hides the chip. It has to sit above one title-generation/two-line
+ * reply: those carry a decode window so short that the ratio is a delivery
+ * artifact (a whole short body landing in one read reads 10k+ tok/s), so the
+ * number is shown only once the window holds a response worth measuring.
  */
-export const RECENT_MIN_TOKENS = 50
+export const RECENT_MIN_TOKENS = 200
 
 /** One timed response inside the recent window. */
 interface RecentSample {
