@@ -267,7 +267,7 @@ test('the bridge wires the modal 固定 button into the plugin\'s own settings n
   resetCalls()
   const mutations: Array<{ ns: string; ops: unknown }> = []
   const pinCalls: string[] = []
-  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }> = []
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown, peer?: unknown) => Promise<void> }> = []
   const host = makeVolatileHost({ enabled: true })
   const runtimeAssemble: AssembleIpPool = async () => ({
     pool: {
@@ -370,7 +370,7 @@ test('the bridge wires the 清空 button to the same ledger the adapter writes',
   const store = new UsageStore({ path: usagePath, flushMs: 0 })
   store.record('local', { inputTokens: 9, outputTokens: 4 }, { session: 'ses_hi', label: 'hi' })
   await store.flush()
-  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }> = []
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown, peer?: unknown) => Promise<void> }> = []
   const host = makeVolatileHost({ enabled: false })
   const ctx: PluginContext = {
     logger: { info() {}, warn() {}, error() {} },
@@ -415,7 +415,7 @@ test('the bridge wires the 清空 button to the same ledger the adapter writes',
 
 test('bridge routes answer with the host connection fence, and 403 without it', async () => {
   resetCalls()
-  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown) => Promise<void> }> = []
+  const routes: Array<{ kind: string; path: string; handler: (req: unknown, res: unknown, peer?: unknown) => Promise<void> }> = []
   const host = makeVolatileHost({ enabled: false })
   let deliverConnection: ((service: unknown) => void) | undefined
   const logger = { info() {}, warn() {}, error() {} }
@@ -433,15 +433,20 @@ test('bridge routes answer with the host connection fence, and 403 without it', 
   await tick(10)
   const status = routes.find((route) => route.path === `${IP_POOL_BRIDGE_PREFIX}/status`)!
   assert.ok(deliverConnection, 'the connection service is requested')
-  const call = async (): Promise<{ status?: number; body?: unknown }> => {
+  const call = async (peer?: unknown): Promise<{ status?: number; body?: unknown }> => {
     const written: { status?: number; body?: unknown } = {}
     await status.handler(
       { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } },
       { writeHead(code: number) { written.status = code }, end(body: string) { written.body = JSON.parse(body) } },
+      peer,
     )
     return written
   }
   assert.equal((await call()).status, 403, 'no connection service yet: fail closed')
+  // The 0.2.3 webserver authenticates the route itself and hands the admitted
+  // peer to the handler: that peer is the proof, no fence is consulted.
+  assert.equal((await call({})).status, 200, 'the host-admitted peer is the proof')
+  assert.equal((await call(undefined)).status, 403, 'without a peer and without a fence the request is refused')
   const seen: unknown[] = []
   deliverConnection!({ requestRejection: (req: unknown) => { seen.push(req); return 401 } })
   const refused = await call()
@@ -450,4 +455,22 @@ test('bridge routes answer with the host connection fence, and 403 without it', 
   assert.equal(seen.length, 1, 'the fence saw the raw request')
   deliverConnection!(admitAll)
   assert.equal((await call()).status, 200, 'an authenticated request reaches the handler')
+
+  // 0.2.3 dropped `requestRejection` from the connection service; a fence that
+  // only answers `admit` must still authenticate the caller.
+  const admitted: unknown[] = []
+  deliverConnection!({
+    admit: (request: unknown) => { admitted.push(request); return { peer: {} } },
+  })
+  assert.equal((await call()).status, 200, 'the admit-only fence admits the cookie holder')
+  assert.equal(admitted.length, 1, 'the current fence was asked')
+  assert.deepEqual(
+    (admitted[0] as { transport?: string }).transport,
+    'http',
+    'admit() gets the host request shape, not the raw node request',
+  )
+  deliverConnection!({ admit: () => ({ rejection: 401 }) })
+  assert.equal((await call()).status, 401, 'the admit-only fence can refuse with 401')
+  deliverConnection!({ admit: () => undefined })
+  assert.equal((await call()).status, 403, 'an empty verdict fails closed')
 })

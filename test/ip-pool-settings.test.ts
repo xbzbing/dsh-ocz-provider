@@ -670,12 +670,12 @@ test('guard-rejected requests get 403 and never reach the handler', async () => 
 test('routes fail closed without the host connection service and honour its verdict', async () => {
   const handlers = makeBridgeHandlers(() => null, () => ({ pinnedStrict: false, proxyHosts: [] }))
   const request = { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } }
-  const run = async (routes: unknown[], req: unknown = request): Promise<{ status?: number; body?: unknown }> => {
+  const run = async (routes: unknown[], req: unknown = request, peer?: unknown): Promise<{ status?: number; body?: unknown }> => {
     const written: { status?: number; body?: unknown } = {}
-    await (routes[0] as { handler: (req: unknown, res: unknown) => Promise<void> }).handler(req, {
+    await (routes[0] as { handler: (req: unknown, res: unknown, peer?: unknown) => Promise<void> }).handler(req, {
       writeHead(status: number) { written.status = status },
       end(body: string) { written.body = JSON.parse(body) },
-    })
+    }, peer)
     return written
   }
   assert.equal((await run(makeBridgeRoutes(handlers))).status, 403, 'no connection reader')
@@ -690,6 +690,27 @@ test('routes fail closed without the host connection service and honour its verd
   // The loopback fence still applies on top of an admitting service.
   assert.equal((await run(admitted, { ...request, socket: { remoteAddress: '10.0.0.2' } })).status, 403)
   assert.equal((await run(admitted, { ...request, headers: { host: '127.0.0.1:3080', origin: 'http://evil.com' } })).status, 403)
+
+  // 0.2.3 host: the webserver authenticated the exact route and hands the
+  // admitted peer to the handler. That peer is the proof on its own.
+  assert.equal((await run(makeBridgeRoutes(handlers), request, {})).status, 200, 'the admitted peer alone admits')
+  assert.equal(
+    (await run(makeBridgeRoutes(handlers), { ...request, socket: { remoteAddress: '10.0.0.2' } }, {})).status,
+    403,
+    'the loopback fence still runs first',
+  )
+
+  // 0.2.3 connection service: `admit` replaced the removed `requestRejection`.
+  const asked: unknown[] = []
+  const admitFence = makeBridgeRoutes(handlers, {
+    connection: () => ({ admit: (auth) => { asked.push(auth); return { peer: {} } } }),
+  })
+  assert.equal((await run(admitFence)).status, 200, 'an admit-only fence admits the cookie holder')
+  assert.equal((asked[0] as { transport?: string }).transport, 'http', 'admit() sees the host request shape')
+  const refusedByAdmit = makeBridgeRoutes(handlers, { connection: () => ({ admit: () => ({ rejection: 401 }) }) })
+  assert.equal((await run(refusedByAdmit)).status, 401, 'an admit verdict maps to its status')
+  const emptyAdmit = makeBridgeRoutes(handlers, { connection: () => ({ admit: () => undefined }) })
+  assert.equal((await run(emptyAdmit)).status, 403, 'an empty admit verdict fails closed')
 })
 
 test('a handler that throws answers a JSON 500 envelope', async () => {

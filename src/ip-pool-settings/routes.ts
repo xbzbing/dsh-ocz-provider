@@ -14,7 +14,7 @@ export const IP_POOL_BRIDGE_PREFIX = '/api/oc2dsh/ip-pool'
 /** Cap on JSON request bodies (a probe trigger is tiny). */
 const MAX_JSON_BODY_BYTES = 16 * 1024
 
-type Req = { method?: string } & Parameters<typeof isTrustedBridgeRequest>[0]
+type Req = { method?: string; url?: unknown } & Parameters<typeof isTrustedBridgeRequest>[0]
 type Res = {
   writeHead(status: number, headers: Record<string, string>): void
   end(body: string): void
@@ -50,7 +50,11 @@ async function readJsonBody(req: AsyncIterable<Buffer>): Promise<unknown> {
 export interface BridgeRoute {
   kind: 'exact'
   path: string
-  handler: (req: never, res: never) => void | Promise<void>
+  /**
+   * The host passes the admitted `peer` as the third argument (0.2.3+); its
+   * presence is the host's own authentication verdict for this exact route.
+   */
+  handler: (req: never, res: never, peer?: unknown) => void | Promise<void>
 }
 
 /** Build the guarded routes. The route bodies are host-shaped (node:http req/res). */
@@ -63,10 +67,10 @@ export function makeBridgeRoutes(
     guard?: (req: unknown) => boolean
   } = {},
 ): BridgeRoute[] {
-  const rejection = (req: Req): number | undefined =>
-    deps.guard !== undefined ? (deps.guard(req) ? undefined : 403) : bridgeRejection(req, deps.connection)
-  const admit = (req: Req, res: Res): boolean => {
-    const status = rejection(req)
+  const rejection = (req: Req, hostAdmitted: boolean): number | undefined =>
+    deps.guard !== undefined ? (deps.guard(req) ? undefined : 403) : bridgeRejection(req, deps.connection, hostAdmitted)
+  const admit = (req: Req, res: Res, hostAdmitted: boolean): boolean => {
+    const status = rejection(req, hostAdmitted)
     if (status !== undefined) {
       writeJson(res, status, { error: status === 401 ? 'unauthorized' : 'forbidden' })
       return false
@@ -81,11 +85,11 @@ export function makeBridgeRoutes(
   const route = (path: string, run: (req: Req, res: Res) => Promise<void>): BridgeRoute => ({
     kind: 'exact',
     path,
-    handler: async (req, res) => {
+    handler: async (req, res, peer) => {
       const rawReq = req as unknown as Req
       const rawRes = res as unknown as Res
       try {
-        if (!admit(rawReq, rawRes)) return
+        if (!admit(rawReq, rawRes, peer !== undefined)) return
         await run(rawReq, rawRes)
       } catch (err) {
         if (rawRes.headersSent === true) return

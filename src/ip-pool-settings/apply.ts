@@ -226,12 +226,14 @@ export function applyIpPoolSettings(
    * The host's `connection` service authenticates bridge callers (guard.ts):
    * read at request time, so the routes can mount before it composes, and a
    * request that arrives while it is absent is refused (403), never admitted.
+   * `admit` is the current fence; `requestRejection` is the ≤ 0.2.2-rc.5 one.
    */
   let connection: ConnectionFence | undefined
   if (typeof ctx.inject === 'function') {
     void Promise.resolve(ctx.inject(['connection'], (cctx: PluginContext) => {
       const service = Reflect.get(cctx, 'connection') as ConnectionFence | undefined
-      if (service === undefined || typeof service.requestRejection !== 'function') return
+      if (service === undefined) return
+      if (typeof service.requestRejection !== 'function' && typeof service.admit !== 'function') return
       connection = service
       const maybeEffect = (cctx as { effect?: PluginContext['effect'] }).effect
       if (typeof maybeEffect === 'function') {

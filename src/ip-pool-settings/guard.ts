@@ -1,18 +1,34 @@
 /**
- * Who may call the bridge. Two fences, both required:
+ * Who may call the bridge. Two fences, in order:
  *   1. this module's own: loopback socket + canonical loopback Host header +
  *      same-origin browser request;
- *   2. the host's `connection` service (`requestRejection`): its Host/Origin
- *      fence plus the browser login cookie. The host webserver matches exact
- *      routes before its `/api` prefix route, so the cookie check that guards
- *      `/api` never runs for these paths unless the bridge asks for it.
- * No `connection` service = no way to authenticate the caller = 403.
+ *   2. the host: from 0.2.3 the webserver authenticates an exact route before
+ *      dispatch (default `required` policy through `webserver/authorize`) and
+ *      hands the admitted `peer` to the handler — that peer is the proof, so
+ *      the route needs no second call. Hosts that predate it expose the
+ *      authentication on the `connection` service instead: `admit(request)`
+ *      (current, cookie → peer or a 401/403 rejection) or the removed
+ *      `requestRejection(request)` (≤ 0.2.2-rc.5, same decision as a status).
+ *      The two are called in that order so an old host keeps its exact former
+ *      behaviour. No fence and no peer = no way to authenticate = 403.
  */
 
-/** The slice of the host `connection` service the bridge uses. */
+/** The host request facts a fence reads (the cookie and Host are in `headers`). */
+export interface BridgeAuthRequest {
+  headers: Record<string, string | string[] | undefined>
+  method?: string
+  url?: URL
+  transport?: 'http' | 'upgrade'
+}
+
+/** The slice of the host `connection` service the bridge authenticates with. */
 export interface ConnectionFence {
-  /** undefined = admitted; otherwise the HTTP status to answer (401/403). */
-  requestRejection(request: unknown): number | undefined
+  /**
+   * Legacy (≤ 0.2.2-rc.5) decision: undefined = admitted, else the HTTP status.
+   */
+  requestRejection?(request: unknown): number | undefined
+  /** Current decision: a rejection status, or the admitted peer. */
+  admit?(request: BridgeAuthRequest): { rejection?: number; peer?: unknown } | undefined
 }
 
 /** Reads the host `connection` service at request time (undefined = absent). */
@@ -84,18 +100,49 @@ export function isTrustedBridgeRequest(request: {
  * absent or throws.
  */
 export function bridgeRejection(
-  request: Parameters<typeof isTrustedBridgeRequest>[0],
+  request: Parameters<typeof isTrustedBridgeRequest>[0] & { method?: string; url?: unknown },
   connection: ConnectionReader | undefined,
+  hostAdmitted?: boolean,
 ): 401 | 403 | undefined {
   if (!isTrustedBridgeRequest(request)) return 403
+  // The 0.2.3 host authenticated this exact route before dispatch and handed
+  // its peer to the handler; there is nothing left to ask.
+  if (hostAdmitted === true) return undefined
   const fence = connection?.()
-  if (fence === undefined || typeof fence.requestRejection !== 'function') return 403
-  let rejection: number | undefined
+  if (fence === undefined) return 403
   try {
-    rejection = fence.requestRejection(request)
+    if (typeof fence.requestRejection === 'function') return asStatus(fence.requestRejection(request))
+    if (typeof fence.admit === 'function') {
+      const admission = fence.admit(toAuthRequest(request))
+      return admission === undefined ? 403 : asStatus(admission.rejection)
+    }
   } catch {
     return 403
   }
+  return 403
+}
+
+/** Normalize a host verdict (undefined = admitted) to the status to answer. */
+function asStatus(rejection: number | undefined): 401 | 403 | undefined {
   if (rejection === undefined) return undefined
   return rejection === 401 ? 401 : 403
+}
+
+/** The request shape `admit()` reads: headers plus the URL its Host came from. */
+function toAuthRequest(request: { headers: Record<string, string | string[] | undefined>; method?: string; url?: unknown }): BridgeAuthRequest {
+  const host = request.headers.host
+  let url: URL | undefined
+  if (typeof request.url === 'string') {
+    try {
+      url = new URL(request.url, `http://${typeof host === 'string' ? host : 'localhost'}`)
+    } catch {
+      url = undefined
+    }
+  }
+  return {
+    headers: request.headers,
+    ...(request.method === undefined ? {} : { method: request.method }),
+    ...(url === undefined ? {} : { url }),
+    transport: 'http',
+  }
 }

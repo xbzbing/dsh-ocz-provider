@@ -48,12 +48,15 @@ const manifest = {
   rev: 'smoke', plugins: [],
   modules: declarations.map((row) => ({ ...row, rev: 'smoke', url: row.id, initialUrl: row.id, inject: row.inject ?? [], external: row.external ?? [] })),
 }
+// 0.2.3 hosts take `staticModules` as bundle registrations ({id, factory}); the
+// 0.2.2 shape was a bare id→exports map.
 const modules = new modulesExports.ClientModuleSystem({
   manifest, registrationTarget: target, bootstrapModule: { id: '@deepseek-ai/dsh-client-modules', exports: modulesExports },
-  staticModules: {
-    react: pluginRequire('react'), 'react/jsx-runtime': pluginRequire('react/jsx-runtime'),
-    [ui]: { IconChevronDownOutline14: () => null },
-  },
+  staticModules: [
+    { id: 'react', factory: () => pluginRequire('react') },
+    { id: 'react/jsx-runtime', factory: () => pluginRequire('react/jsx-runtime') },
+    { id: ui, factory: () => ({ IconChevronDownOutline14: () => null }) },
+  ],
   loadBundle: async (id) => {
     if (id === pkg.name) runInNewContext(bundle, { window: { __ModuleLoader__: target }, console })
     else target.load({ id, factory: () => ({}) })
@@ -208,14 +211,16 @@ const bridgeRoutes = new Map()
 poolContext.reflect.provide('webServer', { register: (route) => { bridgeRoutes.set(route.path, route); return () => bridgeRoutes.delete(route.path) } })
 let fenceVerdict = 401
 // /models: the fake runtime below has no pool, and /status would read it.
-const callStatus = async () => {
+const callStatusOn = async (routes, peer) => {
   const written = {}
-  await bridgeRoutes.get('/api/oc2dsh/ip-pool/models').handler(
+  await routes.get('/api/oc2dsh/ip-pool/models').handler(
     { method: 'POST', socket: { remoteAddress: '127.0.0.1' }, headers: { host: '127.0.0.1:3080' } },
     { writeHead(status) { written.status = status }, end() {} },
+    peer,
   )
   return written.status
 }
+const callStatus = (peer) => callStatusOn(bridgeRoutes, peer)
 const logs = { info() {}, warn() {}, error() {} }
 let disposed = false
 let starts = 0
@@ -240,7 +245,28 @@ assert.equal(await callStatus(), 401, 'an unauthenticated request gets the conne
 fenceVerdict = undefined
 assert.equal(await callStatus(), 200, 'an authenticated loopback request is served')
 await poolContext.fiber.dispose()
+
+// 0.2.3 removed `requestRejection`: the same admission is `admit()`, and the
+// webserver authenticates the route itself and hands the admitted peer to the
+// handler. A fence shape this build cannot read used to turn every bridge tab
+// into a 403 (the 0.2.3-alpha.2 regression), so both are part of the gate.
+const modernContext = new Context()
+const modernRoutes = new Map()
+modernContext.reflect.provide('webServer', { register: (route) => { modernRoutes.set(route.path, route); return () => modernRoutes.delete(route.path) } })
+let admitVerdict = { peer: {} }
+modernContext.reflect.provide('connection', { admit: () => admitVerdict })
+const modernController = applyPool(modernContext, {}, () => createVolatile({ enabled: false }).get(), logs, { assemble: async () => ({ reconfigure: async () => {}, dispose: async () => {} }) })
+await new Promise((done) => setImmediate(done))
+await new Promise((done) => setTimeout(done, 20))
+assert.ok(modernRoutes.has('/api/oc2dsh/ip-pool/models'), 'the bridge mounts on a 0.2.3-style host')
+assert.equal(await callStatusOn(modernRoutes), 200, 'an admit-only connection service still admits')
+admitVerdict = { rejection: 401 }
+assert.equal(await callStatusOn(modernRoutes), 401, 'an admit rejection maps to its status')
+admitVerdict = { rejection: 401 }
+assert.equal(await callStatusOn(modernRoutes, {}), 200, 'a host-admitted peer admits without consulting the fence')
+await modernContext.fiber.dispose()
+void modernController
 assert.equal(disposed, true)
 await ctx.fiber.dispose()
 assert.equal(core.entriesOfSlot('plugins.bundle.config').length, 0)
-console.log(JSON.stringify({ host: JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')).version, client: 'ACTIVE (also without optional forms)', slots: slotsSource, bridge: 'fails closed without connection; honours its verdict', server: 'ACTIVE', oldClient: 'PENDING (missing settingsScope)', rowSettings: 'registered and disposed', legacyListSettings: 'registered and disposed using 0.1.7 SlotCore', adapter: 'registered', livePool: 'applied and disposed' }, null, 2))
+console.log(JSON.stringify({ host: JSON.parse(readFileSync(join(host, 'package.json'), 'utf8')).version, client: 'ACTIVE (also without optional forms)', slots: slotsSource, bridge: 'fails closed without connection; honours requestRejection, admit and a host-admitted peer', server: 'ACTIVE', oldClient: 'PENDING (missing settingsScope)', rowSettings: 'registered and disposed', legacyListSettings: 'registered and disposed using 0.1.7 SlotCore', adapter: 'registered', livePool: 'applied and disposed' }, null, 2))
