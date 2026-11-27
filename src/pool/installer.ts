@@ -203,6 +203,11 @@ export class RoutingInstaller {
       return { kind: 'free' }
     }
     if (current === null || current === undefined) return { kind: 'free' }
+    // A closed layer serves nothing: deferring to it turns one plugin reload
+    // into a process-wide outage, because every fetch in the slot then fails
+    // with that layer's own error until the host restarts. The slot is free.
+    const state = current as { closed?: boolean; destroyed?: boolean }
+    if (state.closed === true || state.destroyed === true) return { kind: 'free' }
     const foreign = current as { constructor?: { name?: string }; chainTo?: unknown }
     const name = foreign.constructor?.name ?? ''
     // undici's own defaults, plain-object stand-ins (tests, hosts that never

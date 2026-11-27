@@ -261,6 +261,31 @@ test('a foreign dispatcher defers instead of short-circuiting it', () => {
   assert.equal(undici.peek(), foreign, 'the foreign layer stays untouched')
 })
 
+test('a closed dispatcher left in the slot is replaced, not deferred to', () => {
+  const undici = makeUndiciStub()
+  // What a composer's handback() puts back after a reload: the layer it was
+  // installed on, already closed by its own plugin's teardown.
+  class LeftoverLayer {
+    closed = true
+    dispatch() {
+      return true
+    }
+  }
+  const corpse = new LeftoverLayer()
+  undici.setGlobalDispatcher(corpse)
+
+  const installer = makeInstaller(undici)
+  installer.install()
+
+  assert.equal(installer.enabled, true, 'a closed layer routes nothing, so the slot is free')
+  assert.equal(installer.deferredReason, null)
+  assert.notEqual(undici.peek(), corpse, 'installing must replace the dead layer')
+  assert.ok(undici.peek() instanceof PoolRoutingDispatcher)
+
+  installer.disable()
+  assert.notEqual(undici.peek(), corpse, 'the dead layer is never put back')
+})
+
 test('the plugin fetch is saved and restored alongside the dispatcher', () => {
   const undici = makeUndiciStub()
   const builtinFetch = globalThis.fetch
